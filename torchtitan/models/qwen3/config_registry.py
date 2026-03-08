@@ -16,7 +16,7 @@ from torchtitan.config import (
 from torchtitan.hf_datasets.text_datasets import HuggingFaceTextDataLoader
 from torchtitan.trainer import Trainer
 
-from . import model_registry
+from . import build_custom_qwen3_spec, model_registry
 
 
 def qwen3_debugmodel() -> Trainer.Config:
@@ -160,6 +160,58 @@ def qwen3_32b() -> Trainer.Config:
         ),
         activation_checkpoint=ActivationCheckpointConfig(
             mode="full",
+            selective_ac_option="op",
+        ),
+    )
+
+
+def qwen3_custom_gsm8k() -> Trainer.Config:
+    """Qwen3 with user-defined architecture, trained on GSM8K.
+
+    Edit the build_custom_qwen3_spec() call below to customize:
+    - dim: hidden dimension (default 1024, same as 0.6B)
+    - n_layers: number of layers (default 28)
+    - n_heads: attention heads (default 16)
+    - n_kv_heads: KV heads for GQA (default 8)
+    - head_dim: dimension per head (default 128)
+    - ffn_hidden_dim: FFN intermediate size (default 3*dim)
+    """
+    return Trainer.Config(
+        hf_assets_path="./assets/hf/Qwen3-0.6B",
+        metrics=MetricsProcessor.Config(log_freq=1),
+        model_spec=build_custom_qwen3_spec(
+            dim=1024,
+            n_layers=28,
+            n_heads=16,
+            n_kv_heads=8,
+            head_dim=128,
+            ffn_hidden_dim=3072,
+            vocab_size=151936,
+            max_seq_len=2048,
+        ),
+        dataloader=HuggingFaceTextDataLoader.Config(
+            dataset="gsm8k",
+            infinite=True,
+        ),
+        optimizer=OptimizersContainer.Config(lr=3e-4),
+        lr_scheduler=LRSchedulersContainer.Config(
+            warmup_steps=100,
+            decay_ratio=0.1,
+            decay_type="cosine",
+            min_lr_factor=0.1,
+        ),
+        training=TrainingConfig(
+            local_batch_size=4,
+            seq_len=2048,
+            steps=1000,
+        ),
+        checkpoint=CheckpointManager.Config(
+            interval=100,
+            last_save_model_only=False,
+            export_dtype="float16",
+        ),
+        activation_checkpoint=ActivationCheckpointConfig(
+            mode="selective",
             selective_ac_option="op",
         ),
     )

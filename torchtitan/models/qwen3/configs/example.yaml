@@ -1,0 +1,35 @@
+# Qwen3 custom model config - example for GSM8K training
+# Schema: see LLM_CONFIG_INTERFACE.md
+
+model:
+  dim: 1024
+  n_layers: 28
+  n_heads: 16
+  n_kv_heads: 8
+  head_dim: 128
+  ffn_hidden_dim: 3072
+  vocab_size: 151936
+  max_seq_len: 2048
+
+training:
+  local_batch_size: 4
+  seq_len: 2048
+  steps: 1000
+
+dataset: gsm8k
+
+optimizer:
+  lr: 3e-4
+
+lr_scheduler:
+  warmup_steps: 100
+  decay_ratio: 0.1
+  decay_type: cosine
+  min_lr_factor: 0.1
+
+hf_assets_path: ./assets/hf/Qwen3-0.6B
+dump_folder: ./outputs
+
+checkpoint:
+  interval: 100
+  export_dtype: float16

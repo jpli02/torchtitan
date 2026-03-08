@@ -20,7 +20,82 @@ __all__ = [
     "parallelize_qwen3",
     "Qwen3Model",
     "qwen3_configs",
+    "build_custom_qwen3_spec",
 ]
+
+
+def build_custom_qwen3_spec(
+    *,
+    dim: int = 1024,
+    n_layers: int = 28,
+    n_heads: int = 16,
+    n_kv_heads: int = 8,
+    head_dim: int = 128,
+    ffn_hidden_dim: int | None = None,
+    vocab_size: int = 151936,
+    norm_eps: float = 1e-6,
+    max_seq_len: int = 4096,
+    enable_weight_tying: bool = True,
+) -> ModelSpec:
+    """Build a Qwen3 ModelSpec with user-defined architecture hyperparameters.
+
+    Based on Qwen3-0.6B architecture. Use this for custom model sizes and experiments.
+
+    Args:
+        dim: Model dimension (hidden size).
+        n_layers: Number of transformer layers.
+        n_heads: Number of attention heads for queries.
+        n_kv_heads: Number of key/value heads (for grouped-query attention).
+        head_dim: Dimension per attention head.
+        ffn_hidden_dim: FFN intermediate dimension. Defaults to 3*dim if None.
+        vocab_size: Vocabulary size (use 151936 for Qwen tokenizer).
+        norm_eps: Epsilon for RMSNorm.
+        max_seq_len: Maximum sequence length for RoPE.
+        enable_weight_tying: Tie input and output embeddings.
+
+    Returns:
+        ModelSpec ready for training.
+    """
+    if ffn_hidden_dim is None:
+        ffn_hidden_dim = 3 * dim
+
+    model_config = Qwen3Model.Config(
+        vocab_size=vocab_size,
+        dim=dim,
+        n_layers=n_layers,
+        enable_weight_tying=enable_weight_tying,
+        tok_embeddings=Embedding.Config(),
+        layer=Qwen3TransformerBlock.Config(
+            norm_eps=norm_eps,
+            feed_forward=FeedForward.Config(hidden_dim=ffn_hidden_dim),
+            attention=GQAttention.Config(
+                n_heads=n_heads,
+                n_kv_heads=n_kv_heads,
+                head_dim=head_dim,
+                qk_norm=True,
+                norm_eps=norm_eps,
+                attn_backend="sdpa",
+                rope_backend="cos_sin",
+            ),
+        ),
+        rope=RoPE.Config(
+            dim=head_dim,
+            max_seq_len=max_seq_len,
+            theta=1000000.0,
+            backend="cos_sin",
+        ),
+    )
+
+    return ModelSpec(
+        name="qwen3",
+        flavor="custom",
+        model=model_config,
+        parallelize_fn=parallelize_qwen3,
+        pipelining_fn=pipeline_llm,
+        build_loss_fn=build_cross_entropy_loss,
+        post_optimizer_build_fn=None,
+        state_dict_adapter=Qwen3StateDictAdapter,
+    )
 
 # Adding different variants of the model
 
