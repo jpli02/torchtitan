@@ -25,23 +25,31 @@ set -ex
 #    - Useful for debugging distributed training logic locally
 #    Example: NGPU=32 COMM_MODE="local_tensor" ./run_train.sh
 
-NGPU=${NGPU:-"8"}
+NGPU=${NGPU:-"2"}
 export LOG_RANK=${LOG_RANK:-0}
-MODULE=${MODULE:-"llama3"}
-CONFIG=${CONFIG:-"llama3_debugmodel"}
+MODULE=${MODULE:-"ouro"}
+CONFIG=${CONFIG:-"ouro_1_4b"}
 COMM_MODE=${COMM_MODE:-""}
 
 TORCHFT_LIGHTHOUSE=${TORCHFT_LIGHTHOUSE:-"http://localhost:29510"}
 
+# Default parallelism and training args (override via "$@")
+DEFAULT_ARGS=(
+    --parallelism.data_parallel_shard_degree=2
+    --parallelism.tensor_parallel_degree=1
+    --training.local_batch_size=2
+    --training.seq_len=2048
+)
+
 if [ -n "$COMM_MODE" ]; then
     # Communication mode specified: validate configuration or run in debug mode
     echo "Running with comm_mode=${COMM_MODE}"
-    NGPU="${NGPU}" LOCAL_RANK=0 python3 -m torchtitan.train --module ${MODULE} --config ${CONFIG} "$@" --comm.mode=${COMM_MODE} --training.steps 1
+    NGPU="${NGPU}" LOCAL_RANK=0 python3 -m torchtitan.train --module ${MODULE} --config ${CONFIG} "${DEFAULT_ARGS[@]}" "$@" --comm.mode=${COMM_MODE} --training.steps 1
 else
     # Normal training with torchrun
     PYTORCH_ALLOC_CONF="expandable_segments:True" \
     TORCHFT_LIGHTHOUSE=${TORCHFT_LIGHTHOUSE} \
     torchrun --nproc_per_node=${NGPU} --rdzv_backend c10d --rdzv_endpoint="localhost:0" \
     --local-ranks-filter ${LOG_RANK} --role rank --tee 3 \
-    -m torchtitan.train --module ${MODULE} --config ${CONFIG} "$@"
+    -m torchtitan.train --module ${MODULE} --config ${CONFIG} "${DEFAULT_ARGS[@]}" "$@"
 fi
