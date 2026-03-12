@@ -31,6 +31,16 @@ def _process_c4_text(sample: dict[str, Any]) -> str:
     return sample["text"]
 
 
+def _load_gsm8k_dataset(dataset_path: str, split: str = "train"):
+    """Load GSM8K math dataset from HuggingFace."""
+    return load_dataset(dataset_path, name="main", split=split)
+
+
+def _process_gsm8k_text(sample: dict[str, Any]) -> str:
+    """Process GSM8K sample: concatenate question and answer for causal LM."""
+    return f"Question: {sample['question']}\n\nAnswer: {sample['answer']}"
+
+
 # Add your dataset here - more information at docs/datasets.md
 DATASETS = {
     "c4": DatasetConfig(
@@ -47,6 +57,11 @@ DATASETS = {
         path="allenai/c4",
         loader=partial(_load_c4_dataset, split="validation"),
         sample_processor=_process_c4_text,
+    ),
+    "gsm8k": DatasetConfig(
+        path="openai/gsm8k",
+        loader=partial(_load_gsm8k_dataset, split="train"),
+        sample_processor=_process_gsm8k_text,
     ),
 }
 
