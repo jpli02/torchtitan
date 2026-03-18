@@ -63,6 +63,11 @@ DATASETS = {
         loader=partial(_load_gsm8k_dataset, split="train"),
         sample_processor=_process_gsm8k_text,
     ),
+    "gsm8k_validation": DatasetConfig(
+        path="openai/gsm8k",
+        loader=partial(_load_gsm8k_dataset, split="test"),
+        sample_processor=_process_gsm8k_text,
+    ),
 }
 
 

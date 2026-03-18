@@ -4,6 +4,7 @@ from torchtitan.components.checkpoint import CheckpointManager
 from torchtitan.components.lr_scheduler import LRSchedulersContainer
 from torchtitan.components.metrics import MetricsProcessor
 from torchtitan.components.optimizer import OptimizersContainer
+from torchtitan.components.validate import Validator
 from torchtitan.config import (
     ActivationCheckpointConfig,
     ParallelismConfig,
@@ -46,7 +47,7 @@ def ouro_debugmodel() -> Trainer.Config:
 def ouro_1_4b() -> Trainer.Config:
     """ByteDance/Ouro-1.4B from HuggingFace."""
     return Trainer.Config(
-        hf_assets_path="./assets/hf/Ouro-1.4B",  # ByteDance/Ouro-1.4B
+        hf_assets_path="./assets/hf/Ouro-1.4B",
         metrics=MetricsProcessor.Config(log_freq=1),
         model_spec=model_registry("1.4B"),
         dataloader=HuggingFaceTextDataLoader.Config(dataset="gsm8k"),
@@ -55,7 +56,6 @@ def ouro_1_4b() -> Trainer.Config:
         training=TrainingConfig(
             local_batch_size=4,
             seq_len=4096,
-            steps=10,
         ),
         checkpoint=CheckpointManager.Config(
             interval=500,
@@ -65,5 +65,14 @@ def ouro_1_4b() -> Trainer.Config:
         activation_checkpoint=ActivationCheckpointConfig(
             mode="selective",
             selective_ac_option="op",
+        ),
+        validator=Validator.Config(
+            enable=True,
+            freq=500,
+            steps=-1,
+            dataloader=HuggingFaceTextDataLoader.Config(
+                dataset="gsm8k_validation",
+                infinite=False,
+            ),
         ),
     )

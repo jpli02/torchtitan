@@ -102,6 +102,7 @@ class OuroModel(Decoder):
     @dataclass(kw_only=True, slots=True)
     class Config(Decoder.Config):
         total_ut_steps: int = 4
+        early_exit_threshold: float = 1.0  # 1.0 = no early exit; lower = exit earlier
         layer: TransformerBlock.Config
 
         def update_from_config(
@@ -146,6 +147,7 @@ class OuroModel(Decoder):
     def __init__(self, config: Config):
         super().__init__(config)
         self.total_ut_steps = config.total_ut_steps
+        self.early_exit_threshold = config.early_exit_threshold
         self.early_exit_gate = nn.Linear(config.dim, 1, bias=True)
 
     def forward(
@@ -156,7 +158,7 @@ class OuroModel(Decoder):
     ) -> torch.Tensor:
         h = self.tok_embeddings(tokens) if self.tok_embeddings is not None else tokens
 
-        for _ in range(self.total_ut_steps):
+        for step in range(self.total_ut_steps):
             residual = None
             for layer in self.layers.values():
                 h, residual = layer(
@@ -164,6 +166,14 @@ class OuroModel(Decoder):
                 )
 
             h, _ = _rmsnorm_with_residual(h, self.norm, residual)
+
+            # Early exit: gate predicts stop probability; exit when above threshold
+            if step < self.total_ut_steps - 1 and self.early_exit_threshold < 1.0:
+                stop_logit = self.early_exit_gate(h)  # (B, S, 1)
+                # Use last token (causal: has full context) and mean over batch
+                stop_prob = torch.sigmoid(stop_logit[:, -1, :]).mean()
+                if stop_prob > self.early_exit_threshold:
+                    break
 
         output = self.output(h) if self.output is not None else h
         return output
