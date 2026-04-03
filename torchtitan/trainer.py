@@ -676,7 +676,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
                 with self.maybe_enable_amp:
                     pred = model_parts[0](inputs, **extra_inputs, **extra_kwargs)
                     # Compute loss sum (reduction='sum')
-                    loss_sum = self.loss_fn(pred, labels)
+                    loss_sum = self.loss_fn(pred, labels, model=model_parts[0])
 
                     # Scale the loss by the inverse of the total weight denominator before backward
                     # This ensures gradients are properly normalized across all microbatches

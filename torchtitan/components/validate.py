@@ -292,7 +292,9 @@ class Validator(BaseValidator):
                         predictions = model_parts[0](
                             inputs, **extra_inputs, **extra_kwargs
                         )
-                        loss_sum = self.loss_fn(predictions, labels)
+                        loss_sum = self.loss_fn(
+                            predictions, labels, model=model_parts[0]
+                        )
 
             accumulated_losses.append(loss_sum.detach() / global_valid_tokens)
             num_steps += 1

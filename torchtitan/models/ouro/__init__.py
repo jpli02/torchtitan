@@ -2,7 +2,7 @@
 # Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
 # Ouro model - Iterative refinement (Unified Transformer) architecture
 
-from torchtitan.components.loss import build_cross_entropy_loss
+from torchtitan.components.loss import build_ouro_loop_lm_loss
 from torchtitan.distributed.pipeline_parallel import pipeline_llm
 from torchtitan.models.common import Embedding, FeedForward, GQAttention, RMSNorm, RoPE
 from torchtitan.protocols.model_spec import ModelSpec
@@ -51,7 +51,7 @@ ouro_configs = {
         dim=2048,
         n_layers=24,
         total_ut_steps=4,
-        early_exit_threshold=1.0,
+        early_exit_threshold=0.8,
         norm=RMSNorm.Config(eps=1e-6),
         tok_embeddings=Embedding.Config(),
         layer=OuroTransformerBlock.Config(
@@ -83,7 +83,7 @@ def model_registry(flavor: str) -> ModelSpec:
         model=ouro_configs[flavor],
         parallelize_fn=parallelize_ouro,
         pipelining_fn=pipeline_llm,
-        build_loss_fn=build_cross_entropy_loss,
+        build_loss_fn=build_ouro_loop_lm_loss,
         post_optimizer_build_fn=None,
         state_dict_adapter=OuroStateDictAdapter,
     )

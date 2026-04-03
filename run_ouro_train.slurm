@@ -22,6 +22,13 @@ mkdir -p logs
 
 export LOGLEVEL=INFO
 export PYTORCH_ALLOC_CONF=expandable_segments:True
+export TMPDIR=/scratch/bcjw/jli37/tmp
+mkdir -p "$TMPDIR"
+
+# Activate conda env on scratch (avoids installing to quota-limited ~/.local)
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate areal
+
 
 # Optional: uncomment for debugging
 # export NCCL_DEBUG=WARN

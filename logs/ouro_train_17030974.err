@@ -1,0 +1,13 @@
++ NGPU=2
++ export LOG_RANK=0
++ LOG_RANK=0
++ MODULE=ouro
++ CONFIG=ouro_1_4b
++ COMM_MODE=
++ TORCHFT_LIGHTHOUSE=http://localhost:29510
++ DEFAULT_ARGS=(--parallelism.data_parallel_shard_degree=2 --parallelism.tensor_parallel_degree=1 --training.local_batch_size=2 --training.seq_len=2048)
++ '[' -n '' ']'
++ PYTORCH_ALLOC_CONF=expandable_segments:True
++ TORCHFT_LIGHTHOUSE=http://localhost:29510
++ torchrun --nproc_per_node=2 --rdzv_backend c10d --rdzv_endpoint=localhost:0 --local-ranks-filter 0 --role rank --tee 3 -m torchtitan.train --module ouro --config ouro_1_4b --parallelism.data_parallel_shard_degree=2 --parallelism.tensor_parallel_degree=1 --training.local_batch_size=2 --training.seq_len=2048
+./run_train.sh: /scratch/bcjw/jli37/anaconda3/envs/v/bin/torchrun: /scratch/bcjw/jli37/anaconda3/envs/v/bin/python3.10: bad interpreter: No such file or directory

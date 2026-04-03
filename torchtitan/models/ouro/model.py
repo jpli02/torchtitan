@@ -4,31 +4,18 @@
 # Implements looped Transformer with total_ut_steps.
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from torch import nn
+
+from torchtitan.components.loss import IGNORE_INDEX, LoopLMLoss
 
 from torchtitan.models.common.attention import AttentionMasksType, GQAttention
 from torchtitan.models.common.decoder import Decoder, TransformerBlock
 from torchtitan.models.utils import get_dense_model_nparams_and_flops
 from torchtitan.tools.logging import logger
 
-
-def _rmsnorm_with_residual(
-    x: torch.Tensor,
-    norm: nn.Module,
-    residual: torch.Tensor | None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Apply RMSNorm with Pre-norm style.
-    
-    When residual is None: return norm(x), x
-    When residual is not None: return norm(x + residual), x + residual
-    """
-    if residual is not None:
-        x = x + residual
-    output = norm(x)
-    return output, x
 
 
 class OuroTransformerBlock(TransformerBlock):
@@ -65,21 +52,20 @@ class OuroTransformerBlock(TransformerBlock):
         freqs_cis: torch.Tensor,
         attention_masks: AttentionMasksType | None,
         positions: torch.Tensor | None = None,
-        residual: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Pre-attention norm with residual
-        h_norm, residual = _rmsnorm_with_residual(x, self.input_layernorm, residual)
-        h = x + self.attention(h_norm, freqs_cis, attention_masks, positions)
-        h = self.input_layernorm_2(h)
+    ) -> torch.Tensor:
+        residual = x
+        x = self.input_layernorm(x)
+        x = self.attention(x, freqs_cis, attention_masks, positions)
+        x = self.input_layernorm_2(x)
+        x = residual + x
 
-        # Pre-MLP norm with residual
-        h_norm, residual = _rmsnorm_with_residual(
-            h, self.post_attention_layernorm, residual
-        )
-        h = h + self.feed_forward(h_norm)
-        h = self.post_attention_layernorm_2(h)
+        residual = x
+        x = self.post_attention_layernorm(x)
+        x = self.feed_forward(x)
+        x = self.post_attention_layernorm_2(x)
+        x = residual + x
 
-        return h, residual
+        return x
 
     def init_weights(self, **kwargs):
         buffer_device: torch.device | None = kwargs.get("buffer_device")
@@ -104,6 +90,11 @@ class OuroModel(Decoder):
         total_ut_steps: int = 4
         early_exit_threshold: float = 1.0  # 1.0 = no early exit; lower = exit earlier
         layer: TransformerBlock.Config
+        # Loop LM: expected CE + entropy (stage1) or gate-only BCE (stage2). Eval uses plain CE.
+        loop_lm_loss: Literal["none", "stage1", "stage2"] = "none"
+        loop_lm_beta_entropy: float = 0.05
+        loop_lm_gamma_improve: float = 0.005
+        loop_lm_k_improve: float = 50.0
 
         def update_from_config(
             self,
@@ -149,6 +140,24 @@ class OuroModel(Decoder):
         self.total_ut_steps = config.total_ut_steps
         self.early_exit_threshold = config.early_exit_threshold
         self.early_exit_gate = nn.Linear(config.dim, 1, bias=True)
+        self.loop_lm_loss = config.loop_lm_loss
+        if config.loop_lm_loss != "none":
+            self._loop_lm = LoopLMLoss(
+                beta_entropy=config.loop_lm_beta_entropy,
+                gamma_improve=config.loop_lm_gamma_improve,
+                k_improve=config.loop_lm_k_improve,
+                ignore_index=IGNORE_INDEX,
+            )
+        else:
+            self._loop_lm = None
+
+    def early_exit_logits(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        Per-position logits from ``early_exit_gate`` (shape [B, S, 1]).
+        Loop LM treats ``sigmoid(early_exit_logits(h))`` as the instantaneous exit
+        probability λ_t at each recurrent step.
+        """
+        return self.early_exit_gate(h)
 
     def forward(
         self,
@@ -158,22 +167,29 @@ class OuroModel(Decoder):
     ) -> torch.Tensor:
         h = self.tok_embeddings(tokens) if self.tok_embeddings is not None else tokens
 
+        collect_loop_lm = self.training and self.loop_lm_loss != "none"
+        step_logits_list: list[torch.Tensor] = []
+        step_exit_logits_list: list[torch.Tensor] = []
+
         for step in range(self.total_ut_steps):
-            residual = None
             for layer in self.layers.values():
-                h, residual = layer(
-                    h, self.freqs_cis, attention_masks, positions, residual=residual
-                )
+                h = layer(h, self.freqs_cis, attention_masks, positions)
 
-            h, _ = _rmsnorm_with_residual(h, self.norm, residual)
+            h = self.norm(h)
 
-            # Early exit: gate predicts stop probability; exit when above threshold
-            if step < self.total_ut_steps - 1 and self.early_exit_threshold < 1.0:
+            if collect_loop_lm:
+                step_exit_logits_list.append(self.early_exit_gate(h))
+                assert self.output is not None
+                step_logits_list.append(self.output(h))
+            elif step < self.total_ut_steps - 1 and self.early_exit_threshold < 1.0:
                 stop_logit = self.early_exit_gate(h)  # (B, S, 1)
-                # Use last token (causal: has full context) and mean over batch
                 stop_prob = torch.sigmoid(stop_logit[:, -1, :]).mean()
                 if stop_prob > self.early_exit_threshold:
                     break
+
+        if collect_loop_lm:
+            self._ouro_loop_lm_cache = (step_logits_list, step_exit_logits_list)
+            return step_logits_list[-1]
 
         output = self.output(h) if self.output is not None else h
         return output
