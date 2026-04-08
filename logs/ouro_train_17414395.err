@@ -1,0 +1,178 @@
++ NGPU=2
++ export LOG_RANK=0
++ LOG_RANK=0
++ MODULE=ouro
++ CONFIG=ouro_1_4b
++ COMM_MODE=
++ PYTHON=python3
++ TORCHFT_LIGHTHOUSE=http://localhost:29510
++ DEFAULT_ARGS=(--parallelism.data_parallel_shard_degree=2 --parallelism.tensor_parallel_degree=1 --training.local_batch_size=2 --training.seq_len=2048)
++ '[' -n '' ']'
++ PYTORCH_ALLOC_CONF=expandable_segments:True
++ TORCHFT_LIGHTHOUSE=http://localhost:29510
++ python3 -m torch.distributed.run --nproc_per_node=2 --rdzv_backend c10d --rdzv_endpoint=localhost:0 --local-ranks-filter 0 --role rank --tee 3 -m torchtitan.train --module ouro --config ouro_1_4b --parallelism.data_parallel_shard_degree=2 --parallelism.tensor_parallel_degree=1 --training.local_batch_size=2 --training.seq_len=2048
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:131] Using default numa options = None
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224] Starting elastic_operator with launch configs:
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   entrypoint               : torchtitan.train
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   min_nodes                : 1
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   max_nodes                : 1
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   nproc_per_node           : 2
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   run_id                   : none
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   rdzv_backend             : c10d
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   rdzv_endpoint            : localhost:0
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   rdzv_configs             : {'timeout': 900}
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   max_restarts             : 0
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   monitor_interval         : 0.1
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   log_dir                  : /scratch/bcjw/jli37/tmp/torchelastic_h5t8simk
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   metrics_cfg              : {}
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   event_log_handler        : null
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   numa_options             : None
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   signals_to_handle        : SIGTERM,SIGINT,SIGHUP,SIGQUIT
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   duplicate_stdout_filters : []
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224]   duplicate_stderr_filters : []
+I0408 09:37:01.666000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py:224] 
+I0408 09:37:01.691000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:898] [rank] starting workers for entrypoint: python3
+I0408 09:37:01.691000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:693] [rank] Rendezvous'ing worker group
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539] [rank] Rendezvous complete for workers. Result:
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   restart_count=0
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   master_addr=gpua078.delta.ncsa.illinois.edu
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   master_port=44283
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   group_rank=0
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   group_world_size=1
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   local_ranks=[0, 1]
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   role_ranks=[0, 1]
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   global_ranks=[0, 1]
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   role_world_sizes=[2, 2]
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   global_world_sizes=[2, 2]
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539]   event_log_handler=null
+I0408 09:37:01.747000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:539] 
+I0408 09:37:01.748000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py:701] [rank] Starting worker group
+I0408 09:37:01.749000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/local_elastic_agent.py:296] use_agent_store: True
+I0408 09:37:01.749000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/local_elastic_agent.py:192] Environment variable 'TORCHELASTIC_ENABLE_FILE_TIMER' not found. Do not start FileTimerServer.
+I0408 09:37:01.750000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/local_elastic_agent.py:236] Environment variable 'TORCHELASTIC_HEALTH_CHECK_PORT' not found. Do not start health check.
+[rank0]:
+[rank0]:Generating train split:   0%|          | 0/7473 [00:00<?, ? examples/s][rank0]:
+[rank0]:Generating train split:  13%|█▎        | 1000/7473 [00:00<00:01, 4856.67 examples/s]
+[rank0]:Generating train split: 100%|██████████| 7473/7473 [00:00<00:00, 35260.37 examples/s]
+[rank0]:
+[rank0]:Generating test split:   0%|          | 0/1319 [00:00<?, ? examples/s]
+[rank0]:Generating test split: 100%|██████████| 1319/1319 [00:00<00:00, 25927.53 examples/s]
+[rank0]:[rank0]:[E408 09:42:51.425602935 ProcessGroupNCCL.cpp:688] [Rank 0] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3270, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=300000) ran for 300016 milliseconds before timing out.
+[rank0]:[rank0]:[E408 09:42:51.451068757 ProcessGroupNCCL.cpp:2277] [PG ID 0 PG GUID 0(default_pg) Rank 0]  failure detected by watchdog at work sequence id: 3270 PG status: last enqueued work: 3270, last completed work: 3269
+[rank0]:[rank0]:[E408 09:42:51.453410742 ProcessGroupNCCL.cpp:732] Stack trace of the failed collective: 
+[rank0]:#0 barrier from /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py:4969
+[rank0]:#1 wrapper from /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/c10d_logger.py:83
+[rank0]:#2 set_pg_timeouts from /u/jli37/research/torchtitan/torchtitan/distributed/utils.py:386
+[rank0]:#3 train from /u/jli37/research/torchtitan/torchtitan/trainer.py:843
+[rank0]:#4 wrapper from /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py:362
+[rank0]:#5 main from /u/jli37/research/torchtitan/torchtitan/train.py:55
+[rank0]:#6 <module> from /u/jli37/research/torchtitan/torchtitan/train.py:68
+[rank0]:#7 _run_code from <frozen runpy>:88
+[rank0]:#8 _run_module_as_main from <frozen runpy>:198
+[rank0]:
+[rank0]:[rank0]:[E408 09:42:51.453467689 ProcessGroupNCCL.cpp:2610] [PG ID 0 PG GUID 0(default_pg) Rank 0] First PG on this rank to signal dumping.
+[rank0]:[rank0]:[E408 09:42:52.408796131 ProcessGroupNCCL.cpp:1890] [PG ID 0 PG GUID 0(default_pg) Rank 0] Received a dump signal due to a collective timeout from this local rank and we will try our best to dump the debug info. Last enqueued NCCL work: 3270, last completed NCCL work: 3269.This is most likely caused by incorrect usages of collectives, e.g., wrong sizes used across ranks, the order of collectives is not same for all ranks or the scheduled collective, for some reason, didn't run. Additionally, this can be caused by GIL deadlock or other reasons such as network errors or bugs in the communications library (e.g. NCCL), etc. 
+[rank0]:[rank0]:[E408 09:42:52.409725391 ProcessGroupNCCL.cpp:1606] [PG ID 0 PG GUID 0(default_pg) Rank 0] ProcessGroupNCCL preparing to dump debug info. Include stack trace: 1, only active collectives: 0
+[rank0]:[rank0]:[E408 09:43:51.453593053 ProcessGroupNCCL.cpp:749] [Rank 0] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+[rank0]:[rank0]:[E408 09:43:51.453718989 ProcessGroupNCCL.cpp:763] [Rank 0] To avoid data inconsistency, we are taking the entire process down.
+[rank0]:[rank0]:[E408 09:43:51.461661901 ProcessGroupNCCL.cpp:2093] [PG ID 0 PG GUID 0(default_pg) Rank 0] Process group watchdog thread terminated with exception: [Rank 0] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3270, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=300000) ran for 300016 milliseconds before timing out.
+[rank0]:Exception raised from checkTimeout at /pytorch/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:691 (most recent call first):
+[rank0]:frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x9d (0x7fa6f29b6fdd in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libc10.so)
+[rank0]:frame #1: c10d::ProcessGroupNCCL::WorkNCCL::checkTimeout(std::optional<std::chrono::duration<long, std::ratio<1l, 1000l> > >) + 0x26a (0x7fa6f3c28d7a in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+[rank0]:frame #2: c10d::ProcessGroupNCCL::Watchdog::runLoop() + 0x16a1 (0x7fa6f3c2d261 in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+[rank0]:frame #3: c10d::ProcessGroupNCCL::Watchdog::run() + 0x105 (0x7fa6f3c2e5a5 in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+[rank0]:frame #4: <unknown function> + 0xdbad4 (0x7fa7d1430ad4 in /lib64/libstdc++.so.6)
+[rank0]:frame #5: <unknown function> + 0x89c0a (0x7fa81d2f0c0a in /lib64/libc.so.6)
+[rank0]:frame #6: <unknown function> + 0x10ec60 (0x7fa81d375c60 in /lib64/libc.so.6)
+[rank0]:
+[rank0]:terminate called after throwing an instance of 'c10::DistBackendError'
+[rank0]:  what():  [PG ID 0 PG GUID 0(default_pg) Rank 0] Process group watchdog thread terminated with exception: [Rank 0] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=3270, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=300000) ran for 300016 milliseconds before timing out.
+[rank0]:Exception raised from checkTimeout at /pytorch/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:691 (most recent call first):
+[rank0]:frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x9d (0x7fa6f29b6fdd in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libc10.so)
+[rank0]:frame #1: c10d::ProcessGroupNCCL::WorkNCCL::checkTimeout(std::optional<std::chrono::duration<long, std::ratio<1l, 1000l> > >) + 0x26a (0x7fa6f3c28d7a in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+[rank0]:frame #2: c10d::ProcessGroupNCCL::Watchdog::runLoop() + 0x16a1 (0x7fa6f3c2d261 in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+[rank0]:frame #3: c10d::ProcessGroupNCCL::Watchdog::run() + 0x105 (0x7fa6f3c2e5a5 in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+[rank0]:frame #4: <unknown function> + 0xdbad4 (0x7fa7d1430ad4 in /lib64/libstdc++.so.6)
+[rank0]:frame #5: <unknown function> + 0x89c0a (0x7fa81d2f0c0a in /lib64/libc.so.6)
+[rank0]:frame #6: <unknown function> + 0x10ec60 (0x7fa81d375c60 in /lib64/libc.so.6)
+[rank0]:
+[rank0]:Exception raised from run at /pytorch/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2099 (most recent call first):
+[rank0]:frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x9d (0x7fa6f29b6fdd in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libc10.so)
+[rank0]:frame #1: <unknown function> + 0x9bbbc8 (0x7fa6f3494bc8 in /u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+[rank0]:frame #2: <unknown function> + 0xdbad4 (0x7fa7d1430ad4 in /lib64/libstdc++.so.6)
+[rank0]:frame #3: <unknown function> + 0x89c0a (0x7fa81d2f0c0a in /lib64/libc.so.6)
+[rank0]:frame #4: <unknown function> + 0x10ec60 (0x7fa81d375c60 in /lib64/libc.so.6)
+[rank0]:
+[rank0]:Fatal Python error: Aborted
+[rank0]:
+[rank0]:Thread 0x00007fa5baf43640 (most recent call first):
+[rank0]:  <no Python frame>
+[rank0]:
+[rank0]:Thread 0x00007fa624a0d640 (most recent call first):
+[rank0]:  <no Python frame>
+[rank0]:
+[rank0]:Thread 0x00007fa659f28640 (most recent call first):
+[rank0]:  File "/u/jli37/.local/share/uv/python/cpython-3.12.11-linux-x86_64-gnu/lib/python3.12/threading.py", line 359 in wait
+[rank0]:  File "/u/jli37/.local/share/uv/python/cpython-3.12.11-linux-x86_64-gnu/lib/python3.12/threading.py", line 655 in wait
+[rank0]:  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/tqdm/_monitor.py", line 60 in run
+[rank0]:  File "/u/jli37/.local/share/uv/python/cpython-3.12.11-linux-x86_64-gnu/lib/python3.12/threading.py", line 1075 in _bootstrap_inner
+[rank0]:  File "/u/jli37/.local/share/uv/python/cpython-3.12.11-linux-x86_64-gnu/lib/python3.12/threading.py", line 1032 in _bootstrap
+[rank0]:
+[rank0]:Thread 0x00007fa81d264740 (most recent call first):
+[rank0]:  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 4969 in barrier
+[rank0]:  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 83 in wrapper
+[rank0]:  File "/u/jli37/research/torchtitan/torchtitan/distributed/utils.py", line 386 in set_pg_timeouts
+[rank0]:  File "/u/jli37/research/torchtitan/torchtitan/trainer.py", line 843 in train
+[rank0]:  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362 in wrapper
+[rank0]:  File "/u/jli37/research/torchtitan/torchtitan/train.py", line 55 in main
+[rank0]:  File "/u/jli37/research/torchtitan/torchtitan/train.py", line 68 in <module>
+[rank0]:  File "<frozen runpy>", line 88 in _run_code
+[rank0]:  File "<frozen runpy>", line 198 in _run_module_as_main
+[rank0]:
+[rank0]:Extension modules: numpy._core._multiarray_umath, numpy.linalg._umath_linalg, torch._C, torch._C._dynamo.autograd_compiler, torch._C._dynamo.eval_frame, torch._C._dynamo.guards, torch._C._dynamo.utils, torch._C._fft, torch._C._linalg, torch._C._nested, torch._C._nn, torch._C._sparse, torch._C._special, numpy.random._common, numpy.random.bit_generator, numpy.random._bounded_integers, numpy.random._pcg64, numpy.random._generator, numpy.random._mt19937, numpy.random._philox, numpy.random._sfc64, numpy.random.mtrand, google._upb._message, markupsafe._speedups, pyarrow.lib, _cyutility, pandas._libs._cyutility, pandas._libs.tslibs.ccalendar, pandas._libs.tslibs.np_datetime, pandas._libs.tslibs.dtypes, pandas._libs.tslibs.base, pandas._libs.tslibs.nattype, pandas._libs.tslibs.timezones, pandas._libs.properties, pandas._libs.tslibs.fields, pandas._libs.tslibs.timedeltas, pandas._libs.tslibs.tzconversion, pandas._libs.tslibs.timestamps, pandas._libs.tslibs.offsets, pandas._libs.tslibs.strptime, pandas._libs.tslibs.parsing, pandas._libs.tslibs.conversion, pandas._libs.tslibs.period, pandas._libs.tslibs.vectorized, pandas._libs.ops_dispatch, pandas._libs.missing, pandas._libs.hashtable, pandas._libs.algos, pandas._libs.interval, pandas._libs.lib, pyarrow._compute, pandas._libs.ops, pandas._libs.hashing, pandas._libs.arrays, pandas._libs.tslib, pandas._libs.sparse, pandas._libs.internals, pandas._libs.indexing, pandas._libs.index, pandas._libs.writers, pandas._libs.join, pandas._libs.window.aggregations, pandas._libs.window.indexers, pandas._libs.reshape, pandas._libs.groupby, pandas._libs.json, pandas._libs.parsers, pandas._libs.testing, pyarrow._acero, pyarrow._fs, pyarrow._csv, pyarrow._json, pyarrow._substrait, pyarrow._dataset, pyarrow._dataset_orc, pyarrow._parquet, pyarrow._azurefs, pyarrow._hdfs, pyarrow._gcsfs, pyarrow._s3fs, pyarrow._parquet_encryption, pyarrow._dataset_parquet_encryption, pyarrow._dataset_parquet, yaml._yaml, charset_normalizer.md, charset_normalizer.cd, requests.packages.charset_normalizer.md, requests.packages.chardet.md, requests.packages.charset_normalizer.cd, requests.packages.chardet.cd, multidict._multidict, yarl._quoting_c, propcache._helpers_c, aiohttp._http_writer, aiohttp._http_parser, aiohttp._websocket.mask, aiohttp._websocket.reader_c, frozenlist._frozenlist, xxhash._xxhash (total: 99)
+W0408 09:43:52.198000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 1634400 closing signal SIGTERM
+E0408 09:43:52.299000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/api.py:984] failed (exitcode: -6) local_rank: 0 (pid: 1634399) of binary: /u/jli37/research/torchtitan/.venv/bin/python3
+I0408 09:43:52.329000 1634029 .venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py:375] ('local_rank %s FAILED with no error file. Decorate your entrypoint fn with @record for traceback info. See: https://pytorch.org/docs/stable/elastic/errors.html', 0)
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/run.py", line 995, in <module>
+    main()
+  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/run.py", line 991, in main
+    run(args)
+  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/run.py", line 982, in run
+    elastic_launch(
+  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 170, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u/jli37/research/torchtitan/.venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+========================================================
+torchtitan.train FAILED
+--------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-04-08_09:43:52
+  host      : gpua078.delta.ncsa.illinois.edu
+  rank      : 1 (local_rank: 1)
+  exitcode  : -6 (pid: 1634400)
+  error_file: <N/A>
+  traceback : Signal 6 (SIGABRT) received by PID 1634400
+--------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-04-08_09:43:52
+  host      : gpua078.delta.ncsa.illinois.edu
+  rank      : 0 (local_rank: 0)
+  exitcode  : -6 (pid: 1634399)
+  error_file: <N/A>
+  traceback : Signal 6 (SIGABRT) received by PID 1634399
+========================================================

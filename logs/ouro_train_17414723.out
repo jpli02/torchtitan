@@ -1,0 +1,105 @@
+[rank0]:[titan] 2026-04-08 10:03:35,314 - root - INFO - torchtitan version: 0.2.2 (0.0.0 means __version__ is not defined correctly).
+[rank0]:[titan] 2026-04-08 10:03:35,866 - root - WARNING - ENV[TORCH_NCCL_ASYNC_ERROR_HANDLING] = 1 will be overridden to 3 based on job config
+[rank0]:[titan] 2026-04-08 10:03:35,875 - root - INFO - Building device mesh with parallelism: pp=1, dp_replicate=1, dp_shard=2, cp=1, tp=1, ep=1, etp=1
+[rank0]:[titan] 2026-04-08 10:03:35,947 - root - INFO - Successfully created meshes with active dimensions: ['batch', 'loss', 'fsdp', 'efsdp']
+[rank0]:[titan] 2026-04-08 10:03:35,948 - root - INFO - [GC] Initial GC collection took 0.00 seconds
+[rank0]:[titan] 2026-04-08 10:03:36,291 - root - INFO - Loading tokenizer from tokenizer.json
+[rank0]:[titan] 2026-04-08 10:03:36,406 - root - INFO - Preparing c4 dataset from allenai/c4
+[rank0]:[titan] 2026-04-08 10:03:36,529 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/datasets/allenai/c4/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+[rank0]:[titan] 2026-04-08 10:03:36,540 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/datasets/allenai/c4/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/README.md "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:36,731 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/datasets/allenai/c4/resolve/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/c4.py "HTTP/1.1 404 Not Found"
+[rank0]:[titan] 2026-04-08 10:03:36,875 - httpx - INFO - HTTP Request: HEAD https://s3.amazonaws.com/datasets.huggingface.co/datasets/datasets/allenai/c4/allenai/c4.py "HTTP/1.1 404 Not Found"
+[rank0]:[titan] 2026-04-08 10:03:37,047 - httpx - INFO - HTTP Request: GET https://huggingface.co/api/datasets/allenai/c4/revision/1588ec454efa1a09f29cd18ddd04fe05fc8653a2 "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:37,242 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/datasets/allenai/c4/resolve/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/.huggingface.yaml "HTTP/1.1 404 Not Found"
+[rank0]:[titan] 2026-04-08 10:03:37,353 - httpx - INFO - HTTP Request: GET https://datasets-server.huggingface.co/info?dataset=allenai/c4 "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:37,440 - httpx - INFO - HTTP Request: GET https://huggingface.co/api/datasets/allenai/c4/tree/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/en?recursive=true&expand=false "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:37,501 - httpx - INFO - HTTP Request: GET https://huggingface.co/api/datasets/allenai/c4/tree/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/en?expand=false&recursive=true&limit=1000&cursor=ZXlKbWFXeGxYMjVoYldVaU9pSmxiaTlqTkMxMGNtRnBiaTR3TURrNU9TMXZaaTB3TVRBeU5DNXFjMjl1TG1kNklpd2lkSEpsWlY5dmFXUWlPaUprWXprME0yTTBZelF3WmpVelpEQXlZak14WTJWa01XUmxabUUzWlRWbU5ETTRaRFU0TmpKbEluMD06MTAwMA%3D%3D "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:37,544 - httpx - INFO - HTTP Request: GET https://huggingface.co/api/datasets/allenai/c4/tree/1588ec454efa1a09f29cd18ddd04fe05fc8653a2?recursive=false&expand=false "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:37,674 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/datasets/allenai/c4/resolve/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/dataset_infos.json "HTTP/1.1 404 Not Found"
+[rank0]:[titan] 2026-04-08 10:03:38,003 - root - INFO - Building ouro 1.4B with {
+[rank0]:  "dim": 2048,
+[rank0]:  "n_layers": 24,
+[rank0]:  "vocab_size": 49152,
+[rank0]:  "tok_embeddings": {
+[rank0]:    "init_mean": 0.0,
+[rank0]:    "init_std": 1.0
+[rank0]:  },
+[rank0]:  "norm": {
+[rank0]:    "eps": 1e-06,
+[rank0]:    "elementwise_affine": true
+[rank0]:  },
+[rank0]:  "rope": {
+[rank0]:    "dim": 128,
+[rank0]:    "max_seq_len": 2048,
+[rank0]:    "theta": 1000000.0,
+[rank0]:    "backend": "cos_sin",
+[rank0]:    "scaling": "none",
+[rank0]:    "scaling_factor": 8.0,
+[rank0]:    "low_freq_factor": 1.0,
+[rank0]:    "high_freq_factor": 4.0,
+[rank0]:    "original_max_position_embeddings": 8192,
+[rank0]:    "rope_factor": 1.0,
+[rank0]:    "beta_fast": 32.0,
+[rank0]:    "beta_slow": 1.0,
+[rank0]:    "original_seq_len": 4096,
+[rank0]:    "mscale": 0.0
+[rank0]:  },
+[rank0]:  "layer": {
+[rank0]:    "attention": {
+[rank0]:      "n_heads": 16,
+[rank0]:      "attn_backend": "sdpa",
+[rank0]:      "attn_mask_type": "causal",
+[rank0]:      "n_kv_heads": 16,
+[rank0]:      "head_dim": 128,
+[rank0]:      "q_norm": null,
+[rank0]:      "k_norm": null,
+[rank0]:      "bias": false,
+[rank0]:      "use_rope": true,
+[rank0]:      "rope_backend": "cos_sin"
+[rank0]:    },
+[rank0]:    "feed_forward": {
+[rank0]:      "hidden_dim": 5632,
+[rank0]:      "bias": false
+[rank0]:    },
+[rank0]:    "moe": null,
+[rank0]:    "attention_norm": {
+[rank0]:      "eps": 1e-06,
+[rank0]:      "elementwise_affine": true
+[rank0]:    },
+[rank0]:    "ffn_norm": {
+[rank0]:      "eps": 1e-06,
+[rank0]:      "elementwise_affine": true
+[rank0]:    },
+[rank0]:    "depth_init": true
+[rank0]:  },
+[rank0]:  "total_ut_steps": 4
+[rank0]:}
+[rank0]:[titan] 2026-04-08 10:03:38,031 - root - INFO - CUDA capacity: NVIDIA A100-SXM4-40GB with 39.49GiB memory
+[rank0]:[titan] 2026-04-08 10:03:38,160 - root - INFO - [34mModel ouro 1.4B [31msize: 1,434,652,673 total parameters[39m
+[rank0]:[titan] 2026-04-08 10:03:38,161 - root - INFO - Applied selective activation checkpointing to the model
+[rank0]:[titan] 2026-04-08 10:03:38,258 - root - INFO - Applied FSDP to the model
+[rank0]:[titan] 2026-04-08 10:03:38,840 - root - INFO - Peak FLOPS used for computing MFU: 3.120e+14
+[rank0]:[titan] 2026-04-08 10:03:38,841 - root - INFO - CUDA memory usage for model: 2.68GiB(6.79%)
+[rank0]:[titan] 2026-04-08 10:03:38,842 - root - WARNING - model.safetensors.index.json not found at hf_assets_path: ./assets/hf/Ouro-1.4B/model.safetensors.index.json.                     Defaulting to saving a single safetensors file if checkpoint is saved in HF format
+[rank0]:[titan] 2026-04-08 10:03:38,856 - root - INFO - Mixed precision training is handled by fully_shard
+[rank0]:[titan] 2026-04-08 10:03:38,856 - root - INFO - Trainer is initialized with local batch size 2, global batch size 4, gradient accumulation steps 1, sequence length 2048, total steps 10 (warmup 2)
+[rank0]:[titan] 2026-04-08 10:03:38,856 - root - INFO - Training starts at step 1
+[rank0]:[titan] 2026-04-08 10:03:39,103 - httpx - INFO - HTTP Request: GET https://huggingface.co/api/datasets/allenai/c4/revision/1588ec454efa1a09f29cd18ddd04fe05fc8653a2 "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:39,297 - httpx - INFO - HTTP Request: GET https://huggingface.co/api/datasets/allenai/c4/tree/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/en?recursive=false&expand=false "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:39,428 - httpx - INFO - HTTP Request: GET https://huggingface.co/api/datasets/allenai/c4/tree/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/en?expand=false&recursive=false&limit=1000&cursor=ZXlKbWFXeGxYMjVoYldVaU9pSmxiaTlqTkMxMGNtRnBiaTR3TURrNU9TMXZaaTB3TVRBeU5DNXFjMjl1TG1kNklpd2lkSEpsWlY5dmFXUWlPaUprWXprME0yTTBZelF3WmpVelpEQXlZak14WTJWa01XUmxabUUzWlRWbU5ETTRaRFU0TmpKbEluMD06MTAwMA%3D%3D "HTTP/1.1 200 OK"
+[rank0]:[titan] 2026-04-08 10:03:39,479 - httpx - INFO - HTTP Request: GET https://huggingface.co/datasets/allenai/c4/resolve/1588ec454efa1a09f29cd18ddd04fe05fc8653a2/en/c4-train.00000-of-01024.json.gz "HTTP/1.1 302 Found"
+[rank0]:[titan] 2026-04-08 10:03:39,501 - httpx - INFO - HTTP Request: GET https://cas-bridge.xethub.hf.co/xet-bridge-us/621ffdd236468d709f182a80/6656aac078668b0d5feb1cfb7b04def05bff73e7e375d0a66e252827336ac1a8?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=cas%2F20260408%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260408T150339Z&X-Amz-Expires=3600&X-Amz-Signature=67205948d9b152db58b9ed48e60dc95d9d09c81a69c664da91e0b478c26513e1&X-Amz-SignedHeaders=host&X-Xet-Cas-Uid=62b3335e52d92c468fb0630e&response-content-disposition=inline%3B+filename*%3DUTF-8%27%27c4-train.00000-of-01024.json.gz%3B+filename%3D%22c4-train.00000-of-01024.json.gz%22%3B&response-content-type=application%2Fgzip&x-amz-checksum-mode=ENABLED&x-id=GetObject&Expires=1775664219&Policy=eyJTdGF0ZW1lbnQiOlt7IkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc3NTY2NDIxOX19LCJSZXNvdXJjZSI6Imh0dHBzOi8vY2FzLWJyaWRnZS54ZXRodWIuaGYuY28veGV0LWJyaWRnZS11cy82MjFmZmRkMjM2NDY4ZDcwOWYxODJhODAvNjY1NmFhYzA3ODY2OGIwZDVmZWIxY2ZiN2IwNGRlZjA1YmZmNzNlN2UzNzVkMGE2NmUyNTI4MjczMzZhYzFhOCoifV19&Signature=fR6Rc%7EPI0LUOAV14y9GBjZfO9oX-Zid4sgEWTeNGljnuUyHcPb7Mp-ETnl1hLkWKUpxt4HINc5LzHTjHzX4c7tS0cX9GRZYBYGhMQ9BD1t49PiRrK3PyzkKXC4eXgM0FtZX2NjAT2f6o3VU0X6dde9QJKK8Q1yR6Y4CVv%7EGR5xI0x5dXB16dCffR1nT3JH4NW4kwCraJ9i1ngjlPS2Z%7En43Ec4aQaczUmjWQddVjUgK2-5NVblryOHoJVSmGAolSvDfZqG8cjYAR14ANzmgDjG0GXJOVgmaI7uHLtRXVp844bjHkC0X%7EWNuM7iNbziDMy6UTXSlJRRle-l2cIMy4sA__&Key-Pair-Id=K2L8F4GPSG1IFC "HTTP/1.1 206 Partial Content"
+[rank0]:[titan] 2026-04-08 10:03:43,627 - root - INFO - [31mstep:  1  [32mloss: 11.26685  [38;2;180;60;0mgrad_norm:  8.9322  [38;2;54;234;195mmemory: 22.02GiB(55.74%)  [34mtps: 749  [36mtflops: 6.90  [35mmfu: 2.21%[39m
+[rank0]:[titan] 2026-04-08 10:03:43,627 - root - INFO - Synchronizing and adjusting timeout for all ProcessGroups to 0:01:40
+[rank0]:[titan] 2026-04-08 10:03:44,964 - root - INFO - [31mstep:  2  [32mloss: 10.33569  [38;2;180;60;0mgrad_norm: 100.0897  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,066  [36mtflops: 28.25  [35mmfu: 9.05%[39m
+[rank0]:[titan] 2026-04-08 10:03:46,251 - root - INFO - [31mstep:  3  [32mloss: 26.67028  [38;2;180;60;0mgrad_norm: 195.4674  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,186  [36mtflops: 29.35  [35mmfu: 9.41%[39m
+[rank0]:[titan] 2026-04-08 10:03:47,544 - root - INFO - [31mstep:  4  [32mloss: 10.90780  [38;2;180;60;0mgrad_norm:  4.7893  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,170  [36mtflops: 29.20  [35mmfu: 9.36%[39m
+[rank0]:[titan] 2026-04-08 10:03:48,833 - root - INFO - [31mstep:  5  [32mloss: 12.24222  [38;2;180;60;0mgrad_norm: 38.7104  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,180  [36mtflops: 29.29  [35mmfu: 9.39%[39m
+[rank0]:[titan] 2026-04-08 10:03:50,131 - root - INFO - [31mstep:  6  [32mloss: 11.50525  [38;2;180;60;0mgrad_norm: 35.2454  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,158  [36mtflops: 29.09  [35mmfu: 9.32%[39m
+[rank0]:[titan] 2026-04-08 10:03:51,425 - root - INFO - [31mstep:  7  [32mloss: 10.13660  [38;2;180;60;0mgrad_norm: 17.9316  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,167  [36mtflops: 29.17  [35mmfu: 9.35%[39m
+[rank0]:[titan] 2026-04-08 10:03:52,717 - root - INFO - [31mstep:  8  [32mloss:  9.07374  [38;2;180;60;0mgrad_norm:  9.2008  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,173  [36mtflops: 29.23  [35mmfu: 9.37%[39m
+[rank0]:[titan] 2026-04-08 10:03:54,006 - root - INFO - [31mstep:  9  [32mloss:  9.01190  [38;2;180;60;0mgrad_norm:  3.4730  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,180  [36mtflops: 29.29  [35mmfu: 9.39%[39m
+[rank0]:[titan] 2026-04-08 10:03:55,297 - root - INFO - [31mstep: 10  [32mloss:  8.85800  [38;2;180;60;0mgrad_norm:  3.2734  [38;2;54;234;195mmemory: 27.37GiB(69.29%)  [34mtps: 3,177  [36mtflops: 29.27  [35mmfu: 9.38%[39m
+[rank0]:[titan] 2026-04-08 10:03:55,297 - root - INFO - Sleeping 2 seconds for other ranks to complete
+[rank0]:[titan] 2026-04-08 10:03:57,297 - root - INFO - Training completed
+[rank0]:[titan] 2026-04-08 10:03:57,794 - root - INFO - Process group destroyed

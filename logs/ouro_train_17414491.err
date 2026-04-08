@@ -1,0 +1,99 @@
++ NGPU=2
++ export LOG_RANK=0
++ LOG_RANK=0
++ MODULE=ouro
++ CONFIG=ouro_1_4b
++ COMM_MODE=
++ TORCHFT_LIGHTHOUSE=http://localhost:29510
++ DEFAULT_ARGS=(--parallelism.data_parallel_shard_degree=2 --parallelism.tensor_parallel_degree=1 --training.local_batch_size=2 --training.seq_len=2048)
++ '[' -n '' ']'
++ PYTORCH_ALLOC_CONF=expandable_segments:True
++ TORCHFT_LIGHTHOUSE=http://localhost:29510
++ torchrun --nproc_per_node=2 --rdzv_backend c10d --rdzv_endpoint=localhost:0 --local-ranks-filter 0 --role rank --tee 3 -m torchtitan.train --module ouro --config ouro_1_4b --parallelism.data_parallel_shard_degree=2 --parallelism.tensor_parallel_degree=1 --training.local_batch_size=2 --training.seq_len=2048
+I0408 09:56:21.383000 3839894 site-packages/torch/distributed/run.py:675] Using nproc_per_node=2.
+W0408 09:56:21.384000 3839894 site-packages/torch/distributed/run.py:792] 
+W0408 09:56:21.384000 3839894 site-packages/torch/distributed/run.py:792] *****************************************
+W0408 09:56:21.384000 3839894 site-packages/torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0408 09:56:21.384000 3839894 site-packages/torch/distributed/run.py:792] *****************************************
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194] Starting elastic_operator with launch configs:
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   entrypoint       : torchtitan.train
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   min_nodes        : 1
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   max_nodes        : 1
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   nproc_per_node   : 2
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   run_id           : none
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   rdzv_backend     : c10d
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   rdzv_endpoint    : localhost:0
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   rdzv_configs     : {'timeout': 900}
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   max_restarts     : 0
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   monitor_interval : 0.1
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   log_dir          : /tmp/torchelastic_b7kngbc0
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194]   metrics_cfg      : {}
+I0408 09:56:21.386000 3839894 site-packages/torch/distributed/launcher/api.py:194] 
+I0408 09:56:21.988000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:860] [rank] starting workers for entrypoint: python3.12
+I0408 09:56:21.989000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:677] [rank] Rendezvous'ing worker group
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525] [rank] Rendezvous complete for workers. Result:
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   restart_count=0
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   master_addr=gpua023.delta.ncsa.illinois.edu
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   master_port=39265
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   group_rank=0
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   group_world_size=1
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   local_ranks=[0, 1]
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   role_ranks=[0, 1]
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   global_ranks=[0, 1]
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   role_world_sizes=[2, 2]
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525]   global_world_sizes=[2, 2]
+I0408 09:56:22.508000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:525] 
+I0408 09:56:22.509000 3839894 site-packages/torch/distributed/elastic/agent/server/api.py:685] [rank] Starting worker group
+I0408 09:56:22.509000 3839894 site-packages/torch/distributed/elastic/agent/server/local_elastic_agent.py:298] use_agent_store: True
+I0408 09:56:22.510000 3839894 site-packages/torch/distributed/elastic/agent/server/local_elastic_agent.py:192] Environment variable 'TORCHELASTIC_ENABLE_FILE_TIMER' not found. Do not start FileTimerServer.
+I0408 09:56:22.510000 3839894 site-packages/torch/distributed/elastic/agent/server/local_elastic_agent.py:236] Environment variable 'TORCHELASTIC_HEALTH_CHECK_PORT' not found. Do not start health check.
+[rank0]:Traceback (most recent call last):
+[rank0]:  File "<frozen runpy>", line 198, in _run_module_as_main
+[rank0]:  File "<frozen runpy>", line 88, in _run_code
+[rank0]:  File "/u/jli37/research/torchtitan/torchtitan/train.py", line 11, in <module>
+[rank0]:    from torchtitan.config import ConfigManager
+[rank0]:  File "/u/jli37/research/torchtitan/torchtitan/config/__init__.py", line 24, in <module>
+[rank0]:    from .manager import ConfigManager
+[rank0]:  File "/u/jli37/research/torchtitan/torchtitan/config/manager.py", line 14, in <module>
+[rank0]:    import tyro
+[rank0]:ModuleNotFoundError: No module named 'tyro'
+E0408 09:56:38.033000 3839894 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 0 (pid: 3845971) of binary: /scratch/bcjw/jli37/anaconda3/envs/areal/bin/python3.12
+I0408 09:56:38.063000 3839894 site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py:368] ('local_rank %s FAILED with no error file. Decorate your entrypoint fn with @record for traceback info. See: https://pytorch.org/docs/stable/elastic/errors.html', 0)
+Traceback (most recent call last):
+  File "/scratch/bcjw/jli37/anaconda3/envs/areal/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/scratch/bcjw/jli37/anaconda3/envs/areal/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/scratch/bcjw/jli37/anaconda3/envs/areal/lib/python3.12/site-packages/torch/distributed/run.py", line 918, in main
+    run(args)
+  File "/scratch/bcjw/jli37/anaconda3/envs/areal/lib/python3.12/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/scratch/bcjw/jli37/anaconda3/envs/areal/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/bcjw/jli37/anaconda3/envs/areal/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+torchtitan.train FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-04-08_09:56:37
+  host      : gpua023.delta.ncsa.illinois.edu
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 3845972)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-04-08_09:56:37
+  host      : gpua023.delta.ncsa.illinois.edu
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 3845971)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
