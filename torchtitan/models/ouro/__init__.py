@@ -23,6 +23,7 @@ ouro_configs = {
         dim=256,
         n_layers=6,
         total_ut_steps=4,
+        early_exit_threshold=1.0,
         norm=RMSNorm.Config(eps=1e-6),
         tok_embeddings=Embedding.Config(),
         layer=OuroTransformerBlock.Config(
@@ -50,6 +51,8 @@ ouro_configs = {
         dim=2048,
         n_layers=24,
         total_ut_steps=4,
+        # Must match ByteDance/Ouro-1.4B config.json (HF uses 1.0 = use full UT stack at inference).
+        early_exit_threshold=1.0,
         norm=RMSNorm.Config(eps=1e-6),
         tok_embeddings=Embedding.Config(),
         layer=OuroTransformerBlock.Config(

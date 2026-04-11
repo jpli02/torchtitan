@@ -55,7 +55,7 @@ def ouro_1_4b() -> Trainer.Config:
         training=TrainingConfig(
             local_batch_size=4,
             seq_len=4096,
-            steps=10,
+            # steps=10,
         ),
         checkpoint=CheckpointManager.Config(
             interval=500,

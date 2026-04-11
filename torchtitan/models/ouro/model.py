@@ -14,23 +14,6 @@ from torchtitan.models.utils import get_dense_model_nparams_and_flops
 from torchtitan.tools.logging import logger
 
 
-def _rmsnorm_with_residual(
-    x: torch.Tensor,
-    norm: nn.Module,
-    residual: torch.Tensor | None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Apply RMSNorm with Pre-norm style.
-    
-    When residual is None: return norm(x), x
-    When residual is not None: return norm(x + residual), x + residual
-    """
-    if residual is not None:
-        x = x + residual
-    output = norm(x)
-    return output, x
-
-
 class OuroTransformerBlock(TransformerBlock):
     """
     Ouro TransformerBlock with looped support.  
@@ -65,21 +48,22 @@ class OuroTransformerBlock(TransformerBlock):
         freqs_cis: torch.Tensor,
         attention_masks: AttentionMasksType | None,
         positions: torch.Tensor | None = None,
-        residual: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Pre-attention norm with residual
-        h_norm, residual = _rmsnorm_with_residual(x, self.input_layernorm, residual)
-        h = x + self.attention(h_norm, freqs_cis, attention_masks, positions)
+    ) -> torch.Tensor:
+        # Mirror HF Ouro block semantics:
+        # residual add happens after attention/mlp output is normalized.
+        residual = x
+        h = self.input_layernorm(x)
+        h = self.attention(h, freqs_cis, attention_masks, positions)
         h = self.input_layernorm_2(h)
+        h = residual + h
 
-        # Pre-MLP norm with residual
-        h_norm, residual = _rmsnorm_with_residual(
-            h, self.post_attention_layernorm, residual
-        )
-        h = h + self.feed_forward(h_norm)
+        residual = h
+        h = self.post_attention_layernorm(h)
+        h = self.feed_forward(h)
         h = self.post_attention_layernorm_2(h)
+        h = residual + h
 
-        return h, residual
+        return h
 
     def init_weights(self, **kwargs):
         buffer_device: torch.device | None = kwargs.get("buffer_device")
@@ -102,6 +86,8 @@ class OuroModel(Decoder):
     @dataclass(kw_only=True, slots=True)
     class Config(Decoder.Config):
         total_ut_steps: int = 4
+        early_exit_threshold: float = 1.0
+        early_exit_step: int | None = None
         layer: TransformerBlock.Config
 
         def update_from_config(
@@ -146,6 +132,8 @@ class OuroModel(Decoder):
     def __init__(self, config: Config):
         super().__init__(config)
         self.total_ut_steps = config.total_ut_steps
+        self.early_exit_threshold = config.early_exit_threshold
+        self.early_exit_step = config.early_exit_step
         self.early_exit_gate = nn.Linear(config.dim, 1, bias=True)
 
     def forward(
@@ -155,17 +143,84 @@ class OuroModel(Decoder):
         positions: torch.Tensor | None = None,
     ) -> torch.Tensor:
         h = self.tok_embeddings(tokens) if self.tok_embeddings is not None else tokens
+        hidden_states_list: list[torch.Tensor] = []
+        gate_list: list[torch.Tensor] = []
 
         for _ in range(self.total_ut_steps):
-            residual = None
             for layer in self.layers.values():
-                h, residual = layer(
-                    h, self.freqs_cis, attention_masks, positions, residual=residual
+                h = layer(h, self.freqs_cis, attention_masks, positions)
+
+            h = self.norm(h)
+            hidden_states_list.append(h)
+            gate_list.append(self.early_exit_gate(h))
+
+        if self.output is None:
+            return h
+
+        # If no UT states were collected, fallback to last hidden states.
+        if not hidden_states_list:
+            return self.output(h)
+
+        # Build per-token probability mass function over UT exit steps.
+        # Shapes:
+        # - gate tensors: [batch, seq, 1]
+        # - stacked_exit_pdf: [batch, seq, total_ut_steps]
+        pdf_list: list[torch.Tensor] = []
+        remaining_prob = torch.ones_like(gate_list[0].squeeze(-1))
+        for idx, gate_tensor in enumerate(gate_list):
+            lambda_i = torch.sigmoid(gate_tensor.squeeze(-1))
+            if idx < len(gate_list) - 1:
+                p_i = lambda_i * remaining_prob
+                remaining_prob = remaining_prob * (1.0 - lambda_i)
+            else:
+                p_i = remaining_prob
+            pdf_list.append(p_i)
+        stacked_exit_pdf = torch.stack(pdf_list, dim=2)
+
+        # During training, use expected logits over all UT steps so gradients
+        # propagate through every refinement step.
+        if self.training:
+            expected_logits: torch.Tensor | None = None
+            for step_idx, hidden in enumerate(hidden_states_list):
+                step_logits = self.output(hidden)
+                weight = stacked_exit_pdf[..., step_idx].unsqueeze(-1).to(
+                    step_logits.dtype
                 )
+                expected_logits = (
+                    step_logits * weight
+                    if expected_logits is None
+                    else expected_logits + step_logits * weight
+                )
+            assert expected_logits is not None
+            return expected_logits
 
-            h, _ = _rmsnorm_with_residual(h, self.norm, residual)
+        # In eval/inference, either force a fixed exit step, use thresholded
+        # cumulative probabilities, or fallback to the final UT step.
+        if self.early_exit_step is not None:
+            step = max(0, min(self.early_exit_step, len(hidden_states_list) - 1))
+            return self.output(hidden_states_list[step])
 
-        output = self.output(h) if self.output is not None else h
+        if self.early_exit_threshold is not None:
+            cumulative_probs = torch.cumsum(stacked_exit_pdf, dim=2)
+            threshold_mask = cumulative_probs >= self.early_exit_threshold
+            exit_steps = torch.argmax(threshold_mask.float(), dim=2)
+            last_step_idx = stacked_exit_pdf.shape[2] - 1
+            if last_step_idx >= 0:
+                never_exceeded = ~threshold_mask.any(dim=2)
+                exit_steps[never_exceeded] = last_step_idx
+
+            stacked_hidden = torch.stack(hidden_states_list, dim=2)
+            gather_index = (
+                exit_steps.unsqueeze(-1)
+                .unsqueeze(-1)
+                .expand(-1, -1, 1, stacked_hidden.size(-1))
+            )
+            final_hidden_states = torch.gather(stacked_hidden, 2, gather_index).squeeze(
+                2
+            )
+            return self.output(final_hidden_states)
+
+        output = self.output(h)
         return output
 
     def init_weights(

@@ -36,4 +36,5 @@ export CONFIG=${CONFIG:-ouro_1_4b}
 export NGPU=${NGPU:-2}
 export PYTHON=${PYTHON:-python3}
 
-./run_train.sh "$@"
+# Weights & Biases (optional: WANDB_PROJECT, WANDB_API_KEY or `wandb login` on the node)
+./run_train.sh --metrics.enable_wandb "$@"
