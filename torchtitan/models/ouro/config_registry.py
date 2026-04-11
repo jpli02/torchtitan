@@ -49,7 +49,7 @@ def ouro_1_4b() -> Trainer.Config:
         hf_assets_path="./assets/hf/Ouro-1.4B",  # ByteDance/Ouro-1.4B
         metrics=MetricsProcessor.Config(log_freq=1),
         model_spec=model_registry("1.4B"),
-        dataloader=HuggingFaceTextDataLoader.Config(dataset="c4"),
+        dataloader=HuggingFaceTextDataLoader.Config(dataset="swe_rebench_openhands"),
         optimizer=OptimizersContainer.Config(lr=3e-4),
         lr_scheduler=LRSchedulersContainer.Config(warmup_steps=2),
         training=TrainingConfig(

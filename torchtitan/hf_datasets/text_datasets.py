@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
@@ -31,6 +33,44 @@ def _process_c4_text(sample: dict[str, Any]) -> str:
     return sample["text"]
 
 
+_SWE_REBENCH_ROLE_FIELDS: dict[str, tuple[str, ...]] = {
+    "system": ("role", "content"),
+    "assistant": ("role", "content", "tool_calls"),
+    "user": ("role", "content"),
+    "tool": ("role", "content", "name", "tool_call_id"),
+}
+
+
+def _load_swe_rebench_openhands_dataset(dataset_path: str):
+    """HF coding trajectories (OpenHands-style); streamed for scale."""
+    return load_dataset(dataset_path, split="train", streaming=True)
+
+
+def _deserialize_swe_rebench_trajectory(sample: dict[str, Any]) -> list[dict[str, Any]]:
+    """Keep per-role fields and parse string tool ``function.arguments`` as JSON."""
+    trajectory: list[dict[str, Any]] = []
+    for raw in sample["trajectory"]:
+        role = raw["role"]
+        if role not in _SWE_REBENCH_ROLE_FIELDS:
+            raise ValueError(f"Unknown trajectory role {role!r}")
+        field_names = _SWE_REBENCH_ROLE_FIELDS[role]
+        msg = {name: copy.deepcopy(raw[name]) for name in field_names}
+        if msg["role"] == "assistant" and msg.get("tool_calls") is not None:
+            for i, tool_call in enumerate(msg["tool_calls"]):
+                fn = tool_call.get("function") or {}
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    msg["tool_calls"][i]["function"]["arguments"] = json.loads(args)
+        trajectory.append(msg)
+    return trajectory
+
+
+def _process_swe_rebench_openhands_text(sample: dict[str, Any]) -> str:
+    """One training document: compact JSON of the deserialized message list."""
+    trajectory = _deserialize_swe_rebench_trajectory(sample)
+    return json.dumps(trajectory, ensure_ascii=False, separators=(",", ":"))
+
+
 # Add your dataset here - more information at docs/datasets.md
 DATASETS = {
     "c4": DatasetConfig(
@@ -47,6 +87,11 @@ DATASETS = {
         path="allenai/c4",
         loader=partial(_load_c4_dataset, split="validation"),
         sample_processor=_process_c4_text,
+    ),
+    "swe_rebench_openhands": DatasetConfig(
+        path="nebius/SWE-rebench-openhands-trajectories",
+        loader=_load_swe_rebench_openhands_dataset,
+        sample_processor=_process_swe_rebench_openhands_text,
     ),
 }
 
