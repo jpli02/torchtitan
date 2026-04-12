@@ -315,7 +315,9 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
             buffer_device = None
 
         self.loss_fn = model_spec.build_loss_fn(
-            config.compile, parallel_dims=parallel_dims
+            config.compile,
+            parallel_dims=parallel_dims,
+            model_config=model_config,
         )
 
         # verify batch sizes

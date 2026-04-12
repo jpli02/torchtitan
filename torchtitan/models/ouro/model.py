@@ -4,6 +4,7 @@
 # Implements looped Transformer with total_ut_steps.
 
 from dataclasses import dataclass
+from typing import Any, Literal
 
 import torch
 from torch import nn
@@ -89,6 +90,16 @@ class OuroModel(Decoder):
         early_exit_threshold: float = 1.0
         early_exit_step: int | None = None
         layer: TransformerBlock.Config
+        # LoopLM-style training objectives (see torchtitan.components.loss).
+        ouro_loss_stage: Literal["standard", "stage1_entropy", "stage2_adaptive"] = (
+            "stage1_entropy"
+        )
+        """``standard``: CE on expected logits; ``stage1_entropy``: Eq. (4); ``stage2_adaptive``: Eq. (6)."""
+        entropy_beta: float = 0.01
+        """Entropy regularization weight for Stage I (beta in Eq. (4))."""
+        adaptive_k: float = 50.0
+        adaptive_gamma: float = 0.005
+        """Sigmoid slope and threshold for ideal continuation labels in Stage II."""
 
         def update_from_config(
             self,
@@ -134,6 +145,7 @@ class OuroModel(Decoder):
         self.total_ut_steps = config.total_ut_steps
         self.early_exit_threshold = config.early_exit_threshold
         self.early_exit_step = config.early_exit_step
+        self.ouro_loss_stage = config.ouro_loss_stage
         self.early_exit_gate = nn.Linear(config.dim, 1, bias=True)
 
     def forward(
@@ -141,7 +153,7 @@ class OuroModel(Decoder):
         tokens: torch.Tensor,
         attention_masks: AttentionMasksType | None = None,
         positions: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | dict[str, Any]:
         h = self.tok_embeddings(tokens) if self.tok_embeddings is not None else tokens
         hidden_states_list: list[torch.Tensor] = []
         gate_list: list[torch.Tensor] = []
@@ -180,9 +192,11 @@ class OuroModel(Decoder):
         # During training, use expected logits over all UT steps so gradients
         # propagate through every refinement step.
         if self.training:
+            step_logits_list: list[torch.Tensor] = []
             expected_logits: torch.Tensor | None = None
             for step_idx, hidden in enumerate(hidden_states_list):
                 step_logits = self.output(hidden)
+                step_logits_list.append(step_logits)
                 weight = stacked_exit_pdf[..., step_idx].unsqueeze(-1).to(
                     step_logits.dtype
                 )
@@ -192,7 +206,20 @@ class OuroModel(Decoder):
                     else expected_logits + step_logits * weight
                 )
             assert expected_logits is not None
-            return expected_logits
+            if self.ouro_loss_stage == "standard":
+                return expected_logits
+            stacked_step_logits = torch.stack(step_logits_list, dim=-1)
+            gate_lambda = torch.stack(
+                [torch.sigmoid(g.squeeze(-1)) for g in gate_list], dim=-1
+            )
+            out: dict[str, Any] = {
+                "logits": expected_logits,
+                "stacked_exit_pdf": stacked_exit_pdf,
+                "stacked_step_logits": stacked_step_logits,
+                "gate_lambda": gate_lambda,
+                "total_ut_steps": self.total_ut_steps,
+            }
+            return out
 
         # In eval/inference, either force a fixed exit step, use thresholded
         # cumulative probabilities, or fallback to the final UT step.

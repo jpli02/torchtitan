@@ -165,7 +165,10 @@ class FaultTolerantTrainer(Trainer):
 
         # FT addition: pass ft_manager to build_loss_fn
         self.loss_fn = model_spec.build_loss_fn(
-            config.compile, parallel_dims=parallel_dims, ft_manager=self.ft_manager
+            config.compile,
+            parallel_dims=parallel_dims,
+            ft_manager=self.ft_manager,
+            model_config=model_config,
         )
 
         # verify batch sizes
