@@ -162,6 +162,47 @@ srun torchrun --nnodes 2
 
 If your gpu count per node is not 8, adjust `--nproc_per_node` in the torchrun command and `#SBATCH --gpus-per-task` in the SBATCH command section.
 
+### Ouro training (`ouro-simple` branch and Slurm)
+
+Ouro (looped Transformer) training, entropy-regularized / adaptive-gate losses, and the Delta-oriented Slurm wrapper live on the **`ouro-simple`** branch. Use that branch when you want this workflow rather than upstream `main`.
+
+1. **Checkout**
+
+   ```bash
+   git fetch origin ouro-simple
+   git checkout ouro-simple
+   ```
+
+2. **Environment and assets**
+
+   - Install dependencies (`pip install -r requirements.txt`) and use a project venv if you mirror `run_ouro_train.slurm` (it runs `source .venv/bin/activate`).
+   - For **`ouro_1_4b`**, place Hugging Face assets for [ByteDance/Ouro-1.4B](https://huggingface.co/ByteDance/Ouro-1.4B) under `./assets/hf/Ouro-1.4B` (tokenizer, `config.json`, weights as expected by the trainer `hf_assets_path`). For a quick smoke test, **`ouro_debugmodel`** uses the small bundled tokenizer under `./tests/assets/tokenizer`.
+
+3. **Edit `run_ouro_train.slurm` for your site**
+
+   The script contains example `#SBATCH` lines (account, partition, GPUs, memory, time, log paths). Change those to match your cluster. Optionally set `TMPDIR` and the `source …/activate` line to match your layout.
+
+4. **Submit**
+
+   ```bash
+   mkdir -p logs
+   sbatch run_ouro_train.slurm
+   ```
+
+   Overrides at submit time (passed through to `run_train.sh` after the default WandB flag):
+
+   ```bash
+   CONFIG=ouro_debugmodel NGPU=1 sbatch run_ouro_train.slurm --training.steps=100
+   ```
+
+   Common environment variables consumed by the script and `run_train.sh`: `MODULE` (default `ouro`), `CONFIG` (default `ouro_1_4b`), `NGPU` (default `2`). WandB is enabled by default in the Slurm script; disable or configure with extra CLI if you prefer another metrics backend.
+
+For a single-node interactive run without Slurm, from the repo root after activating your env:
+
+```bash
+MODULE=ouro CONFIG=ouro_1_4b NGPU=2 ./run_train.sh
+```
+
 
 ## Citation
 
