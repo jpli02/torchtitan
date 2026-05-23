@@ -58,6 +58,7 @@ def ouro_1_4b() -> Trainer.Config:
             # steps=10,
         ),
         checkpoint=CheckpointManager.Config(
+            enable=True,
             interval=500,
             last_save_model_only=False,
             export_dtype="float16",
@@ -67,3 +68,13 @@ def ouro_1_4b() -> Trainer.Config:
             selective_ac_option="op",
         ),
     )
+
+
+def ouro_1_4b_sft() -> Trainer.Config:
+    """SFT variant of ouro_1_4b: loss is masked to assistant turns only."""
+    cfg = ouro_1_4b()
+    cfg.dataloader = HuggingFaceTextDataLoader.Config(
+        dataset="swe_rebench_openhands_sft"
+    )
+    cfg.optimizer = OptimizersContainer.Config(lr=3e-4)
+    return cfg

@@ -59,6 +59,7 @@ def loop_lm_entropy_regularized_loss_sum(
     labels: torch.Tensor,
     *,
     beta: float,
+    aux: dict[str, Any] | None = None,
 ) -> torch.Tensor:
     """
     Stage I: L = sum_t p(t|x) L^(t) - beta * H(p), minimized (sum over valid tokens).
@@ -66,11 +67,13 @@ def loop_lm_entropy_regularized_loss_sum(
     pred must contain ``stacked_exit_pdf`` [B, S, T] and ``stacked_step_logits``
     [B, S, V, T]. Returns a scalar sum for the same normalization contract as
     ``cross_entropy_loss`` (divide by global valid tokens in the trainer).
+    Fills ``aux`` with per-step and per-component breakdown metrics (avg over valid tokens).
     """
     stacked_exit_pdf = pred["stacked_exit_pdf"]
     step_logits = pred["stacked_step_logits"]
     b, s, v, t_max = step_logits.shape
     valid = (labels != IGNORE_INDEX).to(step_logits.dtype)
+    n_valid = valid.sum().clamp(min=1)
 
     ce_steps = []
     for t in range(t_max):
@@ -81,14 +84,24 @@ def loop_lm_entropy_regularized_loss_sum(
             ignore_index=IGNORE_INDEX,
         ).view(b, s)
         ce_steps.append(ce_t)
+        if aux is not None:
+            aux[f"loss/step{t}_ce"] = ((valid * ce_t).sum() / n_valid).item()
+
     ce_per_step = torch.stack(ce_steps, dim=-1)
     p = stacked_exit_pdf.to(dtype=torch.float32)
     weighted_ce = (p * ce_per_step).sum(dim=-1)
     task_sum = (valid * weighted_ce).sum()
 
-    # H(p) = -sum p log p = sum_i entr(p_i); entr(0)=0
-    H = torch.special.entr(p.clamp_min(0.0)).sum(dim=-1)
+    # H(p) = -sum p log p; clamp away from 0 so backward (-log p - 1) is finite
+    H = torch.special.entr(p.clamp(1e-7, 1.0)).sum(dim=-1)
     entropy_sum = (valid * H).sum()
+
+    if aux is not None:
+        for t in range(t_max):
+            aux[f"loss/exit_prob_step{t}"] = ((valid * p[..., t]).sum() / n_valid).item()
+        aux["loss/task_ce"] = (task_sum / n_valid).item()
+        aux["loss/entropy"] = (entropy_sum / n_valid).item()
+
     return task_sum - beta * entropy_sum
 
 
@@ -98,18 +111,21 @@ def loop_lm_adaptive_gate_loss_sum(
     *,
     k: float = 50.0,
     gamma: float = 0.005,
+    aux: dict[str, Any] | None = None,
 ) -> torch.Tensor:
     """
     Stage II: binary cross-entropy between ideal continuation label w^(t) and
     predicted continuation (1 - lambda^(t)), averaged over sequence then over
     t = 2..Tmax with factor 1/Tmax. Per-step losses L^(t)_stop are detached from
     the LM so only the exit gate receives LM-driven gradients through lambda.
+    Fills ``aux`` with per-step breakdown metrics.
     """
     step_logits = pred["stacked_step_logits"].detach()
     gate_lambda = pred["gate_lambda"]
     t_max = int(pred.get("total_ut_steps", gate_lambda.shape[-1]))
     b, s, v, _t = step_logits.shape
     valid = (labels != IGNORE_INDEX).to(step_logits.dtype)
+    n_valid = valid.sum().clamp(min=1)
 
     l_stop = []
     for t in range(_t):
@@ -120,6 +136,9 @@ def loop_lm_adaptive_gate_loss_sum(
             ignore_index=IGNORE_INDEX,
         ).view(b, s)
         l_stop.append(l_t)
+        if aux is not None:
+            aux[f"loss/step{t}_ce"] = ((valid * l_t).sum() / n_valid).item()
+
     L_stop = torch.stack(l_stop, dim=-1)
 
     eps = 1e-7
@@ -130,7 +149,13 @@ def loop_lm_adaptive_gate_loss_sum(
         lam = gate_lambda[:, :, t_idx].clamp(eps, 1.0 - eps)
         one_m = (1.0 - lam).clamp(eps, 1.0 - eps)
         bce = -(w * one_m.log() + (1.0 - w) * lam.log())
-        total = total + (valid * bce).sum()
+        step_bce = (valid * bce).sum()
+        total = total + step_bce
+        if aux is not None:
+            aux[f"loss/gate_bce_step{t_idx}"] = (step_bce / n_valid).item()
+
+    if aux is not None:
+        aux["loss/gate_bce"] = (total / n_valid / float(t_max)).item()
 
     return total / float(t_max)
 
@@ -150,18 +175,24 @@ def build_ouro_loss(compile_config: CompileConfig, **kwargs) -> LossFunction:
         adaptive_k = float(getattr(model_config, "adaptive_k", adaptive_k))
         adaptive_gamma = float(getattr(model_config, "adaptive_gamma", adaptive_gamma))
 
+    # Mutable dict populated on each forward call; read by the trainer for logging.
+    _aux: dict[str, Any] = {}
+
     def ouro_loss_fn(pred: torch.Tensor | dict[str, Any], labels: torch.Tensor) -> torch.Tensor:
+        _aux.clear()
         if isinstance(pred, dict):
             if stage == "stage1_entropy":
                 return loop_lm_entropy_regularized_loss_sum(
-                    pred, labels, beta=entropy_beta
+                    pred, labels, beta=entropy_beta, aux=_aux
                 )
             if stage == "stage2_adaptive":
                 return loop_lm_adaptive_gate_loss_sum(
-                    pred, labels, k=adaptive_k, gamma=adaptive_gamma
+                    pred, labels, k=adaptive_k, gamma=adaptive_gamma, aux=_aux
                 )
             return cross_entropy_loss(pred["logits"], labels)
         return cross_entropy_loss(pred, labels)
+
+    ouro_loss_fn.get_aux_metrics = lambda: dict(_aux)
 
     loss_fn = ouro_loss_fn
     if compile_config.enable and "loss" in compile_config.components:

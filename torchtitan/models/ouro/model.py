@@ -75,8 +75,8 @@ class OuroTransformerBlock(TransformerBlock):
             self.post_attention_layernorm_2,
         ):
             norm.init_weights()
-        self.attention.init_weights(self.weight_init_std)
-        self.feed_forward.init_weights(self.weight_init_std)
+        self.attention.init_weights(self.weight_init_std, buffer_device=buffer_device)
+        self.feed_forward.init_weights(self.weight_init_std, buffer_device=buffer_device)
 
 
 class OuroModel(Decoder):
@@ -136,7 +136,7 @@ class OuroModel(Decoder):
                 self,
                 model,
                 self.layer.attention.n_heads,
-                2 * (self.dim // self.layer.attention.n_heads),
+                2 * self.layer.attention.head_dim,
                 seq_len,
             )
 
@@ -169,18 +169,21 @@ class OuroModel(Decoder):
         if self.output is None:
             return h
 
-        # If no UT states were collected, fallback to last hidden states.
-        if not hidden_states_list:
-            return self.output(h)
-
         # Build per-token probability mass function over UT exit steps.
         # Shapes:
         # - gate tensors: [batch, seq, 1]
         # - stacked_exit_pdf: [batch, seq, total_ut_steps]
+        # Compute exit PDF in float32 to avoid bfloat16 saturation (sigmoid can
+        # return exactly 1.0 in bfloat16 for moderate gate values, driving
+        # remaining_prob to 0 and causing inf gradients through entr).
         pdf_list: list[torch.Tensor] = []
-        remaining_prob = torch.ones_like(gate_list[0].squeeze(-1))
+        remaining_prob = torch.ones(
+            gate_list[0].squeeze(-1).shape,
+            dtype=torch.float32,
+            device=gate_list[0].device,
+        )
         for idx, gate_tensor in enumerate(gate_list):
-            lambda_i = torch.sigmoid(gate_tensor.squeeze(-1))
+            lambda_i = torch.sigmoid(gate_tensor.squeeze(-1).float())
             if idx < len(gate_list) - 1:
                 p_i = lambda_i * remaining_prob
                 remaining_prob = remaining_prob * (1.0 - lambda_i)
@@ -210,7 +213,7 @@ class OuroModel(Decoder):
                 return expected_logits
             stacked_step_logits = torch.stack(step_logits_list, dim=-1)
             gate_lambda = torch.stack(
-                [torch.sigmoid(g.squeeze(-1)) for g in gate_list], dim=-1
+                [torch.sigmoid(g.squeeze(-1).float()) for g in gate_list], dim=-1
             )
             out: dict[str, Any] = {
                 "logits": expected_logits,

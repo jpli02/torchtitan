@@ -18,6 +18,7 @@ from torch.distributed.checkpoint.stateful import Stateful
 from torch.utils.data import IterableDataset
 
 from torchtitan.components.dataloader import ParallelAwareDataloader
+from torchtitan.components.loss import IGNORE_INDEX
 from torchtitan.components.tokenizer import BaseTokenizer
 from torchtitan.hf_datasets import DatasetConfig
 from torchtitan.tools.logging import logger
@@ -71,6 +72,85 @@ def _process_swe_rebench_openhands_text(sample: dict[str, Any]) -> str:
     return json.dumps(trajectory, ensure_ascii=False, separators=(",", ":"))
 
 
+# Roles whose tokens should be trained on during SFT.
+_SFT_TRAINABLE_ROLES = {"assistant"}
+
+
+def _format_msg_for_template(msg: dict[str, Any]) -> dict[str, str]:
+    """Flatten a rich trajectory message to {role, content} for the chat template.
+
+    Complex fields (tool_calls, tool_call_id, name) are JSON-serialised and
+    appended to the content string so no information is silently dropped.
+    """
+    role = msg["role"]
+    parts: list[str] = []
+    if msg.get("content"):
+        parts.append(str(msg["content"]))
+    if msg.get("tool_calls"):
+        parts.append(json.dumps(msg["tool_calls"], ensure_ascii=False))
+    if msg.get("name"):
+        parts.append(f"[tool: {msg['name']}]")
+    if msg.get("tool_call_id"):
+        parts.append(f"[tool_call_id: {msg['tool_call_id']}]")
+    return {"role": role, "content": "\n".join(parts)}
+
+
+def _swe_rebench_sft_tokens(
+    sample: dict[str, Any], tokenizer: BaseTokenizer
+) -> tuple[list[int], list[int]]:
+    """SFT tokenisation for one trajectory: only assistant turns carry loss signal.
+
+    Applies the tokenizer's chat template incrementally (one message at a time)
+    to locate each message's exact token span.  Non-assistant tokens are replaced
+    by IGNORE_INDEX in the returned label sequence.
+
+    Returns:
+        token_ids  – full sequence of token IDs
+        label_ids  – parallel sequence; IGNORE_INDEX where the token is not a
+                     training target, otherwise identical to token_ids
+    """
+    raw_messages = _deserialize_swe_rebench_trajectory(sample)
+    messages = [_format_msg_for_template(m) for m in raw_messages]
+
+    token_ids: list[int] = []
+    label_ids: list[int] = []
+
+    for i, msg in enumerate(messages):
+        # Tokenize the conversation up through message i.  The boundary for
+        # message i is found by diffing against the tokenization of messages[:i].
+        # This requires the chat template to be prefix-consistent (the first
+        # len(template(msgs[:i])) tokens of template(msgs[:i+1]) must equal
+        # template(msgs[:i])).  Standard Jinja chat templates satisfy this.
+        curr_tokens = tokenizer.encode(
+            tokenizer.apply_chat_template(messages[: i + 1]),
+            add_bos=True,
+            add_eos=False,
+        )
+        if i > 0:
+            prev_len = len(
+                tokenizer.encode(
+                    tokenizer.apply_chat_template(messages[:i]),
+                    add_bos=True,
+                    add_eos=False,
+                )
+            )
+        else:
+            prev_len = 0
+        msg_tokens = curr_tokens[prev_len:]
+        if msg["role"] in _SFT_TRAINABLE_ROLES:
+            label_ids.extend(msg_tokens)
+        else:
+            label_ids.extend([IGNORE_INDEX] * len(msg_tokens))
+        token_ids.extend(msg_tokens)
+
+    # EOS always included in the training signal.
+    if tokenizer.eos_id is not None:
+        token_ids.append(tokenizer.eos_id)
+        label_ids.append(tokenizer.eos_id)
+
+    return token_ids, label_ids
+
+
 # Add your dataset here - more information at docs/datasets.md
 DATASETS = {
     "c4": DatasetConfig(
@@ -93,12 +173,19 @@ DATASETS = {
         loader=_load_swe_rebench_openhands_dataset,
         sample_processor=_process_swe_rebench_openhands_text,
     ),
+    # SFT variant: identical data but loss is masked to assistant turns only.
+    "swe_rebench_openhands_sft": DatasetConfig(
+        path="nebius/SWE-rebench-openhands-trajectories",
+        loader=_load_swe_rebench_openhands_dataset,
+        sample_processor=_process_swe_rebench_openhands_text,
+        sample_to_tokens=_swe_rebench_sft_tokens,
+    ),
 }
 
 
 def _validate_dataset(
     dataset_name: str, dataset_path: str | None = None
-) -> tuple[str, Callable, Callable]:
+) -> tuple[str, Callable, Callable, Callable | None]:
     """Validate dataset name and path."""
     if dataset_name not in DATASETS:
         raise ValueError(
@@ -109,7 +196,7 @@ def _validate_dataset(
     config = DATASETS[dataset_name]
     path = dataset_path or config.path
     logger.info(f"Preparing {dataset_name} dataset from {path}")
-    return path, config.loader, config.sample_processor
+    return path, config.loader, config.sample_processor, config.sample_to_tokens
 
 
 class HuggingFaceTextDataset(IterableDataset, Stateful):
@@ -126,7 +213,7 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
         # Force lowercase for consistent comparison
         dataset_name = dataset_name.lower()
 
-        path, dataset_loader, text_processor = _validate_dataset(
+        path, dataset_loader, text_processor, sample_to_tokens = _validate_dataset(
             dataset_name, dataset_path
         )
         ds = dataset_loader(path)
@@ -137,10 +224,15 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
         self.seq_len = seq_len
         self.infinite = infinite
         self._text_processor = text_processor
+        # When set, bypasses the text processor and drives the SFT label-mask path.
+        self._sample_to_tokens: Callable | None = sample_to_tokens
 
         # Variables for checkpointing
         self._sample_idx = 0
         self._token_buffer: list[int] = []
+        # Parallel label buffer used only in the SFT masking path.
+        # Each position holds the target token ID or IGNORE_INDEX.
+        self._label_buffer: list[int] = []
 
     def _get_data_iter(self):
         # For map-style datasets, resume by skipping to the correct index
@@ -158,20 +250,33 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
 
         while True:
             for sample in self._get_data_iter():
-                # Use the dataset-specific text processor
-                sample_text = self._text_processor(sample)
-                sample_tokens = self._tokenizer.encode(
-                    sample_text, add_bos=True, add_eos=True
-                )
-                self._token_buffer.extend(sample_tokens)
+                if self._sample_to_tokens is not None:
+                    # SFT masking path: processor returns (token_ids, label_ids) directly.
+                    sample_tokens, sample_labels = self._sample_to_tokens(
+                        sample, self._tokenizer
+                    )
+                    self._token_buffer.extend(sample_tokens)
+                    self._label_buffer.extend(sample_labels)
+                else:
+                    # Standard next-token-prediction path.
+                    sample_text = self._text_processor(sample)
+                    sample_tokens = self._tokenizer.encode(
+                        sample_text, add_bos=True, add_eos=True
+                    )
+                    self._token_buffer.extend(sample_tokens)
                 self._sample_idx += 1
 
                 while len(self._token_buffer) >= max_buffer_token_len:
                     x = torch.LongTensor(self._token_buffer[:max_buffer_token_len])
-                    # update tokens to the remaining tokens
                     self._token_buffer = self._token_buffer[max_buffer_token_len:]
                     input = x[:-1]
-                    label = x[1:]
+                    if self._sample_to_tokens is not None:
+                        # SFT: label at position i is the pre-computed target for token i+1.
+                        y = torch.LongTensor(self._label_buffer[:max_buffer_token_len])
+                        self._label_buffer = self._label_buffer[max_buffer_token_len:]
+                        label = y[1:]
+                    else:
+                        label = x[1:]
                     yield {"input": input}, label
 
             if not self.infinite:
@@ -190,6 +295,18 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
 
     def load_state_dict(self, state_dict):
         self._token_buffer = state_dict["token_buffer"]
+        self._label_buffer = state_dict.get("label_buffer", [])
+        # If the token/label buffers have different lengths (e.g., checkpoint was
+        # saved from a non-SFT run that never populated label_buffer), the buffers
+        # are unusable together.  Clear both so the next sample starts fresh.
+        if len(self._token_buffer) != len(self._label_buffer):
+            logger.warning(
+                f"Discarding mismatched token/label buffers on checkpoint restore "
+                f"(token={len(self._token_buffer)}, label={len(self._label_buffer)}). "
+                "This is expected when switching between SFT and non-SFT datasets."
+            )
+            self._token_buffer = []
+            self._label_buffer = []
 
         if isinstance(self._data, Dataset):
             self._sample_idx = state_dict["sample_idx"]
@@ -198,7 +315,10 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
             self._data.load_state_dict(state_dict["data"])
 
     def state_dict(self):
-        _state_dict: dict[str, Any] = {"token_buffer": self._token_buffer}
+        _state_dict: dict[str, Any] = {
+            "token_buffer": self._token_buffer,
+            "label_buffer": self._label_buffer,
+        }
 
         if isinstance(self._data, Dataset):
             _state_dict["sample_idx"] = self._sample_idx
