@@ -147,6 +147,10 @@ class OuroModel(Decoder):
         self.early_exit_step = config.early_exit_step
         self.ouro_loss_stage = config.ouro_loss_stage
         self.early_exit_gate = nn.Linear(config.dim, 1, bias=True)
+        if config.ouro_loss_stage == "stage2_adaptive":
+            for name, p in self.named_parameters():
+                if "early_exit_gate" not in name:
+                    p.requires_grad_(False)
 
     def forward(
         self,
