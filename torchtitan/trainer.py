@@ -27,6 +27,7 @@ from torchtitan.components.optimizer import (
     OptimizersContainer,
     OptimizersInBackwardContainer,
 )
+from torchtitan.components.humaneval_evaluator import HumanEvalEvaluator
 from torchtitan.components.quantization import QuantizationConverter
 from torchtitan.components.tokenizer import BaseTokenizer, HuggingFaceTokenizer
 from torchtitan.components.validate import BaseValidator, Validator
@@ -104,6 +105,9 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
         compile: CompileConfig = field(default_factory=CompileConfig)
         comm: CommConfig = field(default_factory=CommConfig)
         validator: Validator.Config = field(default_factory=Validator.Config)
+        humaneval_eval: HumanEvalEvaluator.Config = field(
+            default_factory=HumanEvalEvaluator.Config
+        )
         debug: DebugConfig = field(default_factory=DebugConfig)
 
         def __post_init__(self):
@@ -173,6 +177,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
     optimizers: OptimizersContainer
     lr_schedulers: LRSchedulersContainer
     validator: BaseValidator
+    humaneval_evaluator: HumanEvalEvaluator | None
     metrics_processor: MetricsProcessor
     checkpointer: CheckpointManager
 
@@ -494,6 +499,12 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
                 pp_has_first_stage=pp_has_first_stage,
                 pp_has_last_stage=pp_has_last_stage,
             )
+
+        self.humaneval_evaluator = (
+            config.humaneval_eval.build(dump_folder=config.dump_folder)
+            if config.humaneval_eval.enable
+            else None
+        )
 
         logger.info(
             "Trainer is initialized with "
@@ -833,9 +844,14 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
                     logger.warning("Ran out of data; last step was canceled.")
                     break
 
-                self.checkpointer.save(
-                    self.step, last_step=(self.step == config.training.steps)
+                last_step = self.step == config.training.steps
+                ckpt_id = self.checkpointer.checkpoint_id_if_saving(
+                    self.step, last_step=last_step
                 )
+                self.checkpointer.save(self.step, last_step=last_step)
+
+                if self.humaneval_evaluator is not None and ckpt_id is not None:
+                    self.humaneval_evaluator.evaluate(ckpt_id, self.step)
 
                 # Run validation if validator is available
                 if self.config.validator.enable and self.validator.should_validate(
@@ -878,3 +894,5 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
             self.checkpointer.close()
         if hasattr(self, "metrics_processor") and self.metrics_processor:
             self.metrics_processor.close()
+        if hasattr(self, "humaneval_evaluator") and self.humaneval_evaluator:
+            self.humaneval_evaluator.wait()

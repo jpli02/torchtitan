@@ -34,6 +34,7 @@ def ouro_debugmodel() -> Trainer.Config:
             steps=10,
         ),
         checkpoint=CheckpointManager.Config(
+            folder="/projects/bdjz/jli37/checkpoints",
             interval=10,
             last_save_model_only=False,
         ),
@@ -59,7 +60,8 @@ def ouro_1_4b() -> Trainer.Config:
         ),
         checkpoint=CheckpointManager.Config(
             enable=True,
-            interval=500,
+            folder="/projects/bdjz/jli37/checkpoints",
+            interval=100,
             last_save_model_only=False,
             export_dtype="float16",
         ),
@@ -71,10 +73,19 @@ def ouro_1_4b() -> Trainer.Config:
 
 
 def ouro_1_4b_sft() -> Trainer.Config:
-    """SFT variant of ouro_1_4b: loss is masked to assistant turns only."""
+    """SFT variant of ouro_1_4b: loss is masked to assistant turns only, Stage II adaptive gate."""
+    import dataclasses
+
     cfg = ouro_1_4b()
     cfg.dataloader = HuggingFaceTextDataLoader.Config(
         dataset="swe_rebench_openhands_sft"
     )
     cfg.optimizer = OptimizersContainer.Config(lr=3e-4)
+    cfg.model_spec = dataclasses.replace(
+        cfg.model_spec,
+        model=dataclasses.replace(
+            cfg.model_spec.model,
+            ouro_loss_stage="stage2_adaptive",
+        ),
+    )
     return cfg

@@ -159,14 +159,38 @@ class OuroModel(Decoder):
         positions: torch.Tensor | None = None,
     ) -> torch.Tensor | dict[str, Any]:
         h = self.tok_embeddings(tokens) if self.tok_embeddings is not None else tokens
+
+        def _ut_step(hidden: torch.Tensor) -> torch.Tensor:
+            """Run one universal-transformer step: all layers then final norm.
+            The normed output feeds the next step (the recurrence is over the
+            normed hidden state), matching the training loop below."""
+            for layer in self.layers.values():
+                hidden = layer(hidden, self.freqs_cis, attention_masks, positions)
+            return self.norm(hidden)
+
+        # Adaptive inference (early_exit_step or threshold < 1.0) terminates the
+        # UT loop as soon as every token position has exited, giving real
+        # compute/latency savings.  Training and the threshold==1.0 fallback keep
+        # the original semantics (always run all total_ut_steps).
+        adaptive_eval = (
+            not self.training
+            and self.output is not None
+            and (
+                self.early_exit_step is not None
+                or (
+                    self.early_exit_threshold is not None
+                    and self.early_exit_threshold < 1.0
+                )
+            )
+        )
+        if adaptive_eval:
+            return self._adaptive_forward(h, _ut_step)
+
         hidden_states_list: list[torch.Tensor] = []
         gate_list: list[torch.Tensor] = []
 
         for _ in range(self.total_ut_steps):
-            for layer in self.layers.values():
-                h = layer(h, self.freqs_cis, attention_masks, positions)
-
-            h = self.norm(h)
+            h = _ut_step(h)
             hidden_states_list.append(h)
             gate_list.append(self.early_exit_gate(h))
 
@@ -228,12 +252,9 @@ class OuroModel(Decoder):
             }
             return out
 
-        # In eval/inference, either force a fixed exit step, use thresholded
-        # cumulative probabilities, or fallback to the final UT step.
-        if self.early_exit_step is not None:
-            step = max(0, min(self.early_exit_step, len(hidden_states_list) - 1))
-            return self.output(hidden_states_list[step])
-
+        # Non-adaptive eval (threshold == 1.0): the thresholded gather below
+        # resolves to the final UT step.  Fixed-step and threshold < 1.0 exits
+        # are handled by the early-terminating _adaptive_forward path above.
         if self.early_exit_threshold is not None:
             cumulative_probs = torch.cumsum(stacked_exit_pdf, dim=2)
             threshold_mask = cumulative_probs >= self.early_exit_threshold
@@ -256,6 +277,57 @@ class OuroModel(Decoder):
 
         output = self.output(h)
         return output
+
+    def _adaptive_forward(self, h: torch.Tensor, ut_step) -> torch.Tensor:
+        """Inference with real early termination of the UT loop.
+
+        Per token position, snapshot the hidden state at the step where it first
+        exits, then break the loop once all positions have exited so the
+        remaining (expensive) UT steps are skipped entirely.  Output is
+        equivalent to the gather-based threshold path in ``forward`` but avoids
+        computing steps no position needs.
+        """
+        # Fixed-step exit: run only up to the requested step, then stop.
+        if self.early_exit_step is not None:
+            step = max(0, min(self.early_exit_step, self.total_ut_steps - 1))
+            for _ in range(step + 1):
+                h = ut_step(h)
+            return self.output(h)
+
+        threshold = self.early_exit_threshold
+        exit_hidden: torch.Tensor | None = None
+        exited: torch.Tensor | None = None
+        cumulative: torch.Tensor | None = None
+        remaining: torch.Tensor | None = None
+
+        for idx in range(self.total_ut_steps):
+            h = ut_step(h)
+            if exit_hidden is None:
+                exit_hidden = torch.zeros_like(h)
+                exited = torch.zeros(
+                    h.shape[:-1], dtype=torch.bool, device=h.device
+                )
+                cumulative = torch.zeros(
+                    h.shape[:-1], dtype=torch.float32, device=h.device
+                )
+                remaining = torch.ones_like(cumulative)
+
+            # Same stick-breaking exit PDF as forward(): lambda_i is the
+            # conditional exit prob at step i; the last step takes all remaining
+            # mass so every position is guaranteed to have exited by the end.
+            lambda_i = torch.sigmoid(self.early_exit_gate(h).squeeze(-1).float())
+            is_last = idx == self.total_ut_steps - 1
+            p_i = remaining if is_last else lambda_i * remaining
+            remaining = remaining * (1.0 - lambda_i)
+            cumulative = cumulative + p_i
+
+            newly = (~exited) & ((cumulative >= threshold) | is_last)
+            exit_hidden = torch.where(newly.unsqueeze(-1), h, exit_hidden)
+            exited = exited | newly
+            if bool(exited.all()):
+                break
+
+        return self.output(exit_hidden)
 
     def init_weights(
         self,

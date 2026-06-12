@@ -45,7 +45,14 @@ def _apply_hf_config_json_overrides(model_config, hf_dir: Path):
     return dataclasses.replace(model_config, **overrides) if overrides else model_config
 
 
-def _load_model(module, config_name, checkpoint_path, hf_checkpoint_path):
+def _load_model(
+    module,
+    config_name,
+    checkpoint_path,
+    hf_checkpoint_path,
+    early_exit_threshold=None,
+    early_exit_step=None,
+):
     config_manager = ConfigManager()
     config = config_manager.parse_args(["--module", module, "--config", config_name])
 
@@ -63,6 +70,17 @@ def _load_model(module, config_name, checkpoint_path, hf_checkpoint_path):
         model_config = _apply_hf_config_json_overrides(
             model_config, Path(hf_checkpoint_path).resolve()
         )
+    # Adaptive early-exit overrides: a threshold < 1.0 makes the trained gate
+    # govern how many UT steps run at inference (see OuroModel._adaptive_forward),
+    # so generation latency reflects the gate's learned exit behavior.
+    exit_overrides: dict = {}
+    if early_exit_threshold is not None:
+        exit_overrides["early_exit_threshold"] = float(early_exit_threshold)
+    if early_exit_step is not None:
+        exit_overrides["early_exit_step"] = int(early_exit_step)
+    if exit_overrides:
+        logger.info(f"Early-exit overrides: {exit_overrides}")
+        model_config = dataclasses.replace(model_config, **exit_overrides)
 
     with torch.device(device):
         model = model_config.build()
@@ -284,6 +302,18 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Limit number of HumanEval problems")
     parser.add_argument("--max_gen_toks", type=int, default=512)
     parser.add_argument("--output_path", default="outputs/humaneval_results.json")
+    parser.add_argument(
+        "--early_exit_threshold",
+        type=float,
+        default=None,
+        help="Override model early_exit_threshold (<1.0 enables adaptive early exit).",
+    )
+    parser.add_argument(
+        "--early_exit_step",
+        type=int,
+        default=None,
+        help="Override model early_exit_step (force a fixed UT exit step).",
+    )
     args = parser.parse_args()
 
     if (args.checkpoint is None) == (args.hf_checkpoint is None):
@@ -296,7 +326,12 @@ def main():
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
     model, tokenizer = _load_model(
-        args.module, args.config, args.checkpoint, args.hf_checkpoint
+        args.module,
+        args.config,
+        args.checkpoint,
+        args.hf_checkpoint,
+        early_exit_threshold=args.early_exit_threshold,
+        early_exit_step=args.early_exit_step,
     )
     device = next(model.parameters()).device
 
@@ -308,12 +343,44 @@ def main():
     )
 
     import lm_eval
+    # Wall-clock of generation+scoring only (excludes model load), used as the
+    # efficiency signal by the Bayesian-optimization objective.
+    gen_t0 = time.time()
     results = lm_eval.simple_evaluate(
         model=lm,
         tasks=["humaneval"],
         limit=args.limit,
         log_samples=True,
+        # humaneval executes model-generated code to score pass@1; lm-eval gates
+        # this behind an explicit opt-in (HF_ALLOW_CODE_EVAL=1 covers the metric,
+        # this covers the task runner). Trusted checkpoints on a trusted cluster.
+        confirm_run_unsafe_code=True,
     )
+    eval_time_s = time.time() - gen_t0
+
+    # lm-eval reports metrics keyed by "<metric>,<filter>" (e.g. "pass@1,create_test"),
+    # not a bare "pass@1", and the filter suffix varies across versions. Match on the
+    # metric name before the comma so we don't break on the suffix.
+    he_results = results["results"]["humaneval"]
+    try:
+        pass_at_1 = float(he_results["pass@1"])
+    except KeyError:
+        pass_keys = [k for k in he_results if k.split(",")[0] == "pass@1"]
+        if not pass_keys:
+            raise KeyError(
+                f"no pass@1 metric in humaneval results; keys={list(he_results)}"
+            )
+        pass_at_1 = float(he_results[pass_keys[0]])
+    # Compact, stable summary the BO objective parses (full lm-eval dump is large
+    # and schema-variable across versions).
+    results["ouro_eval_summary"] = {
+        "pass@1": pass_at_1,
+        "eval_time_s": eval_time_s,
+        "limit": args.limit,
+        "max_gen_toks": args.max_gen_toks,
+        "early_exit_threshold": args.early_exit_threshold,
+        "early_exit_step": args.early_exit_step,
+    }
 
     import json, pathlib
     out = pathlib.Path(args.output_path)
@@ -322,7 +389,7 @@ def main():
         json.dump(results, f, indent=2, default=str)
 
     logger.info(f"Results saved to {out}")
-    logger.info(f"pass@1 = {results['results']['humaneval']['pass@1']:.4f}")
+    logger.info(f"pass@1 = {pass_at_1:.4f}  eval_time_s = {eval_time_s:.2f}")
 
 
 if __name__ == "__main__":

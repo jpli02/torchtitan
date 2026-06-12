@@ -124,6 +124,7 @@ def loop_lm_adaptive_gate_loss_sum(
     gate_lambda = pred["gate_lambda"]
     t_max = int(pred.get("total_ut_steps", gate_lambda.shape[-1]))
     b, s, v, _t = step_logits.shape
+    assert _t == t_max, f"step_logits T={_t} != total_ut_steps={t_max}"
     valid = (labels != IGNORE_INDEX).to(step_logits.dtype)
     n_valid = valid.sum().clamp(min=1)
 
@@ -143,7 +144,12 @@ def loop_lm_adaptive_gate_loss_sum(
 
     eps = 1e-7
     total = gate_lambda.new_zeros(())
-    for t_idx in range(1, _t):
+    # Only train gates 1..T-2 (0-indexed). The last gate (index _t-1) is never
+    # used in the exit PDF — the forward forces all remaining probability mass
+    # onto the last step regardless of lambda_{T-1}. Including it would send
+    # gradient to the shared early_exit_gate through a semantically undefined
+    # path and could corrupt gate behavior at earlier steps.
+    for t_idx in range(1, _t - 1):
         improvement = F.relu(L_stop[:, :, t_idx - 1] - L_stop[:, :, t_idx])
         w = torch.sigmoid(k * (improvement - gamma))
         lam = gate_lambda[:, :, t_idx].clamp(eps, 1.0 - eps)
