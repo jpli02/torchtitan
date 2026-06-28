@@ -4,10 +4,10 @@
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=120g
-#SBATCH --time=02:00:00
+#SBATCH --gpus-per-node=2
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=80g
+#SBATCH --time=06:00:00
 #SBATCH --output=logs/ouro_he_ep_%j.out
 #SBATCH --error=logs/ouro_he_ep_%j.err
 
@@ -34,7 +34,7 @@ MODULE=${MODULE:-ouro}
 CONFIG=${CONFIG:-ouro_1_4b}
 HF_CHECKPOINT=${HF_CHECKPOINT:-./assets/hf/Ouro-1.4B}
 MAX_GEN_TOKS=${MAX_GEN_TOKS:-1024}
-NUM_SHARDS=${NUM_SHARDS:-4}   # one disjoint problem shard per GPU (data parallel)
+NUM_SHARDS=${NUM_SHARDS:-2}   # one disjoint problem shard per GPU (data parallel)
 EARLY_EXIT_THRESHOLD=${EARLY_EXIT_THRESHOLD:-1.0}   # 1.0 = full R=4 recurrence
 LIMIT=${LIMIT:-}
 # CHAT=1 => ChatML protocol (required for the released instruct-style Ouro-1.4B,
@@ -48,6 +48,8 @@ LIMIT_ARG=""
 [ -n "$LIMIT" ] && LIMIT_ARG="--limit $LIMIT"
 CHAT_ARG=""
 [ -n "$CHAT" ] && CHAT_ARG="--chat"
+# EVALPLUS_PROMPT=1 => EvalPlus's canonical instruct prompt (paper protocol).
+[ -n "${EVALPLUS_PROMPT:-}" ] && CHAT_ARG="--evalplus_prompt"
 
 # 1) Generate raw completions, one disjoint shard per GPU.
 for i in $(seq 0 $((NUM_SHARDS - 1))); do

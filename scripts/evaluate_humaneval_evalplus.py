@@ -96,6 +96,48 @@ def _generate_chat_completion(
     return lm._extract_chat_body(text, req)
 
 
+# EvalPlus's canonical instruct prompt (provider/utility.py::make_raw_chat_prompt,
+# codegen.py prefixes) -- the protocol the paper used for the EvalPlus code number.
+_EVALPLUS_INSTRUCTION = (
+    "Please provide a self-contained Python script that solves the following "
+    "problem in a markdown code block:"
+)
+_EVALPLUS_RESPONSE = (
+    "Below is a Python script with a self-contained function that solves the "
+    "problem and passes corresponding tests:"
+)
+
+
+def _generate_evalplus_chat(lm: OuroLM, prompt: str, max_new: int) -> str:
+    """Generate a full self-contained solution using EvalPlus's canonical prompt.
+
+    Replicates ``evalplus.provider.utility.make_raw_chat_prompt``: a user turn
+    asking for a self-contained script (the problem fenced in ```), with the
+    assistant turn *prefilled* by EvalPlus's response prefix and an opening
+    ```python fence so the model continues inside it. (We append the prefill
+    after ``add_generation_prompt`` instead of EvalPlus's magic-splitter trick;
+    the resulting token stream is identical.) Returns the full script -- the
+    caller submits it verbatim and EvalPlus sanitize extracts the entry function.
+    """
+    user = f"{_EVALPLUS_INSTRUCTION}\n```\n{prompt.strip()}\n```\n"
+    prompt_str = lm._tokenizer.apply_chat_template(
+        [{"role": "user", "content": user}], add_generation_prompt=True
+    ) + f"{_EVALPLUS_RESPONSE}\n```python\n"
+    input_ids = torch.tensor(
+        lm._tokenizer.encode(prompt_str, add_bos=lm._add_bos, add_eos=False),
+        dtype=torch.long, device=lm._device,
+    ).unsqueeze(0)
+    if input_ids.shape[1] > lm._max_length - max_new:
+        input_ids = input_ids[:, -(lm._max_length - max_new):]
+    extra_stop = {lm._im_end_id} if lm._im_end_id is not None else set()
+    gen_ids = lm._greedy_until(input_ids, [], max_new, extra_stop_token_ids=extra_stop)
+    text = lm._tokenizer.decode(gen_ids[0].tolist())
+    # The model continues inside the opened ```python fence; cut at its close.
+    if "```" in text:
+        text = text[: text.index("```")]
+    return text
+
+
 def main():
     p = argparse.ArgumentParser(description="Generate EvalPlus HumanEval samples for Ouro")
     p.add_argument("--module", required=True)
@@ -116,6 +158,12 @@ def main():
         help="Use the ChatML chat protocol (SFT-matched: apply_chat_template + "
         "body extraction) instead of raw completion. Required for the released "
         "instruct-style Ouro-1.4B, which echoes the prompt under raw completion.",
+    )
+    p.add_argument(
+        "--evalplus_prompt", action="store_true",
+        help="Use EvalPlus's canonical instruct prompt (self-contained-script "
+        "instruction + assistant prefill), matching the paper's EvalPlus protocol. "
+        "Implies chat formatting; the full generated script is submitted as-is.",
     )
     p.add_argument("--output_path", default="outputs/he_evalplus/samples.jsonl")
     args = p.parse_args()
@@ -138,11 +186,13 @@ def main():
         early_exit_step=args.early_exit_step,
     )
     device = next(model.parameters()).device
-    # chat=False => raw base-completion protocol; chat=True forces add_bos and
-    # uses the SFT-matched ChatML wrapper (OuroLM sets _add_bos/_im_end_id).
+    # --evalplus_prompt implies chat formatting (needs _im_end_id / chat template).
+    use_chat = args.chat or args.evalplus_prompt
     lm = OuroLM(model=model, tokenizer=tokenizer, device=device,
-                max_gen_toks=args.max_gen_toks, add_bos=False, chat=args.chat)
-    logger.info(f"Protocol: {'chat (ChatML)' if args.chat else 'raw completion'}")
+                max_gen_toks=args.max_gen_toks, add_bos=False, chat=use_chat)
+    protocol = ("evalplus-canonical chat" if args.evalplus_prompt
+                else "chat (ChatML)" if args.chat else "raw completion")
+    logger.info(f"Protocol: {protocol}")
 
     problems = get_human_eval_plus()
     task_ids = sorted(problems.keys())
@@ -160,15 +210,19 @@ def main():
     with out.open("w") as f:
         for i, tid in enumerate(shard, 1):
             prompt = problems[tid]["prompt"]
-            if args.chat:
-                completion = _generate_chat_completion(
+            if args.evalplus_prompt:
+                # Full self-contained script; submit verbatim (sanitize extracts).
+                solution = _generate_evalplus_chat(lm, prompt, args.max_gen_toks)
+            elif args.chat:
+                # Body that continues the prompt -> submit prompt + body.
+                solution = prompt + _generate_chat_completion(
                     lm, prompt, problems[tid]["entry_point"], args.max_gen_toks
                 )
             else:
-                completion = _generate_completion(lm, prompt, args.max_gen_toks)
-            # EvalPlus accepts a full-program "solution"; prompt + body is the
-            # standard base-completion submission (sanitize extracts the function).
-            f.write(json.dumps({"task_id": tid, "solution": prompt + completion}) + "\n")
+                # Raw base completion -> submit prompt + completion.
+                solution = prompt + _generate_completion(lm, prompt, args.max_gen_toks)
+            f.write(json.dumps({"task_id": tid, "solution": solution}) + "\n")
+            f.flush()  # persist per-problem so a wall-time kill keeps partial output
             if i % 10 == 0:
                 logger.info(f"  {i}/{len(shard)}  ({time.time() - t0:.0f}s)")
 

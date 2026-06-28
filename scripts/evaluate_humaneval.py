@@ -13,6 +13,7 @@ import argparse
 import copy
 import dataclasses
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -139,6 +140,9 @@ class OuroLM(LM):
         max_length: int = 2048,
         max_gen_toks: int = 512,
         batch_size: int = 1,
+        add_bos: bool = False,
+        chat: bool = False,
+        chat_add_bos: bool = False,
     ):
         super().__init__()
         self._model = model
@@ -147,12 +151,35 @@ class OuroLM(LM):
         self._max_length = max_length
         self._max_gen_toks = max_gen_toks
         self._batch_size = batch_size
+        # Ouro's tokenizer (StarCoder2/SmolLM family) sets add_bos_token=False;
+        # bos==eos==unk==<|endoftext|> (id 0). The HF quick-start tokenizes with
+        # no leading BOS, so prepending one inserts a document-boundary token
+        # the base model never sees before a completion and degrades greedy
+        # decoding. Default off; flip via --add_bos to A/B test.
+        #
+        # Chat mode (--chat) wraps prompts in ChatML via apply_chat_template. The
+        # released base model's chat template starts directly with <|im_start|>
+        # and its tokenizer is add_bos_token=False, so the *native* chat usage
+        # adds no leading BOS -- that is now the default (chat_add_bos=False).
+        # --chat_force_bos restores the legacy leading-BOS behavior for A/B.
+        self._chat = chat
+        self._add_bos = chat_add_bos if chat else add_bos
+        # `<|im_end|>` (id 2) closes an assistant turn in ChatML; stop on it as
+        # well as EOS when generating chat completions.
+        self._im_end_id = self._tokenizer.token_to_id("<|im_end|>") if chat else None
 
     # --- required properties ------------------------------------------------
 
     @property
     def eot_token_id(self) -> int:
-        return getattr(self._tokenizer, "eos_id", 2)
+        # getattr(.., "eos_id", default) returns the default only when the
+        # attribute is absent; this tokenizer *has* eos_id but it is None, so
+        # fall back through bos_id (also <|endoftext|>) to the literal id 0.
+        for attr in ("eos_id", "bos_id"):
+            val = getattr(self._tokenizer, attr, None)
+            if val is not None:
+                return val
+        return 0
 
     @property
     def max_length(self) -> int:
@@ -177,9 +204,13 @@ class OuroLM(LM):
         input_ids: torch.Tensor,
         stop_ids: list[list[int]],
         max_new_tokens: int,
+        extra_stop_token_ids: set[int] | None = None,
     ) -> torch.Tensor:
         generated = input_ids
         prompt_len = input_ids.shape[1]
+        stop_token_ids = {self.eot_token_id}
+        if extra_stop_token_ids:
+            stop_token_ids |= extra_stop_token_ids
         with torch.no_grad():
             for _ in range(max_new_tokens):
                 logits = self._model(generated)
@@ -187,18 +218,19 @@ class OuroLM(LM):
                 generated = torch.cat(
                     [generated, torch.tensor([[next_tok]], device=self._device)], dim=1
                 )
-                if next_tok == self.eot_token_id:
+                if next_tok in stop_token_ids:
                     break
                 # check stop strings on newly generated text
-                gen_text = self._tokenizer.decode(
-                    generated[0, prompt_len:].tolist()
-                )
-                if any(
-                    self._tokenizer.decode(s) in gen_text
-                    for s in stop_ids
-                    if s
-                ):
-                    break
+                if stop_ids:
+                    gen_text = self._tokenizer.decode(
+                        generated[0, prompt_len:].tolist()
+                    )
+                    if any(
+                        self._tokenizer.decode(s) in gen_text
+                        for s in stop_ids
+                        if s
+                    ):
+                        break
         return generated[:, prompt_len:]
 
     def generate_until(self, requests) -> list[str]:
@@ -211,14 +243,28 @@ class OuroLM(LM):
                 self._max_gen_toks,
             )
 
-            # Encode stop strings to token IDs for early exit detection
-            stop_ids = [
-                self._tokenizer.encode(s, add_bos=False, add_eos=False)
-                for s in until
-            ]
+            if self._chat:
+                # ChatML completion (SFT-matched). The base `until` stop strings
+                # (\nclass, \ndef, ...) would prematurely cut a multi-line fenced
+                # solution, so we don't use them here; the assistant turn ends at
+                # <|im_end|>/EOS instead.
+                prompt_str = self._tokenizer.apply_chat_template(
+                    [{"role": "user", "content": self._chat_user_content(ctx)}],
+                    add_generation_prompt=True,
+                )
+                stop_ids: list[list[int]] = []
+                extra_stop = {self._im_end_id} if self._im_end_id is not None else set()
+            else:
+                prompt_str = ctx
+                # Encode stop strings to token IDs for early exit detection
+                stop_ids = [
+                    self._tokenizer.encode(s, add_bos=False, add_eos=False)
+                    for s in until
+                ]
+                extra_stop = set()
 
             input_ids = torch.tensor(
-                self._tokenizer.encode(ctx, add_bos=True, add_eos=False),
+                self._tokenizer.encode(prompt_str, add_bos=self._add_bos, add_eos=False),
                 dtype=torch.long,
                 device=self._device,
             ).unsqueeze(0)
@@ -231,16 +277,97 @@ class OuroLM(LM):
                 logger.info(f"HumanEval generate {i + 1}/{len(requests)}")
                 sys.stdout.flush()
 
-            gen_ids = self._greedy_until(input_ids, stop_ids, max_new)
+            gen_ids = self._greedy_until(
+                input_ids, stop_ids, max_new, extra_stop_token_ids=extra_stop
+            )
             text = self._tokenizer.decode(gen_ids[0].tolist())
 
-            # Trim at any stop string
-            for s in until:
-                if s in text:
-                    text = text[: text.index(s)]
+            if self._chat:
+                # The HumanEval scorer composes `doc["prompt"] + completion`
+                # (lm_eval humaneval build_predictions), so reduce the chat
+                # response to the function body that continues the prompt.
+                text = self._extract_chat_body(text, req)
+            else:
+                # Trim at any stop string
+                for s in until:
+                    if s in text:
+                        text = text[: text.index(s)]
 
             results.append(text)
         return results
+
+    @staticmethod
+    def _chat_user_content(ctx: str) -> str:
+        """Wrap a HumanEval prompt as a single user instruction (body-only).
+
+        The SFT data (OpenHands trajectories) has no function-completion turn,
+        so there is no exact template to copy; we mirror the *format* (a ChatML
+        user turn the model answers). We ask for **only the function body** (not
+        a regenerated signature/docstring) so the model spends its token budget
+        and the no-KV-cache greedy loop's wall-clock on the implementation, not
+        on re-emitting the prompt — important across a BO sweep. The extractor
+        still tolerates a disobedient full-function response.
+        """
+        return (
+            "Complete the following Python function. Reply with ONLY the "
+            "function body (the indented statements that go after the signature "
+            "and docstring) inside a ```python code block; do not repeat the "
+            "signature or docstring.\n\n```python\n" + ctx.rstrip() + "\n```"
+        )
+
+    def _extract_chat_body(self, text: str, req) -> str:
+        """Reduce a chat response to the indented body that follows the prompt.
+
+        ``build_predictions`` prepends ``doc["prompt"]`` (signature + docstring),
+        so the returned completion must be the *indented body*. Steps:
+          1. Take the first fenced code block (or the raw text).
+          2. If the model disobeyed and re-emitted ``def <entry_point>(...):``,
+             drop through that signature line (a re-emitted docstring after it is
+             a harmless bare string expression).
+          3. Ensure the body is indented under the function: if its first
+             non-empty line is indented < 4 spaces, indent every non-blank line
+             by 4 spaces (preserving relative structure) so ``prompt + body`` is
+             valid Python.
+        """
+        entry_point = ""
+        try:
+            entry_point = req.doc.get("entry_point", "")  # lm-eval attaches doc
+        except Exception:
+            pass
+
+        m = re.search(r"```(?:python)?[ \t]*\n(.*?)(?:```|\Z)", text, re.DOTALL)
+        code = m.group(1) if m else text
+
+        if entry_point:
+            lines = code.splitlines()
+            for idx, line in enumerate(lines):
+                if re.match(rf"\s*def\s+{re.escape(entry_point)}\b", line):
+                    # Skip the (possibly multi-line) signature up to its ':'.
+                    sig_end = idx
+                    while sig_end < len(lines) and not lines[sig_end].rstrip().endswith(":"):
+                        sig_end += 1
+                    code = "\n".join(lines[sig_end + 1:])
+                    break
+
+        return self._ensure_body_indent(code)
+
+    @staticmethod
+    def _ensure_body_indent(code: str, indent: str = "    ") -> str:
+        """Indent a function body by 4 spaces if it came back at column 0.
+
+        Body-only responses often omit the leading indentation; without it,
+        ``prompt + body`` would put statements outside the function. If the
+        first non-empty line is under-indented, shift all non-blank lines right
+        by one level, preserving relative indentation.
+        """
+        lines = code.split("\n")
+        first = next((ln for ln in lines if ln.strip()), None)
+        if first is None:
+            return code
+        leading = len(first) - len(first.lstrip())
+        if leading >= len(indent):
+            return code
+        return "\n".join((indent + ln) if ln.strip() else ln for ln in lines)
 
     # --- log-likelihood (required by lm-eval) --------------------------------
 
@@ -250,11 +377,11 @@ class OuroLM(LM):
             ctx, cont = req.args
             full = ctx + cont
             input_ids = torch.tensor(
-                self._tokenizer.encode(full, add_bos=True, add_eos=False),
+                self._tokenizer.encode(full, add_bos=self._add_bos, add_eos=False),
                 dtype=torch.long,
                 device=self._device,
             ).unsqueeze(0)
-            ctx_len = len(self._tokenizer.encode(ctx, add_bos=True, add_eos=False))
+            ctx_len = len(self._tokenizer.encode(ctx, add_bos=self._add_bos, add_eos=False))
 
             with torch.no_grad():
                 logits = self._model(input_ids)
@@ -276,7 +403,7 @@ class OuroLM(LM):
         for req in requests:
             (text,) = req.args
             input_ids = torch.tensor(
-                self._tokenizer.encode(text, add_bos=True, add_eos=True),
+                self._tokenizer.encode(text, add_bos=self._add_bos, add_eos=True),
                 dtype=torch.long,
                 device=self._device,
             ).unsqueeze(0)
@@ -290,6 +417,50 @@ class OuroLM(LM):
 
 
 # ---------------------------------------------------------------------------
+# Evaluation driver (supports data-parallel sharding)
+# ---------------------------------------------------------------------------
+
+def _run_humaneval(lm, limit, num_shards, shard_index):
+    """Run HumanEval, optionally on a stride shard of the problem set.
+
+    num_shards <= 1  -> full set via simple_evaluate (unchanged path).
+    num_shards  > 1  -> slice the task's test split to problems[shard_index::
+    num_shards] (after applying `limit`) and run the lower-level evaluator so
+    each GPU process scores only its disjoint subset. Returns the lm-eval
+    results dict.
+    """
+    import lm_eval
+
+    if num_shards <= 1:
+        return lm_eval.simple_evaluate(
+            model=lm,
+            tasks=["humaneval"],
+            limit=limit,
+            log_samples=True,
+            confirm_run_unsafe_code=True,
+        )
+
+    from lm_eval import evaluator
+    from lm_eval.tasks import get_task_dict, TaskManager
+
+    task_dict = get_task_dict(["humaneval"], TaskManager())
+    task = task_dict["humaneval"]
+    split = "test" if task.has_test_docs() else "validation"
+    keep = list(range(len(task.dataset[split])))
+    if limit:
+        keep = keep[:limit]
+    shard = keep[shard_index::num_shards]
+    task.dataset[split] = task.dataset[split].select(shard)
+    return evaluator.evaluate(
+        lm=lm,
+        task_dict=task_dict,
+        limit=None,
+        log_samples=True,
+        confirm_run_unsafe_code=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -300,6 +471,15 @@ def main():
     parser.add_argument("--checkpoint", help="DCP checkpoint path (e.g. outputs/checkpoint/step-500)")
     parser.add_argument("--hf_checkpoint", help="HF safetensors checkpoint directory")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of HumanEval problems")
+    parser.add_argument(
+        "--num_shards", type=int, default=1,
+        help="Split the (limited) problem set into this many disjoint shards for "
+        "data-parallel eval; run one process per GPU with a distinct --shard_index.",
+    )
+    parser.add_argument(
+        "--shard_index", type=int, default=0,
+        help="Which shard (0..num_shards-1) this process evaluates: problems[shard_index::num_shards].",
+    )
     parser.add_argument("--max_gen_toks", type=int, default=512)
     parser.add_argument("--output_path", default="outputs/humaneval_results.json")
     parser.add_argument(
@@ -313,6 +493,28 @@ def main():
         type=int,
         default=None,
         help="Override model early_exit_step (force a fixed UT exit step).",
+    )
+    parser.add_argument(
+        "--add_bos",
+        action="store_true",
+        help="Prepend a BOS (<|endoftext|>) token to each prompt. Off by "
+        "default: Ouro's tokenizer uses add_bos_token=False, and a leading "
+        "BOS degrades greedy completion. Ignored (forced on) under --chat.",
+    )
+    parser.add_argument(
+        "--chat",
+        action="store_true",
+        help="Format prompts with the ChatML chat template (SFT-matched: "
+        "apply_chat_template + add_bos). Use for the instruction/SFT'd model; "
+        "stops at <|im_end|>/EOS and extracts the function body from the "
+        "assistant turn. Off => raw base-completion protocol.",
+    )
+    parser.add_argument(
+        "--chat_force_bos",
+        action="store_true",
+        help="Under --chat, prepend a leading BOS before the ChatML template "
+        "(legacy behavior). Default: no BOS, matching the released model's "
+        "add_bos_token=False native chat usage.",
     )
     args = parser.parse_args()
 
@@ -340,22 +542,23 @@ def main():
         tokenizer=tokenizer,
         device=device,
         max_gen_toks=args.max_gen_toks,
+        add_bos=args.add_bos,
+        chat=args.chat,
+        chat_add_bos=args.chat_force_bos,
     )
 
     import lm_eval
+    # Zero the loops-per-token accumulators so avg_loops reflects only this eval.
+    if hasattr(model, "reset_loop_stats"):
+        model.reset_loop_stats()
     # Wall-clock of generation+scoring only (excludes model load), used as the
     # efficiency signal by the Bayesian-optimization objective.
     gen_t0 = time.time()
-    results = lm_eval.simple_evaluate(
-        model=lm,
-        tasks=["humaneval"],
-        limit=args.limit,
-        log_samples=True,
-        # humaneval executes model-generated code to score pass@1; lm-eval gates
-        # this behind an explicit opt-in (HF_ALLOW_CODE_EVAL=1 covers the metric,
-        # this covers the task runner). Trusted checkpoints on a trusted cluster.
-        confirm_run_unsafe_code=True,
-    )
+    # humaneval executes model-generated code to score pass@1; lm-eval gates this
+    # behind an explicit opt-in (HF_ALLOW_CODE_EVAL=1 covers the metric). Trusted
+    # checkpoints on a trusted cluster. num_shards>1 evaluates problems[
+    # shard_index::num_shards] for data-parallel eval across GPUs.
+    results = _run_humaneval(lm, args.limit, args.num_shards, args.shard_index)
     eval_time_s = time.time() - gen_t0
 
     # lm-eval reports metrics keyed by "<metric>,<filter>" (e.g. "pass@1,create_test"),
@@ -373,13 +576,35 @@ def main():
         pass_at_1 = float(he_results[pass_keys[0]])
     # Compact, stable summary the BO objective parses (full lm-eval dump is large
     # and schema-variable across versions).
+    # Average UT loops per generated token (efficiency signal). None when the
+    # adaptive path never ran (e.g. threshold == 1.0 full-recurrence baseline,
+    # where every token uses total_ut_steps loops by construction).
+    avg_loops = getattr(model, "avg_loops", None)
+    total_ut_steps = getattr(model, "total_ut_steps", None)
+    if avg_loops is None and total_ut_steps is not None and (
+        args.early_exit_threshold is None or args.early_exit_threshold >= 1.0
+    ):
+        avg_loops = float(total_ut_steps)
+    # Raw loop accumulators + this shard's problem count so a parent process can
+    # aggregate across shards exactly: pass@1 = Sum(correct)/Sum(problems),
+    # avg_loops = Sum(loop_sum)/Sum(loop_count).
+    n_problems = len(results.get("samples", {}).get("humaneval", []))
     results["ouro_eval_summary"] = {
         "pass@1": pass_at_1,
         "eval_time_s": eval_time_s,
+        "avg_loops": avg_loops,
+        "total_ut_steps": total_ut_steps,
+        "n_problems": n_problems,
+        "loop_sum": getattr(model, "_loop_sum", None),
+        "loop_count": getattr(model, "_loop_count", None),
+        "num_shards": args.num_shards,
+        "shard_index": args.shard_index,
         "limit": args.limit,
         "max_gen_toks": args.max_gen_toks,
         "early_exit_threshold": args.early_exit_threshold,
         "early_exit_step": args.early_exit_step,
+        "chat": args.chat,
+        "add_bos": args.add_bos or args.chat,
     }
 
     import json, pathlib
@@ -389,7 +614,11 @@ def main():
         json.dump(results, f, indent=2, default=str)
 
     logger.info(f"Results saved to {out}")
-    logger.info(f"pass@1 = {pass_at_1:.4f}  eval_time_s = {eval_time_s:.2f}")
+    _al = "n/a" if avg_loops is None else f"{avg_loops:.3f}"
+    logger.info(
+        f"pass@1 = {pass_at_1:.4f}  eval_time_s = {eval_time_s:.2f}  "
+        f"avg_loops = {_al}"
+    )
 
 
 if __name__ == "__main__":
