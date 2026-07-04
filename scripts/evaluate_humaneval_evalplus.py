@@ -108,7 +108,13 @@ _EVALPLUS_RESPONSE = (
 )
 
 
-def _generate_evalplus_chat(lm: OuroLM, prompt: str, max_new: int) -> str:
+def _generate_evalplus_chat(
+    lm: OuroLM,
+    prompt: str,
+    max_new: int,
+    system_prompt: str | None = None,
+    prefill: bool = True,
+) -> str:
     """Generate a full self-contained solution using EvalPlus's canonical prompt.
 
     Replicates ``evalplus.provider.utility.make_raw_chat_prompt``: a user turn
@@ -118,11 +124,24 @@ def _generate_evalplus_chat(lm: OuroLM, prompt: str, max_new: int) -> str:
     after ``add_generation_prompt`` instead of EvalPlus's magic-splitter trick;
     the resulting token stream is identical.) Returns the full script -- the
     caller submits it verbatim and EvalPlus sanitize extracts the entry function.
+
+    Prompt-sweep levers for closing the gap to the paper's 0.744:
+    - ``system_prompt``: None keeps the tokenizer template's silently-injected
+      default ("You are a helpful assistant."); pass "" to suppress it (empty
+      system turn) or any string to set a code-specific system message.
+    - ``prefill``: False drops EvalPlus's assistant response prefix + ```python
+      fence, letting the model open its own fence (sanitize still extracts).
     """
     user = f"{_EVALPLUS_INSTRUCTION}\n```\n{prompt.strip()}\n```\n"
+    messages = []
+    if system_prompt is not None:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user})
     prompt_str = lm._tokenizer.apply_chat_template(
-        [{"role": "user", "content": user}], add_generation_prompt=True
-    ) + f"{_EVALPLUS_RESPONSE}\n```python\n"
+        messages, add_generation_prompt=True
+    )
+    if prefill:
+        prompt_str = prompt_str + f"{_EVALPLUS_RESPONSE}\n```python\n"
     input_ids = torch.tensor(
         lm._tokenizer.encode(prompt_str, add_bos=lm._add_bos, add_eos=False),
         dtype=torch.long, device=lm._device,
@@ -132,9 +151,12 @@ def _generate_evalplus_chat(lm: OuroLM, prompt: str, max_new: int) -> str:
     extra_stop = {lm._im_end_id} if lm._im_end_id is not None else set()
     gen_ids = lm._greedy_until(input_ids, [], max_new, extra_stop_token_ids=extra_stop)
     text = lm._tokenizer.decode(gen_ids[0].tolist())
-    # The model continues inside the opened ```python fence; cut at its close.
-    if "```" in text:
-        text = text[: text.index("```")]
+    if prefill:
+        # The model continues inside the opened ```python fence; cut at its close.
+        if "```" in text:
+            text = text[: text.index("```")]
+    # Without prefill the model emits its own markdown; hand the full turn to
+    # evalplus.sanitize, which extracts the fenced code / entry function.
     return text
 
 
@@ -154,6 +176,12 @@ def main():
     p.add_argument("--shard_index", type=int, default=0)
     p.add_argument("--limit", type=int, default=None, help="Cap #problems (quick check).")
     p.add_argument(
+        "--task_ids_file", default=None,
+        help="File with one HumanEval task_id per line; restrict generation to "
+        "these (applied before sharding). For targeted re-tests, e.g. only the "
+        "problems that failed a prior run.",
+    )
+    p.add_argument(
         "--chat", action="store_true",
         help="Use the ChatML chat protocol (SFT-matched: apply_chat_template + "
         "body extraction) instead of raw completion. Required for the released "
@@ -164,6 +192,22 @@ def main():
         help="Use EvalPlus's canonical instruct prompt (self-contained-script "
         "instruction + assistant prefill), matching the paper's EvalPlus protocol. "
         "Implies chat formatting; the full generated script is submitted as-is.",
+    )
+    p.add_argument(
+        "--fp32", action="store_true",
+        help="Run the model forward in float32 (vs default bf16) to test whether "
+        "precision is part of the gap to the paper.",
+    )
+    p.add_argument(
+        "--system_prompt", type=str, default=None,
+        help="(evalplus_prompt only) System message. Omit to keep the chat "
+        "template's default 'You are a helpful assistant.'; pass '' to suppress "
+        "it, or a string to set a code-specific system prompt.",
+    )
+    p.add_argument(
+        "--no_prefill", action="store_true",
+        help="(evalplus_prompt only) Drop EvalPlus's assistant response prefix + "
+        "```python prefill; let the model open its own fence.",
     )
     p.add_argument("--output_path", default="outputs/he_evalplus/samples.jsonl")
     args = p.parse_args()
@@ -185,6 +229,11 @@ def main():
         early_exit_threshold=args.early_exit_threshold,
         early_exit_step=args.early_exit_step,
     )
+    if args.fp32:
+        # Run the whole forward in float32 to test whether bf16 precision (matmul
+        # accumulation across the deep UT stack) is costing pass@1 vs the paper.
+        model = model.to(torch.float32)
+        logger.info("Running model in float32")
     device = next(model.parameters()).device
     # --evalplus_prompt implies chat formatting (needs _im_end_id / chat template).
     use_chat = args.chat or args.evalplus_prompt
@@ -193,9 +242,24 @@ def main():
     protocol = ("evalplus-canonical chat" if args.evalplus_prompt
                 else "chat (ChatML)" if args.chat else "raw completion")
     logger.info(f"Protocol: {protocol}")
+    if args.evalplus_prompt:
+        sys_desc = ("template-default" if args.system_prompt is None
+                    else "suppressed" if args.system_prompt == ""
+                    else repr(args.system_prompt))
+        logger.info(f"  system_prompt={sys_desc} | prefill={not args.no_prefill}")
 
     problems = get_human_eval_plus()
     task_ids = sorted(problems.keys())
+    if args.task_ids_file:
+        wanted = [l.strip() for l in open(args.task_ids_file) if l.strip()]
+        missing = [t for t in wanted if t not in problems]
+        if missing:
+            raise SystemExit(
+                f"--task_ids_file has {len(missing)} id(s) not in HumanEval: "
+                f"{missing[:5]}"
+            )
+        task_ids = sorted(set(wanted))
+        logger.info(f"Restricted to {len(task_ids)} task_ids from {args.task_ids_file}")
     if args.limit:
         task_ids = task_ids[: args.limit]
     shard = task_ids[args.shard_index :: args.num_shards]
@@ -212,7 +276,10 @@ def main():
             prompt = problems[tid]["prompt"]
             if args.evalplus_prompt:
                 # Full self-contained script; submit verbatim (sanitize extracts).
-                solution = _generate_evalplus_chat(lm, prompt, args.max_gen_toks)
+                solution = _generate_evalplus_chat(
+                    lm, prompt, args.max_gen_toks,
+                    system_prompt=args.system_prompt, prefill=not args.no_prefill,
+                )
             elif args.chat:
                 # Body that continues the prompt -> submit prompt + body.
                 solution = prompt + _generate_chat_completion(

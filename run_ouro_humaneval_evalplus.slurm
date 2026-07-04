@@ -50,6 +50,8 @@ CHAT_ARG=""
 [ -n "$CHAT" ] && CHAT_ARG="--chat"
 # EVALPLUS_PROMPT=1 => EvalPlus's canonical instruct prompt (paper protocol).
 [ -n "${EVALPLUS_PROMPT:-}" ] && CHAT_ARG="--evalplus_prompt"
+# FP32=1 => run the model forward in float32 (precision experiment).
+[ -n "${FP32:-}" ] && CHAT_ARG="$CHAT_ARG --fp32"
 
 # 1) Generate raw completions, one disjoint shard per GPU.
 for i in $(seq 0 $((NUM_SHARDS - 1))); do

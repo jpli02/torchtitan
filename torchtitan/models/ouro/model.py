@@ -151,6 +151,30 @@ class OuroModel(Decoder):
             for name, p in self.named_parameters():
                 if "early_exit_gate" not in name:
                     p.requires_grad_(False)
+        # Inference efficiency instrumentation: running sum/count of the number
+        # of UT loops (recurrence steps) the adaptive early-exit path uses for
+        # the *last* token position of each forward, i.e. loops per generated
+        # token. Populated only by _adaptive_forward (inference; threshold < 1.0
+        # or fixed early_exit_step), never by the training forward() path. Read
+        # and reset per eval by scripts/evaluate_humaneval.py.
+        self._loop_sum: float = 0.0
+        self._loop_count: int = 0
+        # Diagnostic: how many tokens the (now-removed) threshold-gather would
+        # have scored from a pre-final UT step at threshold>=1.0 (see forward()).
+        self._gather_early_exits: int = 0
+        self._gather_total: int = 0
+
+    def reset_loop_stats(self) -> None:
+        """Zero the loops-per-token accumulators (call before an eval pass)."""
+        self._loop_sum = 0.0
+        self._loop_count = 0
+
+    @property
+    def avg_loops(self) -> float | None:
+        """Mean UT loops per generated token since the last reset, or None."""
+        if self._loop_count == 0:
+            return None
+        return self._loop_sum / self._loop_count
 
     def forward(
         self,
@@ -252,28 +276,24 @@ class OuroModel(Decoder):
             }
             return out
 
-        # Non-adaptive eval (threshold == 1.0): the thresholded gather below
-        # resolves to the final UT step.  Fixed-step and threshold < 1.0 exits
-        # are handled by the early-terminating _adaptive_forward path above.
+        # Non-adaptive eval (threshold >= 1.0 => full recurrence): score from the
+        # FINAL UT step, exactly like the HF/vLLM reference. The trained exit gate
+        # is not consulted here.  (Previously a threshold-gather picked the first
+        # step whose cumulative exit-PDF >= threshold; at threshold==1.0 that is
+        # *meant* to be the last step, but a gate saturating to 1.0 in fp32 makes
+        # the cumsum reach 1.0 early and silently scores a token from a less-
+        # refined step -- a divergence from HF.  The counters below record how
+        # often that would have happened so we can quantify the prior bug.)
         if self.early_exit_threshold is not None:
             cumulative_probs = torch.cumsum(stacked_exit_pdf, dim=2)
             threshold_mask = cumulative_probs >= self.early_exit_threshold
             exit_steps = torch.argmax(threshold_mask.float(), dim=2)
             last_step_idx = stacked_exit_pdf.shape[2] - 1
-            if last_step_idx >= 0:
-                never_exceeded = ~threshold_mask.any(dim=2)
-                exit_steps[never_exceeded] = last_step_idx
-
-            stacked_hidden = torch.stack(hidden_states_list, dim=2)
-            gather_index = (
-                exit_steps.unsqueeze(-1)
-                .unsqueeze(-1)
-                .expand(-1, -1, 1, stacked_hidden.size(-1))
-            )
-            final_hidden_states = torch.gather(stacked_hidden, 2, gather_index).squeeze(
-                2
-            )
-            return self.output(final_hidden_states)
+            never_exceeded = ~threshold_mask.any(dim=2)
+            exit_steps[never_exceeded] = last_step_idx
+            self._gather_early_exits += int((exit_steps != last_step_idx).sum())
+            self._gather_total += int(exit_steps.numel())
+            return self.output(hidden_states_list[-1])
 
         output = self.output(h)
         return output
@@ -292,6 +312,10 @@ class OuroModel(Decoder):
             step = max(0, min(self.early_exit_step, self.total_ut_steps - 1))
             for _ in range(step + 1):
                 h = ut_step(h)
+            # Fixed exit: every position (incl. the last/generated one) runs
+            # step+1 loops. Record one sample per batch element.
+            self._loop_sum += float(step + 1) * h.shape[0]
+            self._loop_count += int(h.shape[0])
             return self.output(h)
 
         threshold = self.early_exit_threshold
@@ -299,6 +323,10 @@ class OuroModel(Decoder):
         exited: torch.Tensor | None = None
         cumulative: torch.Tensor | None = None
         remaining: torch.Tensor | None = None
+        # Per-position UT step index at which each token exited (0-based); loops
+        # used == index + 1. Defaults to the last step for any position that
+        # never crosses the threshold (the is_last branch guarantees it does).
+        exit_step_idx: torch.Tensor | None = None
 
         for idx in range(self.total_ut_steps):
             h = ut_step(h)
@@ -311,6 +339,12 @@ class OuroModel(Decoder):
                     h.shape[:-1], dtype=torch.float32, device=h.device
                 )
                 remaining = torch.ones_like(cumulative)
+                exit_step_idx = torch.full(
+                    h.shape[:-1],
+                    self.total_ut_steps - 1,
+                    dtype=torch.long,
+                    device=h.device,
+                )
 
             # Same stick-breaking exit PDF as forward(): lambda_i is the
             # conditional exit prob at step i; the last step takes all remaining
@@ -323,9 +357,18 @@ class OuroModel(Decoder):
 
             newly = (~exited) & ((cumulative >= threshold) | is_last)
             exit_hidden = torch.where(newly.unsqueeze(-1), h, exit_hidden)
+            exit_step_idx = torch.where(
+                newly, torch.full_like(exit_step_idx, idx), exit_step_idx
+            )
             exited = exited | newly
             if bool(exited.all()):
                 break
+
+        # Loops for the last token position (the one whose logits generate the
+        # next token), one sample per batch element.
+        last = exit_step_idx[..., -1]
+        self._loop_sum += float((last + 1).sum().item())
+        self._loop_count += int(last.numel())
 
         return self.output(exit_hidden)
 

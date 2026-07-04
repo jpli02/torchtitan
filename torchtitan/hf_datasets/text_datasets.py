@@ -95,10 +95,11 @@ def _format_msg_for_template(msg: dict[str, Any]) -> dict[str, str]:
     return {"role": role, "content": "\n".join(parts)}
 
 
-def _swe_rebench_sft_tokens(
-    sample: dict[str, Any], tokenizer: BaseTokenizer
+def _sft_tokens_from_messages(
+    messages: list[dict[str, str]], tokenizer: BaseTokenizer
 ) -> tuple[list[int], list[int]]:
-    """SFT tokenisation for one trajectory: only assistant turns carry loss signal.
+    """SFT tokenisation for a {role, content} message list: only assistant turns
+    carry loss signal.
 
     Applies the tokenizer's chat template incrementally (one message at a time)
     to locate each message's exact token span.  Non-assistant tokens are replaced
@@ -109,9 +110,6 @@ def _swe_rebench_sft_tokens(
         label_ids  – parallel sequence; IGNORE_INDEX where the token is not a
                      training target, otherwise identical to token_ids
     """
-    raw_messages = _deserialize_swe_rebench_trajectory(sample)
-    messages = [_format_msg_for_template(m) for m in raw_messages]
-
     token_ids: list[int] = []
     label_ids: list[int] = []
 
@@ -151,6 +149,81 @@ def _swe_rebench_sft_tokens(
     return token_ids, label_ids
 
 
+def _swe_rebench_sft_tokens(
+    sample: dict[str, Any], tokenizer: BaseTokenizer
+) -> tuple[list[int], list[int]]:
+    """SFT tokens for one SWE-rebench trajectory (assistant-only loss)."""
+    raw_messages = _deserialize_swe_rebench_trajectory(sample)
+    messages = [_format_msg_for_template(m) for m in raw_messages]
+    return _sft_tokens_from_messages(messages, tokenizer)
+
+
+# ---------------------------------------------------------------------------
+# nvidia/OpenCodeReasoning  (R1 reasoning traces over competitive-programming
+# problems).  Each row: input (problem statement), output (reasoning+solution),
+# solution, plus source/dataset/split/index metadata.
+#   - split_0: `input` holds the problem statement directly.
+#   - split_1: `input` is the placeholder "-"; the statement must be recovered
+#     from the original BAAI/TACO or codeparrot/apps row via (dataset, split,
+#     index).  Those side datasets are loaded once and cached on first use.
+# SFT format: a single user turn (problem) + assistant turn (reasoning+solution),
+# trained assistant-only via _sft_tokens_from_messages.
+# ---------------------------------------------------------------------------
+
+_OCR_SIDE_DATASET_PATHS = {"taco": "BAAI/TACO", "apps": "codeparrot/apps"}
+# Lazily-populated cache: source name -> loaded (map-style) DatasetDict.
+_OCR_SIDE_DATASETS: dict[str, Any] = {}
+
+
+def _load_open_code_reasoning_dataset(dataset_path: str, split: str):
+    """Stream one OpenCodeReasoning split (config name == split name)."""
+    return load_dataset(dataset_path, name=split, split=split, streaming=True)
+
+
+def _ocr_question(sample: dict[str, Any]) -> str:
+    """Problem statement for a row: ``input`` directly, or reconstructed from the
+    original TACO/APPS row for split_1 (where ``input`` is the placeholder "-")."""
+    question = sample.get("input", "")
+    if question != "-":
+        return question
+
+    source = sample["dataset"]
+    if source not in _OCR_SIDE_DATASET_PATHS:
+        raise ValueError(
+            f"OpenCodeReasoning row needs reconstruction but dataset={source!r} "
+            f"is not one of {list(_OCR_SIDE_DATASET_PATHS)}"
+        )
+    if source not in _OCR_SIDE_DATASETS:
+        logger.info(f"Loading OpenCodeReasoning side dataset {source} for question reconstruction")
+        _OCR_SIDE_DATASETS[source] = load_dataset(
+            _OCR_SIDE_DATASET_PATHS[source], trust_remote_code=True
+        )
+    return _OCR_SIDE_DATASETS[source][sample["split"]][int(sample["index"])]["question"]
+
+
+def _open_code_reasoning_messages(sample: dict[str, Any]) -> list[dict[str, str]]:
+    """One problem as a [user, assistant] chat: assistant = reasoning+solution."""
+    return [
+        {"role": "user", "content": _ocr_question(sample)},
+        {"role": "assistant", "content": sample["output"]},
+    ]
+
+
+def _process_open_code_reasoning_text(sample: dict[str, Any]) -> str:
+    """Non-SFT path: compact JSON of the [user, assistant] message list."""
+    messages = _open_code_reasoning_messages(sample)
+    return json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
+
+
+def _open_code_reasoning_sft_tokens(
+    sample: dict[str, Any], tokenizer: BaseTokenizer
+) -> tuple[list[int], list[int]]:
+    """SFT tokens for one OpenCodeReasoning row (assistant-only loss)."""
+    return _sft_tokens_from_messages(
+        _open_code_reasoning_messages(sample), tokenizer
+    )
+
+
 # Add your dataset here - more information at docs/datasets.md
 DATASETS = {
     "c4": DatasetConfig(
@@ -179,6 +252,38 @@ DATASETS = {
         loader=_load_swe_rebench_openhands_dataset,
         sample_processor=_process_swe_rebench_openhands_text,
         sample_to_tokens=_swe_rebench_sft_tokens,
+    ),
+    # nvidia/OpenCodeReasoning — R1 reasoning traces. split_0's `input` is
+    # self-contained (~568k rows); split_1's question is reconstructed from
+    # TACO/APPS (~167k rows). SFT variants train assistant-only.
+    "open_code_reasoning_split_0": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_0"),
+        sample_processor=_process_open_code_reasoning_text,
+    ),
+    "open_code_reasoning_split_0_sft": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_0"),
+        sample_processor=_process_open_code_reasoning_text,
+        sample_to_tokens=_open_code_reasoning_sft_tokens,
+    ),
+    "open_code_reasoning_split_1": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_1"),
+        sample_processor=_process_open_code_reasoning_text,
+    ),
+    "open_code_reasoning_split_1_sft": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_1"),
+        sample_processor=_process_open_code_reasoning_text,
+        sample_to_tokens=_open_code_reasoning_sft_tokens,
+    ),
+    # Convenience alias: the self-contained split_0 SFT set.
+    "open_code_reasoning_sft": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_0"),
+        sample_processor=_process_open_code_reasoning_text,
+        sample_to_tokens=_open_code_reasoning_sft_tokens,
     ),
 }
 
