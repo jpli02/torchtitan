@@ -114,6 +114,7 @@ def _generate_evalplus_chat(
     max_new: int,
     system_prompt: str | None = None,
     prefill: bool = True,
+    no_system: bool = False,
 ) -> str:
     """Generate a full self-contained solution using EvalPlus's canonical prompt.
 
@@ -131,15 +132,24 @@ def _generate_evalplus_chat(
       system turn) or any string to set a code-specific system message.
     - ``prefill``: False drops EvalPlus's assistant response prefix + ```python
       fence, letting the model open its own fence (sanitize still extracts).
+    - ``no_system``: True removes the system turn *entirely* (no ``<|im_start|>
+      system`` block at all). The tokenizer's ChatML template unconditionally
+      injects a default system turn, so we bypass it and build the ChatML string
+      by hand (user turn + assistant open) to match the template minus the system
+      block. This is the paper author's suggested lever for the base model.
     """
     user = f"{_EVALPLUS_INSTRUCTION}\n```\n{prompt.strip()}\n```\n"
-    messages = []
-    if system_prompt is not None:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": user})
-    prompt_str = lm._tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True
-    )
+    if no_system:
+        # Template always forces a system turn; emit ChatML by hand without one.
+        prompt_str = f"<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n"
+    else:
+        messages = []
+        if system_prompt is not None:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user})
+        prompt_str = lm._tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True
+        )
     if prefill:
         prompt_str = prompt_str + f"{_EVALPLUS_RESPONSE}\n```python\n"
     input_ids = torch.tensor(
@@ -209,6 +219,13 @@ def main():
         help="(evalplus_prompt only) Drop EvalPlus's assistant response prefix + "
         "```python prefill; let the model open its own fence.",
     )
+    p.add_argument(
+        "--no_system", action="store_true",
+        help="(evalplus_prompt only) Remove the system turn ENTIRELY (no "
+        "<|im_start|>system block). The ChatML template always injects a default "
+        "system prompt; this bypasses it. Author-suggested lever for the base "
+        "model on HumanEval. Overrides --system_prompt.",
+    )
     p.add_argument("--output_path", default="outputs/he_evalplus/samples.jsonl")
     args = p.parse_args()
 
@@ -243,7 +260,8 @@ def main():
                 else "chat (ChatML)" if args.chat else "raw completion")
     logger.info(f"Protocol: {protocol}")
     if args.evalplus_prompt:
-        sys_desc = ("template-default" if args.system_prompt is None
+        sys_desc = ("none (no system turn)" if args.no_system
+                    else "template-default" if args.system_prompt is None
                     else "suppressed" if args.system_prompt == ""
                     else repr(args.system_prompt))
         logger.info(f"  system_prompt={sys_desc} | prefill={not args.no_prefill}")
@@ -279,6 +297,7 @@ def main():
                 solution = _generate_evalplus_chat(
                     lm, prompt, args.max_gen_toks,
                     system_prompt=args.system_prompt, prefill=not args.no_prefill,
+                    no_system=args.no_system,
                 )
             elif args.chat:
                 # Body that continues the prompt -> submit prompt + body.
