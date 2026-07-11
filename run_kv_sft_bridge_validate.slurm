@@ -7,19 +7,18 @@
 #SBATCH --gpus-per-node=2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=96g
-#SBATCH --time=01:00:00
+#SBATCH --time=00:45:00
 #SBATCH --output=logs/kv_sft_val_%j.out
 #SBATCH --error=logs/kv_sft_val_%j.err
 
 # Validate the DCP->HF bridge for the KV-cache boptim eval:
-#  1) SFT the exit gate twice with the SAME seed -> identical weights, two formats:
-#       CKPT_DCP (default DCP)   and   CKPT_HF (--checkpoint.last_save_in_hf)
-#  2) assemble CKPT_HF into a full HF model dir (base config/modeling/tokenizer +
-#     the SFT safetensors)
+#  1) SFT the exit gate once and save a DCP checkpoint.
+#  2) convert that exact DCP checkpoint to HF safetensors in bf16, then assemble it
+#     into a full HF model dir (base config/modeling/tokenizer + SFT safetensors).
 #  3) eval the DCP checkpoint via the no-cache adaptive decoder (reference) and the
 #     HF checkpoint via KV-cache + early exit, on the same 16 problems, threshold 0.9
-#  4) compare pass@1 AND avg_loops -> confirms SFT weights load correctly into the
-#     KV path and the trained gate's early exit matches the reference.
+#  4) compare pass@1 AND avg_loops -> checks SFT weights load correctly into the
+#     KV path and quantifies the adaptive KV approximation against the reference.
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
 mkdir -p logs
@@ -46,13 +45,15 @@ train () {  # $1=ckpt_folder  $2..=extra args
 
 echo "### 1) SFT (DCP) ###"
 train "$OUT/ckpt_dcp" > "$OUT/train_dcp.log" 2>&1
-echo "### 2) SFT (HF safetensors, same seed) ###"
-train "$OUT/ckpt_hf" --checkpoint.last_save_in_hf --checkpoint.last_save_model_only \
-    > "$OUT/train_hf.log" 2>&1
 
-# locate the two step dirs
-DCP=$(ls -d "$OUT"/ckpt_dcp/step-* 2>/dev/null | tail -1)
-HF=$(ls -d "$OUT"/ckpt_hf/step-* 2>/dev/null | tail -1)
+# locate the DCP step dir and convert that exact checkpoint to HF safetensors
+DCP=$(find "$OUT" -type d -path "*ckpt_dcp/step-*" 2>/dev/null | tail -1)
+HF="$OUT/ckpt_hf/step-$(basename "$DCP" | sed 's/^step-//')"
+mkdir -p "$HF"
+echo "### 2) Convert DCP -> HF safetensors (bf16, same weights) ###"
+python scripts/checkpoint_conversion/convert_to_hf.py "$DCP" "$HF" \
+    --model_name ouro --model_flavor 1.4B --hf_assets_path "$BASE" \
+    --export_dtype bfloat16 > "$OUT/convert_to_hf.log" 2>&1
 echo "DCP ckpt: $DCP"; echo "HF ckpt: $HF"
 echo "HF ckpt contents:"; ls -la "$HF"
 
@@ -62,6 +63,12 @@ for f in config.json configuration_ouro.py modeling_ouro.py tokenizer.json \
          generation_config.json; do
     [ -e "$BASE/$f" ] && [ ! -e "$HF/$f" ] && ln -s "$(readlink -f "$BASE/$f")" "$HF/$f"
 done
+# from_pretrained needs model.safetensors or an index; last_save_in_hf writes
+# model-0000N-of-0000N.safetensors. Single shard + no index -> alias to model.safetensors.
+if [ ! -e "$HF/model.safetensors" ] && [ ! -e "$HF/model.safetensors.index.json" ]; then
+    NSH=$(ls "$HF"/model-*-of-*.safetensors 2>/dev/null | wc -l)
+    [ "$NSH" = "1" ] && ln -s "$(readlink -f "$HF"/model-*-of-*.safetensors)" "$HF/model.safetensors"
+fi
 echo "HF ckpt after assembling:"; ls "$HF"
 
 COMMON="--module ouro --config ouro_1_4b --max_gen_toks 512 --early_exit_threshold 0.9 \

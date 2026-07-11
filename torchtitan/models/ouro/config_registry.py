@@ -63,7 +63,10 @@ def ouro_1_4b() -> Trainer.Config:
             folder="/projects/bdjz/jli37/checkpoints",
             interval=100,
             last_save_model_only=False,
-            export_dtype="float16",
+            # The released Ouro checkpoint is bf16. Keep HF exports in bf16 too
+            # so KV-cache evals do not compare fp16-exported weights against the
+            # TorchTitan/DCP path.
+            export_dtype="bfloat16",
         ),
         activation_checkpoint=ActivationCheckpointConfig(
             mode="selective",

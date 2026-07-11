@@ -245,7 +245,7 @@ def _ouro_exit_steps(gate_list, threshold: float) -> torch.Tensor:
     return exit_steps
 
 
-def _load_hf_generate_model(hf_dir: str, dtype: torch.dtype):
+def _load_hf_generate_model(hf_dir: str, dtype: torch.dtype, attn_impl=None):
     """Load the released HF Ouro model for cached generation. Mirrors the RoPE /
     transformers-version shims from parity_hf_vs_tt.py. Generation drives the
     OuroModel directly (full-depth KV cache) and applies the early-exit gate to
@@ -279,8 +279,13 @@ def _load_hf_generate_model(hf_dir: str, dtype: torch.dtype):
         modeling_mod.OuroRotaryEmbedding.compute_default_rope_parameters = staticmethod(
             _default_rope)
     cfg.early_exit_threshold = None  # full R=4 recurrence (no adaptive exit)
-    model = AutoModelForCausalLM.from_pretrained(
-        hf_dir, config=cfg, trust_remote_code=True, dtype=dtype).cuda().eval()
+    load_kwargs = dict(config=cfg, trust_remote_code=True, dtype=dtype)
+    if attn_impl:
+        # e.g. "eager"/"sdpa" to match torchtitan's attention math (default is
+        # flash_attn, which diverges ~1 problem from the no-cache decoder in bf16).
+        load_kwargs["attn_implementation"] = attn_impl
+        logger.info(f"HF KV-cache attn_implementation={attn_impl}")
+    model = AutoModelForCausalLM.from_pretrained(hf_dir, **load_kwargs).cuda().eval()
     model.early_exit_threshold = None
     model.config.early_exit_threshold = None
     tok = AutoTokenizer.from_pretrained(hf_dir, trust_remote_code=True)
@@ -404,6 +409,12 @@ def main():
         "model on HumanEval. Overrides --system_prompt.",
     )
     p.add_argument(
+        "--kv_attn_impl", default=None, choices=[None, "eager", "sdpa", "flash_attention_2"],
+        help="(kv_cache only) Force the HF model's attention implementation. Use "
+        "'eager' to match torchtitan's attention math (default flash_attention_2 "
+        "diverges ~1 problem in bf16).",
+    )
+    p.add_argument(
         "--kv_cache", action="store_true",
         help="(evalplus_prompt only) Generate via the HF modeling_ouro.py + "
         "UniversalTransformerCache for O(n) KV-cached decoding instead of the "
@@ -433,6 +444,14 @@ def main():
 
     init_logger()
 
+    if args.kv_cache and args.early_exit_threshold < 1.0:
+        logger.warning(
+            "KV-cache + early_exit_threshold < 1.0 uses a full-depth HF cache "
+            "and selects logits from the gate's exit step. It is a fast "
+            "approximation to the no-cache adaptive early-stop decoder, not an "
+            "exact graph match once the gate exits before the final UT step."
+        )
+
     try:
         from evalplus.data import get_human_eval_plus
     except ImportError:
@@ -445,7 +464,8 @@ def main():
     if args.kv_cache:
         # KV-cached HF generation path (O(n)); no torchtitan model needed.
         hf_gen = _load_hf_generate_model(
-            args.hf_checkpoint, torch.float32 if args.fp32 else torch.bfloat16)
+            args.hf_checkpoint, torch.float32 if args.fp32 else torch.bfloat16,
+            attn_impl=args.kv_attn_impl)
         logger.info("Protocol: evalplus-canonical chat [KV-cache HF generate]")
     else:
         model, tokenizer = _load_model(
@@ -459,6 +479,7 @@ def main():
             model = model.to(torch.float32)
             logger.info("Running model in float32")
         device = next(model.parameters()).device
+        logger.info(f"TorchTitan no-cache model dtype={next(model.parameters()).dtype}")
         # --evalplus_prompt implies chat formatting (needs _im_end_id / chat template).
         use_chat = args.chat or args.evalplus_prompt
         lm = OuroLM(model=model, tokenizer=tokenizer, device=device,
