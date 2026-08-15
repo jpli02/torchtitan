@@ -3,6 +3,8 @@
 # Inference-only Ouro model compatible with HuggingFace weights.
 # Implements looped Transformer with total_ut_steps.
 
+import json
+import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -13,6 +15,51 @@ from torchtitan.models.common.attention import AttentionMasksType, GQAttention
 from torchtitan.models.common.decoder import Decoder, TransformerBlock
 from torchtitan.models.utils import get_dense_model_nparams_and_flops
 from torchtitan.tools.logging import logger
+
+
+def build_router(dim: int, spec: dict) -> nn.Module:
+    """Construct the early-exit gate/router from an architecture spec (Tier-1 NAS).
+
+    spec keys (all optional):
+        layers (int): number of hidden layers, 0 => plain linear
+        hidden (int): hidden width
+        act (str):    'relu' | 'gelu' | 'silu' | 'tanh'
+        norm (bool):  LayerNorm on the input features
+    Maps [..., dim] -> [..., 1]. An empty spec reproduces the original
+    ``nn.Linear(dim, 1)`` exactly, so default behaviour is unchanged.
+    """
+    layers = int(spec.get("layers", 0))
+    hidden = int(spec.get("hidden", 128))
+    act = str(spec.get("act", "gelu")).lower()
+    norm = bool(spec.get("norm", False))
+    if layers <= 0 and not norm:
+        return nn.Linear(dim, 1, bias=True)
+    acts = {"relu": nn.ReLU, "gelu": nn.GELU, "silu": nn.SiLU, "tanh": nn.Tanh}
+    if act not in acts:
+        raise ValueError(f"router spec: unknown act {act!r}; choose {list(acts)}")
+    mods: list[nn.Module] = []
+    if norm:
+        mods.append(nn.LayerNorm(dim))
+    d = dim
+    for _ in range(layers):
+        mods.append(nn.Linear(d, hidden))
+        mods.append(acts[act]())
+        d = hidden
+    mods.append(nn.Linear(d, 1))
+    return nn.Sequential(*mods)
+
+
+def router_spec_from_env() -> dict:
+    """Read the router architecture spec (JSON) from ``OURO_ROUTER_SPEC``."""
+    raw = os.environ.get("OURO_ROUTER_SPEC")
+    if not raw:
+        return {}
+    try:
+        spec = json.loads(raw)
+        return spec if isinstance(spec, dict) else {}
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"OURO_ROUTER_SPEC is not valid JSON ({e}); using default linear gate.")
+        return {}
 
 
 class OuroTransformerBlock(TransformerBlock):
@@ -146,7 +193,13 @@ class OuroModel(Decoder):
         self.early_exit_threshold = config.early_exit_threshold
         self.early_exit_step = config.early_exit_step
         self.ouro_loss_stage = config.ouro_loss_stage
-        self.early_exit_gate = nn.Linear(config.dim, 1, bias=True)
+        _router_spec = router_spec_from_env()
+        self.early_exit_gate = build_router(config.dim, _router_spec)
+        if _router_spec:
+            logger.info(
+                f"OURO_ROUTER_SPEC={_router_spec}: early_exit_gate architecture = "
+                f"{self.early_exit_gate}"
+            )
         if config.ouro_loss_stage == "stage2_adaptive":
             for name, p in self.named_parameters():
                 if "early_exit_gate" not in name:
@@ -379,5 +432,18 @@ class OuroModel(Decoder):
         **kwargs,
     ):
         super().init_weights(buffer_device=buffer_device, **kwargs)
-        nn.init.zeros_(self.early_exit_gate.weight)
-        nn.init.zeros_(self.early_exit_gate.bias)
+        # Zero the gate's final linear so the exit probability starts neutral
+        # (sigmoid(0)=0.5). Works for the plain Linear gate and any configurable
+        # router (OURO_ROUTER_SPEC); intermediate router layers keep default init.
+        gate = self.early_exit_gate
+        if isinstance(gate, nn.Linear):
+            last_linear = gate
+        else:
+            last_linear = None
+            for module in gate.modules():
+                if isinstance(module, nn.Linear):
+                    last_linear = module
+        if last_linear is not None:
+            nn.init.zeros_(last_linear.weight)
+            if last_linear.bias is not None:
+                nn.init.zeros_(last_linear.bias)

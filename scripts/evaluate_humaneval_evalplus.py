@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse
+import functools
 import json
 import pathlib
 import time
@@ -278,6 +279,28 @@ def _load_hf_generate_model(hf_dir: str, dtype: torch.dtype, attn_impl=None):
     if not hasattr(modeling_mod.OuroRotaryEmbedding, "compute_default_rope_parameters"):
         modeling_mod.OuroRotaryEmbedding.compute_default_rope_parameters = staticmethod(
             _default_rope)
+    # transformers>=5 renamed create_causal_mask's `input_embeds` -> `inputs_embeds`
+    # and dropped `cache_position`; the released modeling_ouro.py still passes the
+    # old kwargs. Adapt them (position_ids carries the offset the dropped
+    # cache_position used to). Mirrors the RoPE shim above -- version tolerance only.
+    import inspect as _inspect
+
+    def _mask_shim(orig):
+        params = _inspect.signature(orig).parameters
+        if "input_embeds" in params or "cache_position" in params:
+            return orig  # old transformers: kwargs already accepted
+
+        @functools.wraps(orig)
+        def _wrapped(*a, **kw):
+            if "input_embeds" in kw and "inputs_embeds" not in kw:
+                kw["inputs_embeds"] = kw.pop("input_embeds")
+            kw.pop("cache_position", None)
+            return orig(*a, **kw)
+        return _wrapped
+
+    for _name in ("create_causal_mask", "create_sliding_window_causal_mask"):
+        if hasattr(modeling_mod, _name):
+            setattr(modeling_mod, _name, _mask_shim(getattr(modeling_mod, _name)))
     cfg.early_exit_threshold = None  # full R=4 recurrence (no adaptive exit)
     load_kwargs = dict(config=cfg, trust_remote_code=True, dtype=dtype)
     if attn_impl:

@@ -6,6 +6,7 @@
 
 import copy
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
@@ -176,8 +177,22 @@ _OCR_SIDE_DATASETS: dict[str, Any] = {}
 
 
 def _load_open_code_reasoning_dataset(dataset_path: str, split: str):
-    """Stream one OpenCodeReasoning split (config name == split name)."""
-    return load_dataset(dataset_path, name=split, split=split, streaming=True)
+    """Stream one OpenCodeReasoning split (config name == split name).
+
+    No shuffle by default -- every run reads the same examples in the same
+    order, which is why repeat "seeds" of a run that otherwise has no other
+    source of randomness (e.g. Ouro's stage2_adaptive SFT, which loads the
+    gate from a pretrained checkpoint rather than a random init) were
+    producing byte-identical checkpoints regardless of --debug.seed. Opt in
+    to a real seeded buffered shuffle via OURO_SFT_DATA_SEED so repeat runs
+    can actually see different training examples; unset (the default)
+    reproduces the exact prior behavior for every existing config.
+    """
+    ds = load_dataset(dataset_path, name=split, split=split, streaming=True)
+    data_seed = os.environ.get("OURO_SFT_DATA_SEED")
+    if data_seed is not None:
+        ds = ds.shuffle(seed=int(data_seed), buffer_size=10_000)
+    return ds
 
 
 def _ocr_question(sample: dict[str, Any]) -> str:
