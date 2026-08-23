@@ -110,3 +110,82 @@ def ouro_1_4b_sft() -> Trainer.Config:
         initial_load_model_only=True,
     )
     return cfg
+
+
+def ouro_1_4b_thinking_terminal_sft() -> Trainer.Config:
+    """Full-backbone SFT of Ouro-1.4B-Thinking on the terminal-agent mixture.
+
+    Distinct from ouro_1_4b_sft in two ways that matter:
+
+    1. ``ouro_loss_stage`` is left at OuroModel.Config's default,
+       ``stage1_entropy`` -- Ouro's own Stage-I objective
+       (L = sum_t p(t|x) L^(t) - beta*H(p)), which trains every recurrence depth
+       weighted by the exit distribution and honours the SFT label mask.
+       Critically it does NOT freeze anything. ouro_1_4b_sft instead selects
+       ``stage2_adaptive``, which freezes every parameter except the exit gate
+       (model.py: ``if ouro_loss_stage == "stage2_adaptive": ... requires_grad_(False)``)
+       -- 2049 trainable params out of 1.4B. That is the right setup for tuning
+       *when* the model exits its recurrence loop, and completely wrong for
+       teaching it *what* to emit. Terminal-Bench failures are behavioural (prose
+       or malformed JSON the harness cannot parse into actions), so the backbone
+       has to move. Stage I also emits per-recurrence-step CE as aux metrics,
+       which is exactly the signal worth watching on W&B for this run.
+    2. It starts from the Thinking checkpoint, not the base one, since that is
+       the model actually being evaluated.
+
+    LR is 2e-5, not the 3e-4 the gate-only configs use: 3e-4 is a reasonable rate
+    for a 2k-parameter head trained from scratch, but roughly an order of
+    magnitude above the usual full-finetune range for a 1.4B model and would
+    scorch the pretrained weights in a 1k-step run.
+    """
+    import dataclasses
+
+    cfg = ouro_1_4b()
+    cfg.hf_assets_path = "./assets/hf/Ouro-1.4B-Thinking"
+    cfg.dataloader = HuggingFaceTextDataLoader.Config(dataset="terminal_agent_sft")
+    cfg.optimizer = OptimizersContainer.Config(lr=2e-5)
+    # Warm up over the first 5% of the run rather than the 2 steps the other
+    # ouro configs use: with the full backbone unfrozen, the first optimizer
+    # steps at full LR are where a finetune most easily damages pretrained
+    # weights. Cosine decay to a small floor for a clean 1k-step schedule.
+    cfg.lr_scheduler = LRSchedulersContainer.Config(
+        warmup_steps=50,
+        decay_ratio=0.9,
+        decay_type="cosine",
+        min_lr_factor=0.1,
+    )
+    cfg.training = TrainingConfig(
+        local_batch_size=1,
+        # 4096, not the 8192 agent trajectories would ideally want, because the
+        # Stage-I loss is what sets the memory ceiling here: it materialises
+        # stacked_step_logits [B, S, V, T] (V=49152, T=4 recurrence steps) and
+        # then casts each step's slice to fp32 inside the CE loop, all of which
+        # autograd retains for backward. At 8192 that is ~3.2GB stacked plus
+        # 4 x 1.6GB fp32 copies on top of ~22GB of fp32 params/grads/Adam
+        # states, and it OOMs a 46GB A6000 (measured, not estimated). Halving
+        # the sequence halves every one of those terms. Sequence packing means
+        # no trajectory data is dropped by this -- long rows simply span more
+        # than one training sequence.
+        seq_len=4096,
+        steps=1000,
+    )
+    # Full (not selective) activation checkpointing: Ouro runs its decoder stack
+    # total_ut_steps=4 times per token, so activation memory is ~4x a same-size
+    # non-recurrent model and is the other half of the budget the loss above
+    # competes with. Recompute is the cheaper trade here.
+    cfg.activation_checkpoint = ActivationCheckpointConfig(mode="full")
+    cfg.metrics = MetricsProcessor.Config(log_freq=10, enable_wandb=True)
+    cfg.checkpoint = dataclasses.replace(
+        cfg.checkpoint,
+        initial_load_path=cfg.hf_assets_path,
+        initial_load_in_hf=True,
+        initial_load_model_only=True,
+        interval=250,
+        # Export the final checkpoint straight to HF safetensors so it can be
+        # served by scripts/ouro_openai_server.py and pushed to the Hub without
+        # a separate DCP->HF conversion pass.
+        last_save_model_only=True,
+        last_save_in_hf=True,
+        export_dtype="bfloat16",
+    )
+    return cfg
