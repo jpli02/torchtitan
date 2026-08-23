@@ -36,7 +36,24 @@ echo "[sft] checkpoints: $CKPT_FOLDER"
 # Single GPU: data_parallel_shard_degree=1. The 1.4B backbone plus Adam states
 # fits on one 46GB A6000 at batch 1 / seq 8192, and a 1-GPU run sidesteps the
 # 2-GPU FSDP SIGABRT this node has hit before on Ouro.
-exec "${TORCHRUN:-.venv/bin/torchrun}" \
+# Resolve an interpreter explicitly rather than trusting ./.venv: that path is
+# TRACKED in this repo as a symlink to a Delta-cluster location
+# (/work/nvme/bdjz/jli37/venvs/torchtitan) that does not exist on this host, so
+# any `git checkout -- .venv` silently restores a broken link. Prefer a local
+# .venv only if it actually resolves, else fall back to the main checkout's.
+if [ -x "${TORCHRUN:-}" ]; then
+  :
+elif [ -x .venv/bin/torchrun ]; then
+  TORCHRUN=.venv/bin/torchrun
+elif [ -x /home/jli199/torchtitan/.venv/bin/torchrun ]; then
+  TORCHRUN=/home/jli199/torchtitan/.venv/bin/torchrun
+else
+  echo "[sft] no usable torchrun found; set TORCHRUN=/path/to/torchrun" >&2
+  exit 1
+fi
+echo "[sft] torchrun: $TORCHRUN"
+
+exec "$TORCHRUN" \
   --nproc_per_node=1 --rdzv_backend c10d --rdzv_endpoint="localhost:0" \
   --local-ranks-filter 0 --role rank --tee 1 \
   -m torchtitan.train \

@@ -30,9 +30,17 @@ from huggingface_hub import HfApi
 # from the training run; everything else is carried over from the base model
 # unless the run already emitted its own copy.
 _COMPANION_FILES = [
+    # config.json first and foremost: torchtitan's HF export writes only the
+    # weights plus a safetensors index, so without carrying this over the
+    # uploaded repo cannot be instantiated at all. SFT does not change the
+    # architecture, so the base model's config is the correct one to ship.
+    "config.json",
     "configuration_ouro.py",
     "modeling_ouro.py",
     "tokenizer.json",
+    # Ouro-1.4B-Thinking keeps its chat template inline in tokenizer_config.json
+    # rather than as a standalone chat_template.jinja; both spellings are listed
+    # so whichever the base model uses travels with the checkpoint.
     "tokenizer_config.json",
     "special_tokens_map.json",
     "vocab.json",
@@ -88,12 +96,26 @@ def main() -> None:
     cfg_path = ckpt / "config.json"
     if cfg_path.exists():
         cfg = json.loads(cfg_path.read_text())
+        dirty = False
         if "auto_map" not in cfg and (base / "config.json").exists():
             base_cfg = json.loads((base / "config.json").read_text())
             if "auto_map" in base_cfg:
                 cfg["auto_map"] = base_cfg["auto_map"]
-                cfg_path.write_text(json.dumps(cfg, indent=2))
+                dirty = True
                 print("  restored auto_map into config.json")
+        # Ouro's bundled modeling code reads config.pad_token_id unconditionally
+        # (OuroModel.__init__: self.padding_idx = config.pad_token_id), but the
+        # released config omits it, so a plain from_pretrained() raises
+        # AttributeError on current transformers. Our own loaders paper over this
+        # at runtime (evaluate_humaneval_evalplus.py::_load_hf_generate_model);
+        # baking the same default into the shipped config means anyone cloning
+        # this repo does not have to know that trick.
+        if cfg.get("pad_token_id") is None:
+            cfg["pad_token_id"] = cfg.get("eos_token_id") or 0
+            dirty = True
+            print(f"  set pad_token_id={cfg['pad_token_id']} (was absent)")
+        if dirty:
+            cfg_path.write_text(json.dumps(cfg, indent=2))
 
     payload = sorted(p.name for p in ckpt.iterdir() if p.is_file())
     total_mb = sum(p.stat().st_size for p in ckpt.iterdir() if p.is_file()) / 1e6
