@@ -133,6 +133,12 @@ def main() -> None:
         folder_path=str(ckpt),
         repo_id=args.repo_id,
         repo_type="model",
+        # torchtitan leaves a `sharded/` copy of the same weights in its own
+        # DCP layout next to the consolidated safetensors. It is useless to a
+        # Hub consumer and doubles the repo size (2.87GB -> 5.7GB), so keep it
+        # local. Same for any optimizer/dataloader state a non-model-only save
+        # would leave behind.
+        ignore_patterns=["sharded/*", "*.distcp", ".metadata", "optim*", "dataloader*"],
         commit_message="Ouro-1.4B-Thinking terminal-agent SFT",
     )
     print(f"\nuploaded: https://huggingface.co/{args.repo_id}")
