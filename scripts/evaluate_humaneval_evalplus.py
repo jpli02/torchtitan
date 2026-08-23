@@ -301,6 +301,24 @@ def _load_hf_generate_model(hf_dir: str, dtype: torch.dtype, attn_impl=None):
     for _name in ("create_causal_mask", "create_sliding_window_causal_mask"):
         if hasattr(modeling_mod, _name):
             setattr(modeling_mod, _name, _mask_shim(getattr(modeling_mod, _name)))
+    # Some released checkpoints (e.g. Ouro-1.4B-Thinking) ship a custom
+    # UniversalTransformerCache.get_mask_sizes(cache_position, layer_idx) that
+    # does cache_position.shape[0], assuming the caller always passes the raw
+    # cache_position tensor. The installed transformers' _preprocess_mask_arguments
+    # instead calls get_mask_sizes(q_length, layer_idx) with q_length as a plain
+    # int (inputs_embeds.shape[1]) -- same version-skew class as the mask shim
+    # above. Patch tolerantly: accept either a tensor or an already-int length.
+    _cache_cls = getattr(modeling_mod, "UniversalTransformerCache", None)
+    if _cache_cls is not None and hasattr(_cache_cls, "get_mask_sizes"):
+        _orig_get_mask_sizes = _cache_cls.get_mask_sizes
+        _sig = _inspect.signature(_orig_get_mask_sizes)
+        if "cache_position" in _sig.parameters:
+            def _get_mask_sizes_shim(self, cache_position, layer_idx=0, _orig=_orig_get_mask_sizes):
+                query_length = (cache_position.shape[0]
+                                 if hasattr(cache_position, "shape") else int(cache_position))
+                seq_length = self.get_seq_length(layer_idx)
+                return seq_length + query_length, 0
+            _cache_cls.get_mask_sizes = _get_mask_sizes_shim
     cfg.early_exit_threshold = None  # full R=4 recurrence (no adaptive exit)
     load_kwargs = dict(config=cfg, trust_remote_code=True, dtype=dtype)
     if attn_impl:
