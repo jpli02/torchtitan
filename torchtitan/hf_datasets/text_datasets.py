@@ -272,11 +272,28 @@ def _open_code_reasoning_sft_tokens(
 #       ArrowNotImplementedError ("Nested data conversions not implemented for
 #       chunked array outputs"); the three skill_based_* configs supply far
 #       more data than a 1k-step run consumes, so it is simply left out.
+#
+# Weights favour LONG trajectories. Measured turn counts (120-row samples):
+#     Nemotron skill_based_medium   mean 11  median 12  max   18
+#     Nemotron skill_based_easy     (same family, short)
+#     TerminalTraj                  mean 31  median 26  max  150
+#     OpenThoughts-Agent            mean 12  median 10  max   36
+# The first mix put 65% of its mass on Nemotron, whose episodes never exceed 18
+# turns, giving a weighted mean of ~16 turns. Terminal-Bench tasks that this
+# model fails run 30-50+ turns, and the observed failure was exactly "makes
+# real partial progress, then never closes out" -- i.e. it learned to act for
+# about a dozen turns and declare completion. Training loss and held-out CE
+# both improved monotonically (CE -64% at 1k, -70% at 10k) while task success
+# did not move at all, which is what a horizon mismatch looks like: the model
+# fits the data it was given, and that data is too short.
+#
+# TerminalTraj is the only genuinely long-horizon source available, so it now
+# carries the majority of the mass. Its 20k rows are ample for a 10k-step run
+# (10k steps at bs1/seq4096 = 41M tokens, and these rows are large).
 _TERMINAL_SFT_SOURCES: list[tuple[str, str | None, str, float]] = [
     # (repo_id, config_name, messages_column, sampling_weight)
-    ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.45),
-    ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.20),
-    ("m-a-p/TerminalTraj", None, "messages", 0.25),
+    ("m-a-p/TerminalTraj", None, "messages", 0.60),
+    ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.30),
     ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
 ]
 
@@ -342,14 +359,29 @@ def _normalise_terminal_messages(
         return None
 
     if len(out) > _TERMINAL_SFT_MAX_TURNS:
-        out = out[:_TERMINAL_SFT_MAX_TURNS]
-        # Truncating can strand a trailing user turn with no assistant reply
-        # after it, which would contribute tokens but zero loss signal. Drop
-        # back to the last assistant turn so the row still ends on something
-        # trainable; if the prefix somehow holds none, drop the row.
+        # Keep the TAIL, not the head. Task completion lives at the END of a
+        # trajectory ("task_complete": true in the final assistant turn), so
+        # head-truncation deletes precisely the behaviour this SFT exists to
+        # teach. Measured on TerminalTraj: of the rows exceeding this cap, 8 of
+        # 9 had their completion cut off by head-truncation. Every sampled row
+        # in all three corpora ends in a claimed completion, so the tail is the
+        # highest-value span in the row.
+        #
+        # A leading system/user turn carries the task statement, without which
+        # the retained tail is context-free, so preserve the first turn and
+        # take the last (cap - 1).
+        head, tail = out[:1], out[-(_TERMINAL_SFT_MAX_TURNS - 1):]
+        out = head + tail
+        # The spliced tail may now begin with an assistant turn whose prompt is
+        # missing; drop leading assistant turns after the preserved head so the
+        # conversation still alternates sensibly.
+        while len(out) > 1 and out[1]["role"] == "assistant":
+            out.pop(1)
+        # And never end on a non-assistant turn: it would add tokens with no
+        # loss signal.
         while out and out[-1]["role"] != "assistant":
             out.pop()
-        if not out:
+        if len(out) < 2:
             return None
     return out
 

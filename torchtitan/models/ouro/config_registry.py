@@ -214,9 +214,25 @@ def ouro_1_4b_thinking_terminal_sft() -> Trainer.Config:
                                       ouro_loss_stage=_stage),
         )
     cfg.metrics = MetricsProcessor.Config(log_freq=10, enable_wandb=True)
+    # OURO_INIT_FROM continues training from an existing HF-format checkpoint
+    # instead of the released base weights -- e.g. resuming the 1k-step
+    # terminal-SFT checkpoint on a revised data mix, which keeps the format
+    # learning already paid for (held-out CE 1.29 -> 0.46) rather than
+    # re-earning it from scratch. The path must be an HF export (safetensors +
+    # config.json + tokenizer); scripts/push_ouro_sft_to_hub.py stages those
+    # companion files into a raw torchtitan export.
+    #
+    # WARNING: the directory must NOT contain torchtitan's own `sharded/`
+    # subdirectory. Every torchtitan checkpoint dir carries one (a DCP copy of
+    # the same weights), and pointing initial_load_path at a dir containing it
+    # makes the HF loader spin: observed 67 minutes at 100% CPU with the model
+    # resident on the GPU and not a single step logged, versus an 11-second
+    # load and immediate stepping once `sharded/` was removed. Symlink the ten
+    # HF files into a clean directory and point here at that.
+    _init_from = _os.environ.get("OURO_INIT_FROM") or cfg.hf_assets_path
     cfg.checkpoint = dataclasses.replace(
         cfg.checkpoint,
-        initial_load_path=cfg.hf_assets_path,
+        initial_load_path=_init_from,
         initial_load_in_hf=True,
         initial_load_model_only=True,
         interval=250,
