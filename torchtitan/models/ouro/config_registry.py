@@ -155,6 +155,27 @@ def ouro_1_4b_thinking_terminal_sft() -> Trainer.Config:
         min_lr_factor=0.1,
     )
     cfg.training = TrainingConfig(
+        # bs=1 for HEADROOM, not because it is fastest. Measured on a 46GB
+        # A6000 (12-step sweeps on the real trainer, mean tps over last 5):
+        #     full AC  bs=1  140 tps  29.1GiB  <- this: ~15GB spare
+        #     full AC  bs=2  237 tps  40.2GiB  <- +69% but only ~4GB spare
+        #     full AC  bs=4  OOM
+        #     selective AC bs=1  149 tps 39.6GiB  (+6% for +10.5GB: bad trade)
+        #     no AC    bs=1  OOM
+        #     standard-loss bs=2  254 tps 34.2GiB (+7% only; bs=4 still OOM,
+        #         so the wall is params/optimizer/activations, not just the
+        #         [B,S,V,T] Stage-I logits -- not worth losing per-depth CE)
+        # bs=2 passed a 12-step sweep and then OOM'd at 60 steps: 40.2/44.4GiB
+        # leaves nothing for AdamW state allocation, fragmentation, or the
+        # other tenants on this shared node (a neighbouring process held 1.3GB
+        # during the failure). Raise effective batch with
+        # --training.global_batch_size (gradient accumulation) instead, which
+        # costs no extra memory; use bs=2 only on an exclusive GPU.
+        #
+        # The dataloader is NOT the constraint despite its quadratic per-turn
+        # tokenisation: measured standalone at 29,977 tok/s = 7.3 steps/s
+        # against 0.29 steps/s achieved, ~25x headroom. The model step is the
+        # ceiling, so batch size is the lever, not tokenisation.
         local_batch_size=1,
         # 4096, not the 8192 agent trajectories would ideally want, because the
         # Stage-I loss is what sets the memory ceiling here: it materialises
@@ -174,6 +195,24 @@ def ouro_1_4b_thinking_terminal_sft() -> Trainer.Config:
     # non-recurrent model and is the other half of the budget the loss above
     # competes with. Recompute is the cheaper trade here.
     cfg.activation_checkpoint = ActivationCheckpointConfig(mode="full")
+    # OURO_LOSS_STAGE lets an outer sweep pick the objective without a new
+    # config, the same escape hatch OURO_ADAPTIVE_GAMMA/_K already use (tyro
+    # cannot reach model_spec fields from the CLI).
+    #
+    # This is a throughput knob as much as a modelling one: stage1_entropy
+    # materialises stacked_step_logits [B, S, V=49152, T=4] and casts each
+    # step's slice to fp32 inside the CE loop, all retained for backward, which
+    # is what caps the batch at 2 on a 46GB card (bs=4 OOMs). `standard` keeps
+    # only the expected logits [B, S, V] and should free roughly 4x of that,
+    # at the cost of training the exit-weighted mixture instead of every
+    # recurrence depth individually.
+    import os as _os
+    if (_stage := _os.environ.get("OURO_LOSS_STAGE")) is not None:
+        cfg.model_spec = dataclasses.replace(
+            cfg.model_spec,
+            model=dataclasses.replace(cfg.model_spec.model,
+                                      ouro_loss_stage=_stage),
+        )
     cfg.metrics = MetricsProcessor.Config(log_freq=10, enable_wandb=True)
     cfg.checkpoint = dataclasses.replace(
         cfg.checkpoint,
