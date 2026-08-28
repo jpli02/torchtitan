@@ -290,11 +290,28 @@ def _open_code_reasoning_sft_tokens(
 # TerminalTraj is the only genuinely long-horizon source available, so it now
 # carries the majority of the mass. Its 20k rows are ample for a 10k-step run
 # (10k steps at bs1/seq4096 = 41M tokens, and these rows are large).
+# LiteCoder-Terminal-SFT is the long-horizon anchor. Measured turn counts
+# (120-row samples), against what the benchmark actually demands (30-50+):
+#     LiteCoder-Terminal-SFT   mean 53.5  median 44  max 100  47% >=50 turns
+#     TerminalTraj             mean 28.0  median 24  max 120  10% >=50 turns
+#     Nemotron skill_based_*   mean 11    median 12  max  18   0% >=50 turns
+# It is also already in OUR action format -- its assistant turns are terminus
+# JSON ({"analysis": ..., "commands": [...]}) under ShareGPT from/value naming,
+# which _normalise_terminal_messages already maps -- so it lengthens the
+# horizon without touching the output format.
+#
+# Deliberately NOT used: nebius/SWE-rebench-openhands-trajectories, despite
+# being far longer still (mean 131.5, median 125, 100% >=50 turns). It is
+# OpenHands tool-calling, and the terminus-2 harness parses only terminus JSON;
+# training a second action format into a model whose entire measured benefit is
+# emitting parseable actions risks the same class of regression as the n-gram
+# guard did (pass@5 0.400 -> 0.000). Long-horizon without format risk beats
+# longer-horizon with it.
 _TERMINAL_SFT_SOURCES: list[tuple[str, str | None, str, float]] = [
     # (repo_id, config_name, messages_column, sampling_weight)
-    ("m-a-p/TerminalTraj", None, "messages", 0.60),
-    ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.30),
-    ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
+    ("Lite-Coder/LiteCoder-Terminal-SFT", None, "conversations", 0.60),
+    ("m-a-p/TerminalTraj", None, "messages", 0.25),
+    ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.15),
 ]
 
 # Rows whose assistant turns are all empty teach nothing (every label would be
