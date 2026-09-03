@@ -7,6 +7,7 @@
 import copy
 import json
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
@@ -307,12 +308,63 @@ def _open_code_reasoning_sft_tokens(
 # emitting parseable actions risks the same class of regression as the n-gram
 # guard did (pass@5 0.400 -> 0.000). Long-horizon without format risk beats
 # longer-horizon with it.
-_TERMINAL_SFT_SOURCES: list[tuple[str, str | None, str, float]] = [
-    # (repo_id, config_name, messages_column, sampling_weight)
-    ("Lite-Coder/LiteCoder-Terminal-SFT", None, "conversations", 0.60),
-    ("m-a-p/TerminalTraj", None, "messages", 0.25),
-    ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.15),
-]
+#
+# CURRENT MIX = the union of the two mixes that produced the SFT-10k and
+# continue10k checkpoints, weights averaged between them:
+#
+#   source                          SFT-10k   continue10k   this (mean)
+#   Nemotron skill_based_medium      0.45        0.30          0.375
+#   Nemotron skill_based_easy        0.20        --            0.10
+#   TerminalTraj                     0.25        0.60          0.425
+#   OpenThoughts-Agent               0.10        0.10          0.10
+#
+# Weighted mean ~18.7 turns, i.e. between SFT-10k's 16 and continue10k's 19.5.
+#
+# LiteCoder is deliberately absent even though it is the longest terminus-format
+# corpus available (mean 53.5 turns): a +1k run on it scored 0.125 pass@1 / 2 of
+# 12 tasks against the continue10k it started from at 0.208 / 3 of 12, both
+# clean runs. Horizon was the wrong lever, so it is not re-introduced here.
+# Named mixes, selected with OURO_SFT_MIX (default "combined"). Keeping the
+# historical mixes addressable means a past checkpoint's data can be reproduced
+# exactly without editing this file and losing the others.
+#
+#   mix          mean turns   used by
+#   original     ~16          SFT-1k, SFT-10k
+#   longhorizon  ~19.5        continue10k, router2k
+#   litecoder    ~31.6        longhorizon+1k   (measured: HURT -- 0.125 vs 0.208)
+#   combined     ~18.7        sft20k           (union of original+longhorizon)
+_TERMINAL_SFT_MIXES: dict[str, list[tuple[str, str | None, str, float]]] = {
+    "original": [
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.45),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.20),
+        ("m-a-p/TerminalTraj", None, "messages", 0.25),
+        ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
+    ],
+    "longhorizon": [
+        ("m-a-p/TerminalTraj", None, "messages", 0.60),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.30),
+        ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
+    ],
+    "litecoder": [
+        ("Lite-Coder/LiteCoder-Terminal-SFT", None, "conversations", 0.60),
+        ("m-a-p/TerminalTraj", None, "messages", 0.25),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.15),
+    ],
+    "combined": [
+        ("m-a-p/TerminalTraj", None, "messages", 0.425),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.375),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.10),
+        ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
+    ],
+}
+
+_MIX_NAME = os.environ.get("OURO_SFT_MIX", "combined")
+if _MIX_NAME not in _TERMINAL_SFT_MIXES:
+    raise ValueError(
+        f"OURO_SFT_MIX={_MIX_NAME!r} is not one of {sorted(_TERMINAL_SFT_MIXES)}"
+    )
+_TERMINAL_SFT_SOURCES: list[tuple[str, str | None, str, float]] = \
+    _TERMINAL_SFT_MIXES[_MIX_NAME]
 
 # Rows whose assistant turns are all empty teach nothing (every label would be
 # IGNORE_INDEX) but still consume a slot in the packed sequence buffer.
@@ -449,12 +501,60 @@ def _load_terminal_agent_sft_dataset(dataset_path: str):
     )
 
 
+def _count_commands(content: str) -> int:
+    """How many entries in this assistant turn's terminus `commands` list."""
+    if not content or '"commands"' not in content:
+        return 0
+    m = re.search(r"\{.*\}", content, re.S)
+    if not m:
+        return 0
+    try:
+        d = json.loads(m.group(0))
+    except Exception:
+        # Truncated/imperfect JSON is common in trajectories; fall back to
+        # counting keystroke entries, which is what the count is a proxy for.
+        return content.count('"keystrokes"')
+    c = d.get("commands")
+    return len(c) if isinstance(c, list) else 0
+
+
+def _row_mean_commands(messages: list[dict[str, str]]) -> float:
+    """Mean commands per assistant turn for a whole trajectory."""
+    counts = [
+        _count_commands(m.get("content") or "")
+        for m in messages
+        if m.get("role") == "assistant"
+    ]
+    return (sum(counts) / len(counts)) if counts else 0.0
+
+
+# Minimum mean commands-per-assistant-turn for a row to be kept when
+# OURO_SFT_MIN_CMDS is set.
+#
+# Why this exists: the served model collapsed to EXACTLY one command per turn --
+# 1682 of 1696 turns in an 80-task run, never more -- while the training data
+# averages 1.72 and reaches 9. Probing the model's own next-token distribution
+# at the batching decision point gives P(start another command) = 0.00027 vs
+# ~0.195 implied by the data: roughly 700x under. Token-level CE learns the 73%
+# singleton mode, and SFT sharpens that mode until the tail is gone.
+#
+# This matters because 65 of 80 tasks fail on agent_timeout at ~21 turns of
+# ~20s: at 1 command/turn the agent gets 21 shell commands per task, where the
+# data's own mean would give ~36. Filtering to batching-dense trajectories
+# raises the target distribution so the mode itself moves.
+_MIN_CMDS = float(os.environ.get("OURO_SFT_MIN_CMDS", "0"))
+
+
 def _terminal_sft_row_to_messages(
     sample: dict[str, Any], messages_column: str
 ) -> dict[str, Any]:
     """Map one raw row to {"messages": [...]}; [] marks a row to skip."""
     normalised = _normalise_terminal_messages(sample.get(messages_column))
-    return {"messages": normalised if normalised is not None else []}
+    if normalised is None:
+        return {"messages": []}
+    if _MIN_CMDS > 0 and _row_mean_commands(normalised) < _MIN_CMDS:
+        return {"messages": []}
+    return {"messages": normalised}
 
 
 def _process_terminal_agent_sft_text(sample: dict[str, Any]) -> str:
