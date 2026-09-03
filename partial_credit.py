@@ -5,8 +5,7 @@ signal -- and also tells us WHY tasks fail (agent_timeout vs test failure).
 """
 import json, glob, collections
 
-RUNS = ["clean_basethinking", "clean_continue10k", "clean_repro11k",
-        "clean_batching5k"]
+RUNS = ["clean_continue10k", "clean_batching5k", "gated_continue10k", "gated_batching5k", "sweep_step1000", "sweep_step2000"]
 
 for run in RUNS:
     tests_pass = tests_tot = trials = 0

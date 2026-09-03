@@ -5,8 +5,7 @@ measured noise floor rather than against a single aggregate number.
 """
 import json, glob, os, collections
 
-RUNS = ["clean_basethinking", "clean_continue10k", "clean_repro11k",
-        "clean_longhorizon1k", "clean_router2k", "clean_batching5k"]
+RUNS = ["clean_continue10k", "clean_batching5k", "gated_continue10k", "gated_batching5k", "sweep_step1000", "sweep_step2000"]
 
 table = {}
 for run in RUNS:
