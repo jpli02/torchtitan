@@ -33,17 +33,25 @@ for t in $TASKS; do TARGS="$TARGS -t $t"; done
 # servers on one card and voided two 80-task runs.
 free=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits \
        | tr -d ' ' | awk -F, -v g="$GPU" '$1==g {print $2}')
-if [ -z "$free" ] || [ "$free" -lt 20000 ]; then
-  echo "ABORT - gpu $GPU has ${free:-?}MiB free, need 20000" | tee -a "$OUT"; exit 1
+MINFREE=${MINFREE:-20000}
+if [ -z "$free" ] || [ "$free" -lt "$MINFREE" ]; then
+  echo "ABORT - gpu $GPU has ${free:-?}MiB free, need $MINFREE" | tee -a "$OUT"; exit 1
 fi
-echo "[$NAME] gpu=$GPU free=${free}MiB port=$PORT attempts=$ATT" | tee -a "$OUT"
+
+# THR = early-exit threshold for the Ouro router. Below 1.0 the server exits the
+# UT loop early per token; at/above 1.0 it runs full recurrence (the baseline).
+# Empty THR means "don't pass the flag at all", which is also full recurrence.
+THRARG=""
+[ -n "${THR:-}" ] && THRARG="--early_exit_threshold $THR"
+echo "[$NAME] gpu=$GPU free=${free}MiB port=$PORT attempts=$ATT thr=${THR:-none}" \
+  | tee -a "$OUT"
 
 slog=$LOGDIR/${NAME}_server.log
 CUDA_VISIBLE_DEVICES=$GPU setsid nohup /home/jli199/torchtitan/.venv/bin/python \
   /home/jli199/torchtitan/scripts/ouro_openai_server.py \
   --hf_dir "$CKPT" --port $PORT --model_name $NAME \
   --no_repeat_ngram_size 0 --dtype bfloat16 --attn_impl sdpa \
-  --force_temperature 0.7 > "$slog" 2>&1 &
+  $THRARG --force_temperature 0.7 > "$slog" 2>&1 &
 spid=$!
 for _ in $(seq 1 90); do
   curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break
