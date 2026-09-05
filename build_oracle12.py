@@ -75,7 +75,12 @@ def commands_for(task: str) -> list[dict]:
         assert DELIM not in script, task
         ks = (f"cat > /tmp/oracle_solve.sh << '{DELIM}'\n{script}\n{DELIM}\n"
               f"bash /tmp/oracle_solve.sh\n")
-        return [{"keystrokes": ks, "duration": 30.0 if len(script) > 1000 else 5.0}]
+        # Generous wait. The first build used 5s for short scripts and lost
+        # crack-7z-hash (installs perl, runs john) and cron-broken-network
+        # (waits on a cron minute boundary): the model emitted the memorised
+        # solution correctly both times, then confirmed completion before the
+        # script had finished. A long duration costs nothing but wall clock.
+        return [{"keystrokes": ks, "duration": 120.0}]
     if os.path.isfile(yml):
         raw = [l for l in open(yml, errors="ignore").read().splitlines()
                if "terminal-bench-canary" not in l]
