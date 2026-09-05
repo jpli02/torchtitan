@@ -352,6 +352,14 @@ _TERMINAL_SFT_MIXES: dict[str, list[tuple[str, str | None, str, float]]] = {
     "terminaltraj": [
         ("m-a-p/TerminalTraj", None, "messages", 1.0),
     ],
+    # TRAIN-ON-TEST DIAGNOSTIC. A local JSONL built from the eval tasks' own
+    # oracle solutions (build_oracle12.py). Contaminated by construction; the
+    # checkpoint answers "can the model execute perfect demonstrations of these
+    # exact tasks through the agent loop?" and must never be reported as a
+    # score. repo_id "json" routes to OURO_SFT_LOCAL_JSONL in the loader.
+    "oracle12": [
+        ("json", None, "messages", 1.0),
+    ],
     "original": [
         ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.45),
         ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.20),
@@ -488,8 +496,13 @@ def _load_terminal_agent_sft_dataset(dataset_path: str):
     parts = []
     weights = []
     for repo_id, config_name, messages_column, weight in _TERMINAL_SFT_SOURCES:
+        # A repo_id of "json" means a local JSONL (the oracle12 diagnostic mix);
+        # datasets' json builder needs the file path via data_files.
+        extra = {}
+        if repo_id == "json":
+            extra["data_files"] = os.environ["OURO_SFT_LOCAL_JSONL"]
         ds = load_dataset(
-            repo_id, config_name, split="train", streaming=True
+            repo_id, config_name, split="train", streaming=True, **extra
         )
         # Normalise each source's own column name to a single "messages" field
         # so one sample_to_tokens can serve the whole mixture. remove_columns
