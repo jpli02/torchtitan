@@ -333,7 +333,25 @@ def _open_code_reasoning_sft_tokens(
 #   longhorizon  ~19.5        continue10k, router2k
 #   litecoder    ~31.6        longhorizon+1k   (measured: HURT -- 0.125 vs 0.208)
 #   combined     ~18.7        sft20k           (union of original+longhorizon)
+#   terminaltraj  15.1        single-corpus run from the pretrained base
+#
+# Per-corpus measurement (250 rows each) that motivates "terminaltraj":
+#
+#   corpus                          fmt%   turns mean/med   ends complete
+#   Nemotron/skill_based_medium      89%       5.9 / 6           12%
+#   Nemotron/skill_based_easy        87%       7.4 / 7           97%
+#   m-a-p/TerminalTraj              100%      15.1 / 13          92%
+#   OpenThoughts-Agent-v1-SFT        99%       6.0 / 6          100%
+#
+# skill_based_medium abandons 88% of its trajectories and carried 30-45% weight
+# in EVERY mix above, so a third of the training signal was sessions that give
+# up. TerminalTraj is the only corpus that is 100% terminus-2 format (what
+# terminal-bench's agent parses) and its horizon is ~2x the others, though still
+# short of the benchmark's median of 22 turns.
 _TERMINAL_SFT_MIXES: dict[str, list[tuple[str, str | None, str, float]]] = {
+    "terminaltraj": [
+        ("m-a-p/TerminalTraj", None, "messages", 1.0),
+    ],
     "original": [
         ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.45),
         ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.20),
@@ -544,6 +562,45 @@ def _row_mean_commands(messages: list[dict[str, str]]) -> float:
 # raises the target distribution so the mode itself moves.
 _MIN_CMDS = float(os.environ.get("OURO_SFT_MIN_CMDS", "0"))
 
+# OURO_SFT_REQUIRE_COMPLETE=1 drops trajectories whose final assistant turn does
+# not set task_complete=true -- sessions that were abandoned rather than
+# finished. Measured over 1200 rows of the longhorizon mix:
+#
+#   ends complete    818 rows   mean 13.8 turns   median 12
+#   ends incomplete  382 rows   mean  6.4 turns   median  6
+#
+# The abandoned trajectories are HALF the length of the finished ones, so the
+# mix's short median is substantially an artifact of including them, and this
+# one filter addresses both the horizon gap and the give-up behaviour. One
+# sampled example ends with C-c on a hung process and simply stops -- that is
+# what we were teaching.
+#
+# Caveat: task_complete=true is a CLAIM, not a verified solve. This removes
+# give-ups without guaranteeing correctness, and could reinforce the
+# claim-without-verifying habit (the model was measured declaring done 8/8 times
+# at ~30% of tests passing), which is what the terminus verification gate
+# defends against. Evaluate the two together.
+_REQUIRE_COMPLETE = os.environ.get("OURO_SFT_REQUIRE_COMPLETE", "0") == "1"
+
+
+def _ends_complete(messages: list[dict[str, str]]) -> bool:
+    """Does the last parseable assistant turn declare task_complete=true?"""
+    last = None
+    for m in messages:
+        if m.get("role") != "assistant":
+            continue
+        content = m.get("content") or ""
+        if '"task_complete"' not in content:
+            continue
+        match = re.search(r"\{.*\}", content, re.S)
+        if not match:
+            continue
+        try:
+            last = json.loads(match.group(0))
+        except Exception:
+            continue
+    return bool(last and last.get("task_complete") is True)
+
 
 def _terminal_sft_row_to_messages(
     sample: dict[str, Any], messages_column: str
@@ -553,6 +610,8 @@ def _terminal_sft_row_to_messages(
     if normalised is None:
         return {"messages": []}
     if _MIN_CMDS > 0 and _row_mean_commands(normalised) < _MIN_CMDS:
+        return {"messages": []}
+    if _REQUIRE_COMPLETE and not _ends_complete(normalised):
         return {"messages": []}
     return {"messages": normalised}
 

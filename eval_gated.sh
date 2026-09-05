@@ -66,9 +66,19 @@ echo "server up $(date '+%m-%d %H:%M')" | tee -a "$OUT"
 rm -rf /tmp/tb_runs/$NAME
 cd /home/jli199/terminal_bench_eval || exit 1
 set -a; . ~/.boptim_keys.env 2>/dev/null || true; set +a
+# GATE=0 runs stock terminus-2, which is what every 12-task baseline used
+# (continue10k 5/24, batching5k 4/24). Use it whenever the number has to be
+# comparable to those; the gate is a separate, additive intervention.
+if [ "${GATE:-1}" = "0" ]; then
+  AGENT_ARGS="--agent terminus-2"
+else
+  AGENT_ARGS="--agent-import-path verify_agent:TerminusVerify"
+fi
+echo "agent: $AGENT_ARGS" | tee -a "$OUT"
+
 PYTHONPATH="$WT" timeout 43200 .venv/bin/tb run \
   --dataset-path /home/jli199/terminal_bench_eval/tb_tasks \
-  --agent-import-path verify_agent:TerminusVerify \
+  $AGENT_ARGS \
   --model "openai/$NAME" \
   --agent-kwarg api_base="http://127.0.0.1:$PORT/v1" \
   $TARGS \
