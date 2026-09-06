@@ -387,14 +387,14 @@
   <div class="two">
     <div>
       <p>Per-corpus measurement showed Nemotron-medium abandons 88% of its trajectories and had been 30–45% of every mix — roughly a third of all training signal to date was sessions that give up. TerminalTraj is the only corpus that is 100% terminus-2 format, and its paper reports trajectories synthesized with executable validation code.</p>
-      <p>So: TerminalTraj alone, finished trajectories only (92% kept, median 15 turns), from the pretrained base. At 1k steps: 3/24, matching the like-for-like litecoder run. At 10k: 4/24 — the same two reliable tasks — with partial credit at 27.8% against the messy mix's 45.5%.</p>
-      <div class="take"><p><strong>Verified data at the same budget did not beat the unverified mix.</strong> Whatever the mix's abandoned sessions cost, its diversity is worth partial credit that a single clean corpus lacks.</p></div>
+      <p>So: TerminalTraj alone, finished trajectories only (92% kept, median 15 turns), from the pretrained base. At 1k steps: 3/24. At 10k: 4/24 with partial credit at 27.8% against the mix's 45.5%. At 20k: <strong>5/24 — tying continue10k — with partial credit at 54.3%, the highest of any real checkpoint</strong>, and the fewest timeouts of any ungated run (12).</p>
+      <div class="take"><p><strong>Verified data lost at 1k and 10k, then caught the mix at 20k.</strong> Binary is a tie; the +26pp partial-credit swing between 10k and 20k of the same run is ~1.5σ over continue10k — suggestive, not decisive. First single-corpus run that is not worse than the mix.</p></div>
     </div>
     <div class="spec"><dl>
       <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
       <dt>data</dt><dd><span class="mono">terminaltraj</span> + <span class="mono">OURO_SFT_REQUIRE_COMPLETE=1</span></dd>
       <dt>steps</dt><dd><span class="num">1k / 10k / 20k</span> of one run · LR 2e-5</dd>
-      <dd class="result"><span class="big">3/24 · 4/24 · pending</span><span class="sub">traj20k finishes ~22:00 5 Sep, auto-evals on the same 12</span></dd>
+      <dd class="result"><span class="big">3/24 · 4/24 · 5/24</span><span class="sub">traj20k: fix-permissions 2/2, hello-world 2/2, fibonacci-server 1/2 · partial 54.3% · 12 timeouts, 11 early quits</span></dd>
     </dl></div>
   </div>
   <div class="foot"><span>traj1k's fix-permissions was voided by 278 OOMs on a 23 GB card and re-run clean: 1/2</span><span>13</span></div>
@@ -547,7 +547,7 @@
   <div class="two">
     <div>
       <h3>In flight</h3>
-      <p><span class="mono">traj20k</span> — step 17,600 of 20,000, finishes ~22:00 on 5 Sep and auto-evaluates on the same 12 tasks. Last point on the verified-synthetic line; expected 4–5/24.</p>
+      <p><span class="mono">gated traj20k</span> — the verification-gate A/B on the new checkpoint. Its 11 early quits are the signature the gate converts into work (batching5k went 4/24 → 6/24 on the same profile), so this is the strongest current candidate for a new best 12-task score. ~3 h.</p>
       <h3 style="margin-top:22px">Proposed</h3>
       <p><strong>Rejection-sampled distillation.</strong> Run a strong agent through terminus-2 on the 68 held-out tasks, keep only verified successes, SFT from <span class="mono">continue10k</span>, evaluate the 12. Same clean held-out design as oracle68, but demonstrations of the search rather than the answer. Needs a strong model for ~68 agent episodes.</p>
       <p><strong>RL on task reward</strong> (GRPO or rejection-sampling SFT on the model's own successful rollouts) — the only method that trains on the model's own states with a success signal.</p>
