@@ -209,7 +209,7 @@
     <g class="node"><rect x="230" y="180" width="100" height="40" rx="4"/><text x="280" y="197" text-anchor="middle">sft10k</text><text class="s" x="280" y="212" text-anchor="middle">original · 10k</text></g>
     <g class="node"><rect x="230" y="250" width="100" height="40" rx="4"/><text x="280" y="267" text-anchor="middle">sft20k</text><text class="s" x="280" y="282" text-anchor="middle">combined · 2/80</text></g>
     <g class="node"><rect x="230" y="320" width="100" height="40" rx="4"/><text x="280" y="337" text-anchor="middle">repro11k</text><text class="s" x="280" y="352" text-anchor="middle">longhorizon · 3/80</text></g>
-    <g class="node"><rect x="410" y="320" width="100" height="40" rx="4"/><text x="460" y="337" text-anchor="middle">traj1k/10k/20k</text><text class="s" x="460" y="352" text-anchor="middle">TerminalTraj · 3–4/24</text></g>
+    <g class="node best"><rect x="410" y="320" width="100" height="40" rx="4"/><text x="460" y="337" text-anchor="middle">traj1k/10k/20k</text><text class="s" x="460" y="352" text-anchor="middle">TerminalTraj · 3–5/24 · 7 gated</text></g>
     <g class="node"><rect x="590" y="40" width="100" height="40" rx="4"/><text x="640" y="57" text-anchor="middle">batching5k</text><text class="s" x="640" y="72" text-anchor="middle">≥1.5 cmds · 4/80</text></g>
     <g class="node"><rect x="590" y="110" width="100" height="40" rx="4"/><text x="640" y="127" text-anchor="middle">litecoder+1k</text><text class="s" x="640" y="142" text-anchor="middle">3/24</text></g>
     <g class="node diag"><rect x="590" y="180" width="100" height="40" rx="4"/><text x="640" y="197" text-anchor="middle">oracle12</text><text class="s" x="640" y="212" text-anchor="middle">train-on-test · 20/24</text></g>
@@ -394,7 +394,7 @@
       <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
       <dt>data</dt><dd><span class="mono">terminaltraj</span> + <span class="mono">OURO_SFT_REQUIRE_COMPLETE=1</span></dd>
       <dt>steps</dt><dd><span class="num">1k / 10k / 20k</span> of one run · LR 2e-5</dd>
-      <dd class="result"><span class="big">3/24 · 4/24 · 5/24</span><span class="sub">traj20k: fix-permissions 2/2, hello-world 2/2, fibonacci-server 1/2 · partial 54.3% · 12 timeouts, 11 early quits</span></dd>
+      <dd class="result"><span class="big">3/24 · 4/24 · 5/24 → 7/24 gated</span><span class="sub">traj20k: fix-permissions, hello-world 2/2; fibonacci-server 1/2 · partial 54.3% · gated: +csv-to-parquet, +heterogeneous-dates · 5 tasks · partial 58.6% · 0 server errors</span></dd>
     </dl></div>
   </div>
   <div class="foot"><span>traj1k's fix-permissions was voided by 278 OOMs on a 23 GB card and re-run clean: 1/2</span><span>13</span></div>
@@ -457,7 +457,7 @@
         <tr class="hi"><td>gated, attempt 1</td><td class="n">29</td><td class="yes">both tests pass</td></tr>
         <tr class="hi"><td>gated, attempt 2</td><td class="n">34</td><td class="yes">both tests pass</td></tr>
       </table></div>
-      <p class="muted" style="margin-top:12px">Refused at episode 19, it read its own output, found the error, and fixed it. A 6/24 under <span class="mono">TerminusVerify</span> is not comparable to a stock terminus-2 number and is labelled as such.</p>
+      <p class="muted" style="margin-top:12px">Refused at episode 19, it read its own output, found the error, and fixed it. The same gate on <span class="mono">traj20k</span> gave the project's best 12-task result: <strong>7/24, five tasks, 58.6% partial credit</strong>, early quits 11 → 7. A gated number is not comparable to a stock terminus-2 number and is labelled as such.</p>
     </div>
   </div>
   <div class="foot"><span>verify_agent.py:TerminusVerify · --agent-import-path</span><span>16</span></div>
@@ -546,8 +546,8 @@
   <h2>What is running, and what is waiting on a decision</h2>
   <div class="two">
     <div>
-      <h3>In flight</h3>
-      <p><span class="mono">gated traj20k</span> — the verification-gate A/B on the new checkpoint. Its 11 early quits are the signature the gate converts into work (batching5k went 4/24 → 6/24 on the same profile), so this is the strongest current candidate for a new best 12-task score. ~3 h.</p>
+      <h3>Best current configuration</h3>
+      <p><span class="mono">traj20k</span> + verification gate: <strong>7/24, 5 of 12 tasks, 58.6% partial credit</strong>, zero server errors. Five distinct tasks in one run is more than any checkpoint had managed. One seed; 7 vs 6 is inside the noise floor, five tasks vs three and +13 pp partial credit are not. Next measurement: this checkpoint on all 80 tasks, gated and ungated.</p>
       <h3 style="margin-top:22px">Proposed</h3>
       <p><strong>Rejection-sampled distillation.</strong> Run a strong agent through terminus-2 on the 68 held-out tasks, keep only verified successes, SFT from <span class="mono">continue10k</span>, evaluate the 12. Same clean held-out design as oracle68, but demonstrations of the search rather than the answer. Needs a strong model for ~68 agent episodes.</p>
       <p><strong>RL on task reward</strong> (GRPO or rejection-sampling SFT on the model's own successful rollouts) — the only method that trains on the model's own states with a success signal.</p>
