@@ -1,0 +1,589 @@
+<title>Ouro on Terminal-Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --ground: #F6F8F6;
+    --panel: #FFFFFF;
+    --ink: #141F1B;
+    --muted: #5D6D68;
+    --rule: #D3DBD6;
+    --accent: #0E6B68;
+    --accent-soft: #DCEBE9;
+    --warn: #A66A12;
+    --warn-soft: #F5E8D3;
+    --good: #2E7D4F;
+    --bad: #A3402F;
+    --display: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E1513; --panel: #151E1B; --ink: #E4EBE7; --muted: #8DA098;
+      --rule: #25322E; --accent: #3DB5AE; --accent-soft: #163634;
+      --warn: #D9A04A; --warn-soft: #3A2C13; --good: #5CBF86; --bad: #E07A65;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0E1513; --panel: #151E1B; --ink: #E4EBE7; --muted: #8DA098;
+    --rule: #25322E; --accent: #3DB5AE; --accent-soft: #163634;
+    --warn: #D9A04A; --warn-soft: #3A2C13; --good: #5CBF86; --bad: #E07A65;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--body); font-size: 18px; line-height: 1.5;
+  }
+  main { scroll-snap-type: y mandatory; height: 100svh; overflow-y: auto; }
+  .slide {
+    scroll-snap-align: start; min-height: 100svh; padding: 56px 72px 72px;
+    display: flex; flex-direction: column; gap: 22px; position: relative;
+    border-bottom: 1px solid var(--rule);
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); display: flex; gap: 18px;
+  }
+  .eyebrow .diag { color: var(--warn); }
+  h1, h2 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap: balance; line-height: 1.12; }
+  h1 { font-size: 58px; font-variation-settings: "opsz" 144; max-width: 16ch; }
+  h2 { font-size: 40px; font-variation-settings: "opsz" 72; max-width: 22ch; }
+  h3 { font-family: var(--body); font-weight: 600; font-size: 17px; margin: 0 0 6px; letter-spacing: .01em; }
+  p { margin: 0; max-width: 62ch; }
+  p + p { margin-top: 10px; }
+  .lede { font-size: 22px; max-width: 56ch; color: var(--ink); }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--mono); font-size: .92em; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  strong { font-weight: 600; }
+
+  .two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .8fr); gap: 48px; align-items: start; flex: 1; }
+  .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+
+  /* the spec card: same rows, same place, every checkpoint slide */
+  .spec { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 18px 20px; }
+  .spec dl { margin: 0; display: grid; grid-template-columns: 78px 1fr; row-gap: 10px; column-gap: 14px; }
+  .spec dt { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+  .spec dd { margin: 0; font-size: 16px; line-height: 1.4; }
+  .spec dd .mono { font-size: 14px; }
+  .spec .result { grid-column: 1 / -1; border-top: 1px solid var(--rule); padding-top: 12px; margin-top: 4px; }
+  .spec .result .big { font-family: var(--mono); font-size: 30px; font-weight: 600; letter-spacing: -.01em; display: block; line-height: 1.1; }
+  .spec .result .sub { font-size: 14px; color: var(--muted); }
+  .take { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; max-width: 60ch; }
+  .take.warn { border-left-color: var(--warn); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 15.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.k { font-family: var(--mono); font-size: 14px; }
+  tr.hi td { background: var(--accent-soft); }
+  tr.diag td { color: var(--warn); }
+  .yes { color: var(--good); font-weight: 600; } .no { color: var(--muted); }
+  .scroll { overflow-x: auto; }
+
+  pre { font-family: var(--mono); font-size: 13.5px; line-height: 1.45; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; margin: 0; overflow-x: auto; }
+  code { font-family: var(--mono); font-size: .9em; }
+
+  .tag { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); }
+
+  .foot { position: absolute; left: 72px; right: 72px; bottom: 22px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+
+  /* lineage figure */
+  svg.lineage { width: 100%; max-width: 1080px; height: auto; display: block; }
+  svg.lineage .node rect { fill: var(--panel); stroke: var(--rule); stroke-width: 1; }
+  svg.lineage .node.base rect { fill: var(--accent-soft); stroke: var(--accent); }
+  svg.lineage .node.diag rect { fill: var(--warn-soft); stroke: var(--warn); }
+  svg.lineage .node.best rect { stroke: var(--accent); stroke-width: 2; }
+  svg.lineage .node text { fill: var(--ink); font-family: var(--mono); font-size: 12px; }
+  svg.lineage .node text.s { fill: var(--muted); font-size: 10.5px; }
+  svg.lineage .edge { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+  svg.lineage .lbl { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+
+  .kbd { position: fixed; right: 18px; bottom: 14px; font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 4px 8px; }
+
+  @media (max-width: 900px) {
+    .slide { padding: 36px 24px 64px; }
+    h1 { font-size: 40px; } h2 { font-size: 30px; }
+    .two, .three { grid-template-columns: 1fr; }
+    .foot { left: 24px; right: 24px; }
+  }
+  @media print {
+    main { height: auto; overflow: visible; scroll-snap-type: none; }
+    .slide { min-height: auto; page-break-after: always; break-after: page; border: 0; }
+    .kbd { display: none; }
+  }
+  @media (prefers-reduced-motion: no-preference) { main { scroll-behavior: smooth; } }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<main id="deck">
+
+<!-- 1 · title -->
+<section class="slide">
+  <div class="eyebrow"><span>Ouro-1.4B-Thinking · Terminal-Bench 0.2.18</span><span>27 Aug – 5 Sep 2026</span></div>
+  <h1>Ouro on Terminal-Bench</h1>
+  <p class="lede">Thirteen SFT checkpoints from one 1.4B looped transformer. Where each one started, what it was trained on, what it scored — and the three experiments that finally said what the ceiling is.</p>
+  <div class="two" style="flex:0">
+    <div>
+      <p class="muted">Base model throughout: <span class="mono">Ouro-1.4B-Thinking</span>, a universal transformer that runs its weight-tied decoder up to 4 times per token behind a learned early-exit gate. Pretrained, it scores <span class="num">0/80</span> — not for lack of ability, but because it cannot be driven: 866–1,486 tokens per turn and it never stops.</p>
+    </div>
+  </div>
+  <div class="foot"><span>branch worktree-ouro-terminal-sft · 543e6372</span><span>1</span></div>
+</section>
+
+<!-- 2 · setup -->
+<section class="slide">
+  <div class="eyebrow"><span>Setup</span></div>
+  <h2>One recipe, one eval, thirteen checkpoints</h2>
+  <div class="three">
+    <div>
+      <h3>Training (shared by every run)</h3>
+      <p>Assistant-only loss masking. Ouro's Stage-I objective, <span class="mono">L = Σₜ p(t|x)·L⁽ᵗ⁾ − β·H(p)</span>, β = 0.01. LR <span class="num">2e-5</span> from base, <span class="num">1e-5</span> for continuations, 50-step warmup. Batch 1, sequence 4096, full activation checkpointing, one GPU.</p>
+    </div>
+    <div>
+      <h3>Evaluation</h3>
+      <p>80 local tasks (core-0.1.x format, 4 <span class="mono">.easy</span> variants). Agent <span class="mono">terminus-2</span>, temperature 0.7, no n-gram guard. Budget 420 s — trials actually run to ~720 s. A 12-task subset for fast reads, 2 attempts each.</p>
+    </div>
+    <div>
+      <h3>Noise floor: ±1 task</h3>
+      <p>Two same-recipe runs scored <span class="num">4/80</span> and <span class="num">3/80</span> and shared only 2 of their solved tasks. On 12 tasks, anything within one task is not a result.</p>
+    </div>
+  </div>
+  <pre>{"analysis": "...", "plan": "...",
+ "commands": [{"keystrokes": "ls -la\n", "duration": 0.1}],
+ "task_complete": false}                     ← the only output the agent parses</pre>
+  <div class="foot"><span>terminal-bench 0.2.18 · terminus-2 · 80 tasks</span><span>2</span></div>
+</section>
+
+<!-- 3 · corpora -->
+<section class="slide">
+  <div class="eyebrow"><span>Data</span></div>
+  <h2>The corpora, measured per source</h2>
+  <p class="muted">250 rows each. <em>fmt</em> = assistant turns that are valid terminus-2 JSON. <em>finish</em> = trajectories ending in <span class="mono">task_complete: true</span>.</p>
+  <div class="scroll"><table>
+    <tr><th>corpus</th><th class="n">fmt</th><th class="n">turns mean / med</th><th class="n">finish</th><th>note</th></tr>
+    <tr><td class="k">nvidia/Nemotron-Terminal-Corpus · skill_based_medium</td><td class="n">89%</td><td class="n">5.9 / 6</td><td class="n" style="color:var(--bad)">12%</td><td>abandons 88% of trajectories; 30–45% of every mix below</td></tr>
+    <tr><td class="k">nvidia/Nemotron-Terminal-Corpus · skill_based_easy</td><td class="n">87%</td><td class="n">7.4 / 7</td><td class="n">97%</td><td></td></tr>
+    <tr class="hi"><td class="k">m-a-p/TerminalTraj</td><td class="n">100%</td><td class="n">15.1 / 13</td><td class="n">92%</td><td>synthesized with executable validation code (paper: 50,733 verified)</td></tr>
+    <tr><td class="k">open-thoughts/OpenThoughts-Agent-v1-SFT</td><td class="n">99%</td><td class="n">6.0 / 6</td><td class="n">100%</td><td></td></tr>
+    <tr><td class="k">Lite-Coder/LiteCoder-Terminal-SFT</td><td class="n">—</td><td class="n">53.5 / 44</td><td class="n">—</td><td>longest horizon in the set</td></tr>
+  </table></div>
+  <div class="scroll"><table>
+    <tr><th>mix</th><th>composition</th><th>used by</th></tr>
+    <tr><td class="k">original</td><td>Nemotron-medium 45 · Nemotron-easy 20 · TerminalTraj 25 · OpenThoughts 10</td><td class="k">sft1k, sft10k</td></tr>
+    <tr><td class="k">longhorizon</td><td>TerminalTraj 60 · Nemotron-medium 30 · OpenThoughts 10</td><td class="k">continue10k, router2k, repro11k, batching5k</td></tr>
+    <tr><td class="k">combined</td><td>TerminalTraj 42.5 · Nemotron-medium 37.5 · Nemotron-easy 10 · OpenThoughts 10</td><td class="k">sft20k</td></tr>
+    <tr><td class="k">litecoder</td><td>LiteCoder 60 · TerminalTraj 25 · Nemotron-medium 15</td><td class="k">litecoder+1k</td></tr>
+    <tr><td class="k">terminaltraj</td><td>TerminalTraj 100, finished trajectories only</td><td class="k">traj1k / 10k / 20k</td></tr>
+  </table></div>
+  <div class="foot"><span>terminal-bench median episode: 22 turns</span><span>3</span></div>
+</section>
+
+<!-- 4 · lineage -->
+<section class="slide">
+  <div class="eyebrow"><span>Lineage</span></div>
+  <h2>Which checkpoint each one started from</h2>
+  <svg class="lineage" viewBox="0 0 1080 400" role="img" aria-label="Checkpoint lineage tree">
+    <!-- edges -->
+    <path class="edge" d="M150 60 H 230"/>                       <!-- base -> sft1k -->
+    <path class="edge" d="M330 60 H 410"/>                       <!-- sft1k -> continue10k -->
+    <path class="edge" d="M280 80 V 130 H 410"/>                 <!-- sft1k -> router2k -->
+    <path class="edge" d="M150 60 V 200 H 230"/>                 <!-- base -> sft10k -->
+    <path class="edge" d="M150 200 V 270 H 230"/>                <!-- base -> sft20k -->
+    <path class="edge" d="M150 270 V 340 H 230"/>                <!-- base -> repro11k -->
+    <path class="edge" d="M330 340 H 410"/>                      <!-- (row) -->
+    <path class="edge" d="M510 60 H 590"/>                       <!-- continue10k -> batching5k -->
+    <path class="edge" d="M560 80 V 130 H 590"/>                 <!-- continue10k -> litecoder+1k -->
+    <path class="edge" d="M560 80 V 200 H 590"/>                 <!-- continue10k -> oracle12 -->
+    <path class="edge" d="M560 80 V 270 H 590"/>                 <!-- continue10k -> oracle68 -->
+    <path class="edge" d="M690 60 H 770"/>                       <!-- batching5k -> gated -->
+    <!-- nodes -->
+    <g class="node base"><rect x="50" y="40" width="100" height="40" rx="4"/><text x="100" y="57" text-anchor="middle">pretrained</text><text class="s" x="100" y="72" text-anchor="middle">0/80</text></g>
+    <g class="node"><rect x="230" y="40" width="100" height="40" rx="4"/><text x="280" y="57" text-anchor="middle">sft1k</text><text class="s" x="280" y="72" text-anchor="middle">original · 1k</text></g>
+    <g class="node best"><rect x="410" y="40" width="100" height="40" rx="4"/><text x="460" y="57" text-anchor="middle">continue10k</text><text class="s" x="460" y="72" text-anchor="middle">longhorizon · 4/80</text></g>
+    <g class="node"><rect x="410" y="110" width="100" height="40" rx="4"/><text x="460" y="127" text-anchor="middle">router2k</text><text class="s" x="460" y="142" text-anchor="middle">gate only · 3/24</text></g>
+    <g class="node"><rect x="230" y="180" width="100" height="40" rx="4"/><text x="280" y="197" text-anchor="middle">sft10k</text><text class="s" x="280" y="212" text-anchor="middle">original · 10k</text></g>
+    <g class="node"><rect x="230" y="250" width="100" height="40" rx="4"/><text x="280" y="267" text-anchor="middle">sft20k</text><text class="s" x="280" y="282" text-anchor="middle">combined · 2/80</text></g>
+    <g class="node"><rect x="230" y="320" width="100" height="40" rx="4"/><text x="280" y="337" text-anchor="middle">repro11k</text><text class="s" x="280" y="352" text-anchor="middle">longhorizon · 3/80</text></g>
+    <g class="node"><rect x="410" y="320" width="100" height="40" rx="4"/><text x="460" y="337" text-anchor="middle">traj1k/10k/20k</text><text class="s" x="460" y="352" text-anchor="middle">TerminalTraj · 3–4/24</text></g>
+    <g class="node"><rect x="590" y="40" width="100" height="40" rx="4"/><text x="640" y="57" text-anchor="middle">batching5k</text><text class="s" x="640" y="72" text-anchor="middle">≥1.5 cmds · 4/80</text></g>
+    <g class="node"><rect x="590" y="110" width="100" height="40" rx="4"/><text x="640" y="127" text-anchor="middle">litecoder+1k</text><text class="s" x="640" y="142" text-anchor="middle">3/24</text></g>
+    <g class="node diag"><rect x="590" y="180" width="100" height="40" rx="4"/><text x="640" y="197" text-anchor="middle">oracle12</text><text class="s" x="640" y="212" text-anchor="middle">train-on-test · 20/24</text></g>
+    <g class="node diag"><rect x="590" y="250" width="100" height="40" rx="4"/><text x="640" y="267" text-anchor="middle">oracle68</text><text class="s" x="640" y="282" text-anchor="middle">held-out · 3/24</text></g>
+    <g class="node best"><rect x="770" y="40" width="120" height="40" rx="4"/><text x="830" y="57" text-anchor="middle">+ verify gate</text><text class="s" x="830" y="72" text-anchor="middle">harness only · 6/24</text></g>
+    <text class="lbl" x="50" y="395">Amber = contaminated by construction, diagnostic only. Teal outline = best real result.</text>
+  </svg>
+  <div class="foot"><span>traj* also starts from pretrained (drawn on the repro row for space)</span><span>4</span></div>
+</section>
+
+<!-- 5 · sft1k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 01</span><span>sft1k</span></div>
+  <h2>The first checkpoint that could be driven</h2>
+  <div class="two">
+    <div>
+      <p>The pretrained model produces ~9 usable turns across all 80 tasks: 866–1,486 tokens each, never a stop token, client timeouts everywhere. One thousand steps on the <span class="mono">original</span> mix fixed that — the model learned to emit parseable terminus-2 JSON and to end a turn.</p>
+      <p>Two serving bugs masked it at first. <span class="mono">max_tokens</span> defaulted to 1,024 and cut every response mid-reasoning (0% pass); an n-gram repeat guard corrupted JSON under sampling (pass@5 0.000). With both fixed the same weights scored pass@5 0.400 on the five simplest tasks.</p>
+      <div class="take"><p><strong>SFT's benefit is controllability.</strong> Every later checkpoint inherits this; none of them gets much beyond it.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
+      <dt>data</dt><dd><span class="mono">original</span> — Nemotron-medium 45%, Nemotron-easy 20%, TerminalTraj 25%, OpenThoughts 10%</dd>
+      <dt>steps</dt><dd><span class="num">1,000</span> · LR 2e-5</dd>
+      <dd class="result"><span class="big">pass@5 0.40</span><span class="sub">on the 5 simplest tasks · solves hello-world, fix-permissions</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>HF: pushed with config.json + pad_token_id baked in</span><span>5</span></div>
+</section>
+
+<!-- 6 · sft10k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 02</span><span>sft10k</span></div>
+  <h2>Ten times the steps, same data</h2>
+  <div class="two">
+    <div>
+      <p>The natural follow-up: the same <span class="mono">original</span> mix from the same base, run to 10k steps on one GPU. Evaluated head-to-head against the pretrained model, it confirmed the pattern already visible at 1k — the agent is controllable, and controllability is most of what it gains.</p>
+      <p>It was superseded by <span class="mono">continue10k</span> before the 80-task protocol existed, so it does not appear in the final comparison tables.</p>
+      <div class="take"><p><strong>Steps alone did not change the picture.</strong> This is the first of several signs that the objective, not the budget, was the limit.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
+      <dt>data</dt><dd><span class="mono">original</span> mix, unchanged</dd>
+      <dt>steps</dt><dd><span class="num">10,000</span> · LR 2e-5 · 1 GPU</dd>
+      <dd class="result"><span class="big">superseded</span><span class="sub">not carried into the 12- or 80-task tables</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span></span><span>6</span></div>
+</section>
+
+<!-- 7 · continue10k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 03</span><span>continue10k</span></div>
+  <h2>The best real checkpoint — and the reference for everything after</h2>
+  <div class="two">
+    <div>
+      <p>Started from <span class="mono">sft1k</span>, not the base, and continued for 10k steps on a mix reweighted toward longer trajectories: TerminalTraj at 60%. It solves four of 80 tasks and holds that record.</p>
+      <p>It also defined the noise floor. A same-recipe reproduction (<span class="mono">repro11k</span>) scored 3/80 and shared only two of its four solved tasks — <span class="mono">fix-permissions</span> and <span class="mono">hello-world</span> are reliable; the other two are a coin flip.</p>
+      <div class="take"><p><strong>4/80 is the high-water mark for SFT on public corpora.</strong> Every intervention below is measured against this checkpoint.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd><span class="mono">sft1k</span></dd>
+      <dt>data</dt><dd><span class="mono">longhorizon</span> — TerminalTraj 60%, Nemotron-medium 30%, OpenThoughts 10%</dd>
+      <dt>steps</dt><dd><span class="num">+10,000</span> · LR 2e-5</dd>
+      <dd class="result"><span class="big">4/80 · 5/24</span><span class="sub">fix-pandas-version, fix-permissions, hello-world, vim-terminal-task · partial credit 50.9% / 45.5%</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>65 of 80 failures are agent_timeout at a median 21 turns, 0% repeated responses</span><span>7</span></div>
+</section>
+
+<!-- 8 · router2k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 04</span><span>router2k</span></div>
+  <h2>Train only the exit gate</h2>
+  <div class="two">
+    <div>
+      <p>Ouro's early-exit router is 2,049 parameters. <span class="mono">stage2_adaptive</span> freezes everything else and trains just the gate, from <span class="mono">sft1k</span>, for 2k steps. The point was efficiency: a sharper gate exits the 4-step loop earlier per token.</p>
+      <p>It proved the latency lever — later measured at −33% to −44% compute at a flat ability score — without changing what the model can do.</p>
+      <div class="take"><p><strong>Efficiency and ability are separable here.</strong> The gate is a compute dial, not a capability dial — which is what made it a clean NAS objective later.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd><span class="mono">sft1k</span></dd>
+      <dt>data</dt><dd><span class="mono">longhorizon</span> mix</dd>
+      <dt>steps</dt><dd><span class="num">2,000</span> · router-only (2,049 params)</dd>
+      <dd class="result"><span class="big">3/24</span><span class="sub">hello-world 2/2, fix-permissions 1/2</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>OURO_LOSS_STAGE=stage2_adaptive</span><span>8</span></div>
+</section>
+
+<!-- 9 · sft20k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 05</span><span>sft20k</span></div>
+  <h2>Twice the budget, the worst score</h2>
+  <div class="two">
+    <div>
+      <p>From the base, 20k steps on the union of the two earlier mixes. It scores 2/80 — only the two tasks every checkpoint solves — and threw 14 <span class="mono">unknown_agent_error</span> failures.</p>
+      <p>Held-out cross-entropy kept improving throughout. That dissociation — CE falls, task success does not move — recurs across seven data interventions: 1.292 → 0.461 → 0.391.</p>
+      <div class="take"><p><strong>More steps sharpen the mode.</strong> Token-level CE learns the most common action; longer training trains minority behaviours out, not in.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
+      <dt>data</dt><dd><span class="mono">combined</span> — TerminalTraj 42.5%, Nemotron-medium 37.5%, Nemotron-easy 10%, OpenThoughts 10%</dd>
+      <dt>steps</dt><dd><span class="num">20,000</span> · LR 2e-5</dd>
+      <dd class="result"><span class="big">2/80</span><span class="sub">fix-permissions, hello-world · partial credit 47.4%</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>3 serving shards OOM'd 1,042 times on a 45 GB card; re-run at 2 shards</span><span>9</span></div>
+</section>
+
+<!-- 10 · repro11k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 06</span><span>repro11k</span></div>
+  <h2>Reproduce the best one, in one run</h2>
+  <div class="two">
+    <div>
+      <p>Same recipe as <span class="mono">continue10k</span>, run uninterrupted from the base for 11k steps. It landed at 3/80 with a different fourth task (<span class="mono">heterogeneous-dates</span>) and lost <span class="mono">vim-terminal-task</span> and <span class="mono">fix-pandas-version</span>.</p>
+      <p>Its 80-task partial credit of 19.3% is a logging artifact — it recorded 243 test outcomes against ~383 for the others — not a real drop.</p>
+      <div class="take"><p><strong>This run is the error bar.</strong> 4 vs 3, sharing two tasks: the marginal task is noise, and every later ±1 comparison is read through it.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
+      <dt>data</dt><dd><span class="mono">longhorizon</span> mix, single run</dd>
+      <dt>steps</dt><dd><span class="num">11,000</span> · LR 2e-5</dd>
+      <dd class="result"><span class="big">3/80 · 5/24</span><span class="sub">fix-permissions, hello-world, heterogeneous-dates</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span></span><span>10</span></div>
+</section>
+
+<!-- 11 · litecoder+1k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 07</span><span>litecoder+1k</span></div>
+  <h2>Longer horizons made it worse</h2>
+  <div class="two">
+    <div>
+      <p>Training trajectories averaged 8–16 turns against a benchmark median of 22, so the obvious fix was a longer corpus. LiteCoder-Terminal-SFT averages 53 turns and is already in terminus JSON. It went in at 60%, on top of <span class="mono">continue10k</span>, for 1k steps.</p>
+      <p>Score fell from 0.208 to 0.125 — 2 of 12 tasks against 3 — on clean runs with zero server errors. Mean tokens per turn drifted up, 155 → 163.</p>
+      <div class="take"><p><strong>Horizon was the wrong lever.</strong> The recorded conclusion at the time; the oracle experiments later explained why.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd><span class="mono">continue10k</span></dd>
+      <dt>data</dt><dd><span class="mono">litecoder</span> — LiteCoder 60%, TerminalTraj 25%, Nemotron-medium 15% (mean 31.6 turns)</dd>
+      <dt>steps</dt><dd><span class="num">+1,000</span> · LR 2e-5</dd>
+      <dd class="result"><span class="big">3/24</span><span class="sub">0.125 vs continue10k's 0.208</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>SWE-rebench rejected: 25/92 assistant turns empty, actions only in tool_calls</span><span>11</span></div>
+</section>
+
+<!-- 12 · batching5k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 08</span><span>batching5k</span></div>
+  <h2>Fix the behaviour the data had erased</h2>
+  <div class="two">
+    <div>
+      <p><span class="mono">continue10k</span> emitted exactly one shell command per turn in 643 of 660 turns — never more — while its own training data averaged 1.72 with a max of 9. CE had collapsed onto the singleton mode. The fix filtered the mix to trajectories averaging ≥1.5 commands per turn (36% of rows kept, median 4.0) and continued 5k steps at a lower LR.</p>
+      <p>The behaviour came back: multi-command turns went from 0/660 to 48/406, timeouts fell 17 → 14. pass@1 did not move — until the harness gate (slide 16) turned its reclaimed time into a new solved task.</p>
+      <div class="take"><p><strong>It hit its target and missed the outcome — then became the base for the best 12-task score.</strong></p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd><span class="mono">continue10k</span></dd>
+      <dt>data</dt><dd><span class="mono">longhorizon</span> filtered <span class="mono">OURO_SFT_MIN_CMDS=1.5</span></dd>
+      <dt>steps</dt><dd><span class="num">+5,000</span> · LR 1e-5 · checkpoints every 1k</dd>
+      <dd class="result"><span class="big">4/80 · 4/24 → 6/24 gated</span><span class="sub">fibonacci-server, fix-pandas-version, fix-permissions, hello-world · step-1000/2000 both 4/24</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>A synthetic-prefix probe said P(batch) never moved (0.00027 → 0.00030); the real trajectories said otherwise</span><span>12</span></div>
+</section>
+
+<!-- 13 · traj1k / traj10k / traj20k -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoints 09–11</span><span>traj1k · traj10k · traj20k</span></div>
+  <h2>One verified corpus, from scratch</h2>
+  <div class="two">
+    <div>
+      <p>Per-corpus measurement showed Nemotron-medium abandons 88% of its trajectories and had been 30–45% of every mix — roughly a third of all training signal to date was sessions that give up. TerminalTraj is the only corpus that is 100% terminus-2 format, and its paper reports trajectories synthesized with executable validation code.</p>
+      <p>So: TerminalTraj alone, finished trajectories only (92% kept, median 15 turns), from the pretrained base. At 1k steps: 3/24, matching the like-for-like litecoder run. At 10k: 4/24 — the same two reliable tasks — with partial credit at 27.8% against the messy mix's 45.5%.</p>
+      <div class="take"><p><strong>Verified data at the same budget did not beat the unverified mix.</strong> Whatever the mix's abandoned sessions cost, its diversity is worth partial credit that a single clean corpus lacks.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
+      <dt>data</dt><dd><span class="mono">terminaltraj</span> + <span class="mono">OURO_SFT_REQUIRE_COMPLETE=1</span></dd>
+      <dt>steps</dt><dd><span class="num">1k / 10k / 20k</span> of one run · LR 2e-5</dd>
+      <dd class="result"><span class="big">3/24 · 4/24 · pending</span><span class="sub">traj20k finishes ~22:00 5 Sep, auto-evals on the same 12</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>traj1k's fix-permissions was voided by 278 OOMs on a 23 GB card and re-run clean: 1/2</span><span>13</span></div>
+</section>
+
+<!-- 14 · oracle12 -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 12</span><span>oracle12</span><span class="diag">diagnostic · contaminated by construction</span></div>
+  <h2>Train on the test: what is the ceiling?</h2>
+  <div class="two">
+    <div>
+      <p>If a model trained on the exact solutions still cannot execute them through the agent loop, the bottleneck is not data. Each row pairs a task's verbatim episode-0 prompt — harvested from our own eval logs, so the prompt distribution matches eval exactly — with its oracle solution rendered as one terminus-2 turn, then the real confirmation turn.</p>
+      <p>Result: 20/24, and the two misses were a harness bug (a 5-second wait on scripts that install perl or wait for a cron tick). The model emitted every solution correctly, including an 8,000-character chess program, in exactly two episodes per trial with zero timeouts.</p>
+      <div class="take warn"><p><strong>Effectively 12/12. Execution, format, the double-confirm, real containers — all work.</strong> The ceiling is not capacity. Never a reportable score.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd><span class="mono">continue10k</span></dd>
+      <dt>data</dt><dd>oracle <span class="mono">solution.sh / .yaml</span> of the 12 eval tasks, verbatim harvested prompts</dd>
+      <dt>steps</dt><dd><span class="num">300</span> (~66 epochs) · LR 1e-5</dd>
+      <dd class="result"><span class="big" style="color:var(--warn)">20/24</span><span class="sub">10/12 tasks · partial credit 91.7% · 2.0 episodes/trial</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>canary GUID 26b5c67b-… present in every task file — this is what it exists to flag</span><span>14</span></div>
+</section>
+
+<!-- 15 · oracle68 -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 13</span><span>oracle68</span><span class="diag">held-out · clean for the 12, contaminated for the 80</span></div>
+  <h2>Do the demonstrations transfer?</h2>
+  <div class="two">
+    <div>
+      <p>Same construction, same base, same LR — but trained on the oracle solutions of the 68 tasks <em>not</em> in the 12-task set, and evaluated on the 12. The only variable is which tasks the demonstrations came from.</p>
+      <p>3/24. And the behaviour tells the story: 2.1 episodes per trial, 17 of 24 trials opened by writing a heredoc "solution", 20 of 24 declared <span class="mono">task_complete</span> on their very first turn — on tasks they had never seen, with invented contents. Partial credit fell to 25.7%, below the no-op floor.</p>
+      <div class="take warn"><p><strong>Shape transferred; skill did not.</strong> Oracle scripts contain the answer but not the process — no exploration, observation, or recovery — and SFT on them teaches the model to skip the process.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd><span class="mono">continue10k</span></dd>
+      <dt>data</dt><dd>oracle solutions of the 68 held-out tasks (zero overlap with the 12, verified at build)</dd>
+      <dt>steps</dt><dd><span class="num">500</span> (~12 epochs) · LR 1e-5</dd>
+      <dd class="result"><span class="big" style="color:var(--warn)">3/24</span><span class="sub">crack-7z-hash, hello-world, sanitize-git-repo at 1/2 each · 21/24 quit without timing out</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span></span><span>15</span></div>
+</section>
+
+<!-- 16 · what moved it: gate -->
+<section class="slide">
+  <div class="eyebrow"><span>What moved pass@1 · 1 of 2</span></div>
+  <h2>Forty lines of harness beat seven data mixes</h2>
+  <div class="two">
+    <div>
+      <p>terminus-2 already asks "are you sure?" before grading. Our models answered by re-emitting <span class="mono">task_complete: true</span> with an empty <span class="mono">commands</span> list — 8 of 8 times at a mean 28–33% of tests passing. The gate refuses a confirmation that ran nothing, up to twice, and asks for verification instead.</p>
+      <p>On <span class="mono">batching5k</span> that produced the best 12-task score and a task no checkpoint had solved. It <em>hurt</em> <span class="mono">continue10k</span> (5 → 4), which mostly times out and gained nothing from being told to keep going — exactly what the mechanism predicts.</p>
+    </div>
+    <div>
+      <div class="scroll"><table>
+        <tr><th>csv-to-parquet</th><th>episodes</th><th>outcome</th></tr>
+        <tr><td>ungated, attempt 1</td><td class="n">19</td><td>quit early — parquet written, data wrong</td></tr>
+        <tr><td>ungated, attempt 2</td><td class="n">24</td><td>timeout</td></tr>
+        <tr class="hi"><td>gated, attempt 1</td><td class="n">29</td><td class="yes">both tests pass</td></tr>
+        <tr class="hi"><td>gated, attempt 2</td><td class="n">34</td><td class="yes">both tests pass</td></tr>
+      </table></div>
+      <p class="muted" style="margin-top:12px">Refused at episode 19, it read its own output, found the error, and fixed it. A 6/24 under <span class="mono">TerminusVerify</span> is not comparable to a stock terminus-2 number and is labelled as such.</p>
+    </div>
+  </div>
+  <div class="foot"><span>verify_agent.py:TerminusVerify · --agent-import-path</span><span>16</span></div>
+</section>
+
+<!-- 17 · what moved it: NAS -->
+<section class="slide">
+  <div class="eyebrow"><span>What moved pass@1 · 2 of 2 — efficiency</span></div>
+  <h2>Router NAS through BO: Claude ≈ gp_hedge, both beat random</h2>
+  <div class="two">
+    <div>
+      <p>A 6-D search over the exit gate — depth, width, activation, input norm, jointly with <span class="mono">adaptive_gamma</span> and the exit threshold — each candidate trained from random init for 100 steps and scored by <span class="mono">avg_loops</span> subject to an accuracy floor. 25 evaluations per optimizer, ~8 minutes each.</p>
+      <p>All three best points sit at pass@1 0.80, so this is purely a compute comparison. Claude and gp_hedge tie on quality; they win differently — Claude keeps 84% of its evaluations feasible (it reads the axis names), gp_hedge reaches the target in 10 iterations to Claude's 18.</p>
+      <p class="muted">One seed: the Claude/gp_hedge ordering is noise, the gap to random is not. Both converged to <span class="mono">layers=0</span>, the original linear gate — the win came from gamma and threshold.</p>
+    </div>
+    <div class="scroll"><table>
+      <tr><th>optimizer</th><th class="n">best loops</th><th class="n">vs 4.0</th><th class="n">feasible</th><th class="n">iters → 1.5</th></tr>
+      <tr><td class="k">gp_hedge</td><td class="n">1.178</td><td class="n">−70.5%</td><td class="n">16/25</td><td class="n">10</td></tr>
+      <tr class="hi"><td class="k">claude (sonnet-5)</td><td class="n">1.184</td><td class="n">−70.4%</td><td class="n">21/25</td><td class="n">18</td></tr>
+      <tr><td class="k">random</td><td class="n">1.904</td><td class="n">−52.4%</td><td class="n">14/25</td><td class="n">never</td></tr>
+    </table></div>
+  </div>
+  <div class="foot"><span>the earlier 2-D setting returned bit-identical 1.2077 for ChatGPT and Qwen — no power to rank models</span><span>17</span></div>
+</section>
+
+<!-- 18 · full results -->
+<section class="slide">
+  <div class="eyebrow"><span>Results</span></div>
+  <h2>Six tasks, ever, across five checkpoints</h2>
+  <div class="scroll"><table>
+    <tr><th>task</th><th>pretrained</th><th>sft20k</th><th>continue10k</th><th>repro11k</th><th>batching5k</th></tr>
+    <tr><td class="k">fix-permissions</td><td class="no">·</td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td></tr>
+    <tr><td class="k">hello-world</td><td class="no">·</td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td><td class="yes">yes</td></tr>
+    <tr><td class="k">fix-pandas-version</td><td class="no">·</td><td class="no">·</td><td class="yes">yes</td><td class="no">·</td><td class="yes">yes</td></tr>
+    <tr><td class="k">vim-terminal-task</td><td class="no">·</td><td class="no">·</td><td class="yes">yes</td><td class="no">·</td><td class="no">·</td></tr>
+    <tr><td class="k">heterogeneous-dates</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">yes</td><td class="no">·</td></tr>
+    <tr><td class="k">fibonacci-server</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">yes</td></tr>
+    <tr><td><strong>pass@1 / 80</strong></td><td class="n">0</td><td class="n">2</td><td class="n"><strong>4</strong></td><td class="n">3</td><td class="n"><strong>4</strong></td></tr>
+    <tr><td><strong>partial credit</strong></td><td class="n">42.4%</td><td class="n">47.4%</td><td class="n">50.9%</td><td class="n">—</td><td class="n">49.9%</td></tr>
+  </table></div>
+  <p class="muted">Two tasks fall to every SFT checkpoint, one to two of them, three to exactly one each. No checkpoint exceeds four. That is a hard ceiling with a thin band of coin-flip tasks on top — not interventions that were steadily improving the model. The 42.4% partial credit of a model that times out on 78/80 tasks is the pass-by-default floor; the usable range is ~42–51%.</p>
+  <div class="foot"><span>canary audit: 0.2% of training rows carry the terminal-bench canary; none of the six solved tasks is contaminated</span><span>18</span></div>
+</section>
+
+<!-- 19 · what the trio settled -->
+<section class="slide">
+  <div class="eyebrow"><span>Conclusion</span></div>
+  <h2>The ceiling is deriving solutions, not executing them</h2>
+  <div class="three">
+    <div>
+      <h3>Executing a known solution</h3>
+      <p><span class="num" style="font-size:28px;font-weight:600">12/12</span><br>oracle12. Through the real agent loop, real containers, the double-confirm. The model, the harness, and the format are not the problem.</p>
+    </div>
+    <div>
+      <h3>Learning from 68 solutions</h3>
+      <p><span class="num" style="font-size:28px;font-weight:600">3/24</span><br>oracle68. It learned to write a script and declare done. Answers without process teach skipping the process.</p>
+    </div>
+    <div>
+      <h3>Verified synthetic trajectories</h3>
+      <p><span class="num" style="font-size:28px;font-weight:600">4/24</span><br>traj10k. Correctness labels at a 10k budget did not beat a messy mix a third of which gives up.</p>
+    </div>
+  </div>
+  <div class="take"><p><strong>What is missing is demonstrations of the search</strong> — explore, observe, adapt, verify, then complete — on tasks of this distribution. The corpus that helps partial credit most is the exploratory one. The two untested levers are rejection-sampled distillation from a strong agent on the 68 held-out tasks, and RL on the task reward itself.</p></div>
+  <div class="foot"><span></span><span>19</span></div>
+</section>
+
+<!-- 20 · corrections -->
+<section class="slide">
+  <div class="eyebrow"><span>Corrections made along the way</span></div>
+  <h2>Six things that were wrong, and what replaced them</h2>
+  <div class="scroll"><table>
+    <tr><th>claimed</th><th>what the measurement said</th></tr>
+    <tr><td>The ceiling is structural — behaviour cloning cannot work here.</td><td>oracle12 executed 12/12. The ceiling is solution derivation, not cloning.</td></tr>
+    <tr><td>The batching filter failed (probe: P(batch) 0.00027 → 0.00030).</td><td>Real trajectories: multi-command turns 0/660 → 48/406. The synthetic-prefix probe was unrepresentative.</td></tr>
+    <tr><td>Per-test partial credit is a ~3× denser signal.</td><td>A no-op agent scores 42.4%. Usable range is ~42–51%; needs floor subtraction.</td></tr>
+    <tr><td>Agents are starved by a 420 s budget (~21 turns).</td><td>Trials run to ~720 s; 56/80 tasks ask for only 360 s. Budget arithmetic was off ~1.7×.</td></tr>
+    <tr><td>Training stalled — no step lines for 18 minutes.</td><td>Block-buffered shell log; wandb's output.log had steps every 50. It was fine.</td></tr>
+    <tr><td>Tail truncation discards 36% of assistant signal.</td><td>The packer is a continuous buffer over the whole trajectory. It is a 4096-token attention window, not data loss.</td></tr>
+  </table></div>
+  <div class="foot"><span>each is recorded in the commit that corrected it</span><span>20</span></div>
+</section>
+
+<!-- 21 · next -->
+<section class="slide">
+  <div class="eyebrow"><span>Open</span></div>
+  <h2>What is running, and what is waiting on a decision</h2>
+  <div class="two">
+    <div>
+      <h3>In flight</h3>
+      <p><span class="mono">traj20k</span> — step 17,600 of 20,000, finishes ~22:00 on 5 Sep and auto-evaluates on the same 12 tasks. Last point on the verified-synthetic line; expected 4–5/24.</p>
+      <h3 style="margin-top:22px">Proposed</h3>
+      <p><strong>Rejection-sampled distillation.</strong> Run a strong agent through terminus-2 on the 68 held-out tasks, keep only verified successes, SFT from <span class="mono">continue10k</span>, evaluate the 12. Same clean held-out design as oracle68, but demonstrations of the search rather than the answer. Needs a strong model for ~68 agent episodes.</p>
+      <p><strong>RL on task reward</strong> (GRPO or rejection-sampling SFT on the model's own successful rollouts) — the only method that trains on the model's own states with a success signal.</p>
+    </div>
+    <div class="spec"><dl>
+      <dt>code</dt><dd><span class="mono">jpli02/torchtitan</span> · branch <span class="mono">worktree-ouro-terminal-sft</span> · <span class="mono">543e6372</span></dd>
+      <dt>eval</dt><dd><span class="mono">/home/jli199/terminal_bench_eval</span>, results under <span class="mono">/tmp/tb_runs</span></dd>
+      <dt>ckpts</dt><dd><span class="mono">/home/jli199/boptim_scratch/</span> — <span class="mono">ouro_c10k_clean</span>, <span class="mono">ouro_batching_clean</span>, <span class="mono">ouro_traj10k</span>, …</dd>
+      <dt>BO</dt><dd><span class="mono">boptim-agent/optim/claude.py</span> and <span class="mono">random_search.py</span> — uncommitted on <span class="mono">jpli02/cifar</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>Ouro on Terminal-Bench · 27 Aug – 5 Sep 2026</span><span>21</span></div>
+</section>
+
+</main>
+<div class="kbd">← → to move · print for PDF</div>
+
+<script>
+  (function () {
+    var deck = document.getElementById('deck');
+    var slides = Array.prototype.slice.call(deck.querySelectorAll('.slide'));
+    function current() {
+      var top = deck.scrollTop, best = 0, bestD = Infinity;
+      slides.forEach(function (s, i) { var d = Math.abs(s.offsetTop - top); if (d < bestD) { bestD = d; best = i; } });
+      return best;
+    }
+    function go(i) {
+      i = Math.max(0, Math.min(slides.length - 1, i));
+      slides[i].scrollIntoView({ block: 'start' });
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); go(current() + 1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); go(current() - 1); }
+      else if (e.key === 'Home') { e.preventDefault(); go(0); }
+      else if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
+    });
+  })();
+</script>
