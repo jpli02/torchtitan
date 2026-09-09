@@ -360,6 +360,16 @@ _TERMINAL_SFT_MIXES: dict[str, list[tuple[str, str | None, str, float]]] = {
     "oracle12": [
         ("json", None, "messages", 1.0),
     ],
+    # TB-80-TARGETED SET (build_tb80_sft.py). Verified multi-turn terminus-2
+    # trajectories on Terminal-Bench 2.0 tasks disjoint from our 80 (scraped
+    # leaderboard runs, reward=1, pointer-free, re-rendered to the exact JSON
+    # the eval agent parses), upsampled and capped per task, plus TerminalTraj
+    # finished trajectories reweighted to TB-80's category mix. Same local-JSONL
+    # route as oracle12 via OURO_SFT_LOCAL_JSONL. Clean for the 80-task eval
+    # by task name; the 27 overlapping TB-2 tasks are excluded at build time.
+    "tb80sft": [
+        ("json", None, "messages", 1.0),
+    ],
     "original": [
         ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.45),
         ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.20),
