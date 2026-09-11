@@ -215,7 +215,8 @@
     <g class="node diag"><rect x="590" y="180" width="100" height="40" rx="4"/><text x="640" y="197" text-anchor="middle">oracle12</text><text class="s" x="640" y="212" text-anchor="middle">train-on-test · 20/24</text></g>
     <g class="node diag"><rect x="590" y="250" width="100" height="40" rx="4"/><text x="640" y="267" text-anchor="middle">oracle68</text><text class="s" x="640" y="282" text-anchor="middle">held-out · 3/24</text></g>
     <g class="node best"><rect x="770" y="40" width="120" height="40" rx="4"/><text x="830" y="57" text-anchor="middle">+ verify gate</text><text class="s" x="830" y="72" text-anchor="middle">harness only · 6/24</text></g>
-    <text class="lbl" x="50" y="395">Amber = contaminated by construction, diagnostic only. Teal outline = best real result.</text>
+    <g class="node best"><rect x="590" y="320" width="120" height="40" rx="4"/><text x="650" y="337" text-anchor="middle">tb80sft</text><text class="s" x="650" y="352" text-anchor="middle">TB-2 verified + TT · 7/24</text></g>
+    <text class="lbl" x="50" y="395">Amber = contaminated, diagnostic only. Teal outline = best real results. traj* and tb80sft start from pretrained.</text>
   </svg>
   <div class="foot"><span>traj* also starts from pretrained (drawn on the repro row for space)</span><span>4</span></div>
 </section>
@@ -400,6 +401,26 @@
   <div class="foot"><span>traj1k's fix-permissions was voided by 278 OOMs on a 23 GB card and re-run clean: 1/2</span><span>13</span></div>
 </section>
 
+<!-- 13+ · tb80sft -->
+<section class="slide">
+  <div class="eyebrow"><span>Checkpoint 14</span><span>tb80sft</span></div>
+  <h2>Data built for the benchmark's distribution</h2>
+  <div class="two">
+    <div>
+      <p>The oracle pair said what the data had to be: verified, <em>multi-turn</em>, on-distribution. This set is that. 569 real agent runs on Terminal-Bench 2.0 tasks that share no name with our 80 — scraped leaderboard trajectories where the task's tests passed — re-rendered into the exact terminus-2 JSON the eval agent parses, upsampled ×5 and capped per task; plus 4,479 TerminalTraj trajectories reweighted to TB-80's category mix. 7,324 rows, ~63M tokens, one epoch and a bit at 20k steps.</p>
+      <p>Same recipe and base as <span class="mono">traj20k</span>, so data is the only variable. Ungated it scores <strong>7/24 over four tasks</strong> — the best stock-agent result of the project. <span class="mono">csv-to-parquet</span> fell 2/2 <em>without</em> the gate, which until now it had only done with it; <span class="mono">processing-pipeline</span> had never been solved by anything. And the gate added nothing (early quits 6 → 5): the on-distribution data taught the model to finish what it can finish, the behaviour the gate was compensating for.</p>
+      <div class="take"><p><strong>7/24 under stock terminus-2 is directly comparable to published numbers.</strong> One seed; the 80-task run decides it.</p></div>
+    </div>
+    <div class="spec"><dl>
+      <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
+      <dt>data</dt><dd><span class="mono">tb80sft</span> — TB-2 verified ×5 (569 × 5) + TerminalTraj reweighted (4,479)</dd>
+      <dt>steps</dt><dd><span class="num">20,000</span> · LR 2e-5</dd>
+      <dd class="result"><span class="big">7/24 · 7/24 gated</span><span class="sub">csv-to-parquet 2/2, fix-permissions 2/2, hello-world 2/2, processing-pipeline 1/2 · partial 54.3% · 0 server errors</span></dd>
+    </dl></div>
+  </div>
+  <div class="foot"><span>~2,300 more verified rows lost to unrecoverable string references in the scrape</span><span>13+</span></div>
+</section>
+
 <!-- 14 · oracle12 -->
 <section class="slide">
   <div class="eyebrow"><span>Checkpoint 12</span><span>oracle12</span><span class="diag">diagnostic · contaminated by construction</span></div>
@@ -547,7 +568,7 @@
   <div class="two">
     <div>
       <h3>Best current configuration</h3>
-      <p><span class="mono">traj20k</span> + verification gate: <strong>7/24, 5 of 12 tasks, 58.6% partial credit</strong>, zero server errors. Five distinct tasks in one run is more than any checkpoint had managed. One seed; 7 vs 6 is inside the noise floor, five tasks vs three and +13 pp partial credit are not. Next measurement: this checkpoint on all 80 tasks, gated and ungated.</p>
+      <p><span class="mono">tb80sft</span>, stock terminus-2, no gate: <strong>7/24, 4 of 12 tasks, 54.3% partial credit</strong>, zero server errors — the first time the best number needs no custom-agent caveat. The gate adds nothing to it (7/24 either way); the on-distribution data taught the finishing behaviour the gate was compensating for. Ties gated traj20k (7/24, 5 tasks) on trials. <strong>Running now: tb80sft on all 80 tasks, ungated</strong> — directly comparable to continue10k's 4/80, and the number that decides whether on-distribution verified data is the lever.</p>
       <h3 style="margin-top:22px">Proposed</h3>
       <p><strong>Rejection-sampled distillation.</strong> Run a strong agent through terminus-2 on the 68 held-out tasks, keep only verified successes, SFT from <span class="mono">continue10k</span>, evaluate the 12. Same clean held-out design as oracle68, but demonstrations of the search rather than the answer. Needs a strong model for ~68 agent episodes.</p>
       <p><strong>RL on task reward</strong> (GRPO or rejection-sampling SFT on the model's own successful rollouts) — the only method that trains on the model's own states with a success signal.</p>
