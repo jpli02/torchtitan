@@ -67,15 +67,20 @@ COMPOSE = """services:
 """
 # System-python pytest with -rA so tb's pytest parser reads PASSED/FAILED, and
 # so tests import the same packages the Nemotron Dockerfile installed.
+# Nemotron's ubuntu-24.04 base provides python3/pip3, not python/pip, so resolve
+# the interpreter and drive pip through `python3 -m pip`. -rA guarantees the
+# "short test summary info" section tb's pytest parser requires.
 SETUP = """#!/bin/bash
-pip install --break-system-packages -q pytest 2>/dev/null || pip install -q pytest
+PY=$(command -v python3 || command -v python)
+"$PY" -m pip install --break-system-packages -q pytest 2>/dev/null || "$PY" -m pip install -q pytest || true
 if [ -f "$TEST_DIR/test_requirements.txt" ]; then
-  pip install --break-system-packages -q -r "$TEST_DIR/test_requirements.txt" 2>/dev/null || \
-    pip install -q -r "$TEST_DIR/test_requirements.txt" || true
+  "$PY" -m pip install --break-system-packages -q -r "$TEST_DIR/test_requirements.txt" 2>/dev/null || \
+    "$PY" -m pip install -q -r "$TEST_DIR/test_requirements.txt" || true
 fi
 """
 RUN = """#!/bin/bash
-python -m pytest "$TEST_DIR/test_outputs.py" -rA
+PY=$(command -v python3 || command -v python)
+"$PY" -m pytest "$TEST_DIR/test_outputs.py" -rA
 """
 RUN_TESTS = """#!/bin/bash
 source $TEST_DIR/setup.sh
