@@ -101,17 +101,30 @@ def clean_obs(obs):
 
 
 def first_prompt(template, task):
+    """Boilerplate + THIS row's task + one terminal-state tail.
+
+    BUG FIXED (v1 corrupted 2,845/2,845 on-dist rows): yoonholee's 'system'
+    step is the fully assembled first prompt of that trial -- template, task
+    description AND terminal screen. v1 cached the first row's whole prompt as
+    the template and reused it, so every row opened with a complete stale task
+    (adaptive-rejection-sampler) before its own, headerless, then a second
+    terminal state. Task/trajectory keyword overlap was 0.08 vs 0.45 at the
+    source. Cut the template at the marker so no stale task or tail survives."""
     template = template.rstrip()
-    if "Task Description" not in template:
-        template += "\n\nTask Description:"
-    return (f"{template}\n{task}\n\nCurrent terminal state:\n"
+    cut = template.find("Task Description")
+    if cut >= 0:
+        template = template[:cut].rstrip()
+    return (f"{template}\n\nTask Description:\n{task}\n\nCurrent terminal state:\n"
             f"Current Terminal Screen:\nroot@host:/app# ")
 
 
 def render_terminus2(steps, task, template_cache):
     sysm = next((s.get("msg") for s in steps if s.get("src") == "system"), None)
     if sysm and not is_ptr(sysm) and template_cache.get("t") is None:
-        template_cache["t"] = sysm
+        # cache ONLY the shared boilerplate: the source's system step also
+        # carries this trial's task and terminal screen (see first_prompt)
+        cut = sysm.find("Task Description")
+        template_cache["t"] = sysm[:cut].rstrip() if cut >= 0 else sysm.rstrip()
     template = template_cache.get("t")
     if not template:
         return None
