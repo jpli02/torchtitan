@@ -16,10 +16,13 @@
 set -u
 WT=/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
-DUMP=/home/jli199/boptim_scratch/ouro_tb80sft
-CLEAN=/home/jli199/boptim_scratch/ouro_tb80sft_clean
+# TAG keeps runs apart: v1 (tb80sft) trained on prompt-corrupted rows and is
+# kept only as a record; v2 (tb80sft_v2) is the fixed dataset.
+TAG=${TAG:-tb80sft}
+DUMP=/home/jli199/boptim_scratch/ouro_${TAG}
+CLEAN=/home/jli199/boptim_scratch/ouro_${TAG}_clean
 JSONL=${JSONL:-/home/jli199/boptim_scratch/tb80sft/train.jsonl}
-OUT=$TMP/tb80sft_chain.txt
+OUT=$TMP/${TAG}_chain.txt
 STEPS=${STEPS:-20000}
 : > "$OUT"
 cd "$WT" || exit 1
@@ -41,7 +44,7 @@ export OURO_SFT_MIX=tb80sft
 export OURO_SFT_LOCAL_JSONL=$JSONL
 unset OURO_INIT_FROM OURO_SFT_REQUIRE_COMPLETE OURO_SFT_MIN_CMDS
 export WANDB_MODE=online WANDB_PROJECT=ouro-terminal-sft
-export WANDB_RUN_NAME="ouro-tb80sft-${STEPS}"
+export WANDB_RUN_NAME="ouro-${TAG}-${STEPS}"
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export HF_HUB_DOWNLOAD_TIMEOUT=60
 mkdir -p "$DUMP"
@@ -71,8 +74,8 @@ for f in config.json configuration_ouro.py modeling_ouro.py tokenizer.json \
 done
 echo "staged $CLEAN from $SRC" | tee -a "$OUT"
 
-GPU=$gpu GATE=0 CKPT="$CLEAN" NAME=tb80sft PORT=8102 ATT=2 MINFREE=28000 \
+GPU=$gpu GATE=0 CKPT="$CLEAN" NAME="$TAG" PORT=8102 ATT=2 MINFREE=28000 \
   bash eval_gated.sh >> "$OUT" 2>&1
-GPU=$gpu GATE=1 CKPT="$CLEAN" NAME=gated_tb80sft PORT=8103 ATT=2 MINFREE=28000 \
+GPU=$gpu GATE=1 CKPT="$CLEAN" NAME="gated_$TAG" PORT=8103 ATT=2 MINFREE=28000 \
   bash eval_gated.sh >> "$OUT" 2>&1
 echo "--- chain done $(date '+%m-%d %H:%M') ---" | tee -a "$OUT"
