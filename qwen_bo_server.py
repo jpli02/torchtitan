@@ -29,6 +29,7 @@ _lock = threading.Lock()
 hf_tok = None
 hf_model = None
 MODEL_NAME = "qwen-bo"
+NO_THINK = False  # --no_think: render with enable_thinking=False (teacher mode)
 
 
 class ChatMessage(BaseModel):
@@ -53,7 +54,8 @@ def models():
 @app.post("/v1/chat/completions")
 def chat_completions(req: ChatCompletionRequest):
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
-    prompt = hf_tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    kw = {"enable_thinking": False} if NO_THINK else {}
+    prompt = hf_tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=False, **kw)
     enc = hf_tok(prompt, return_tensors="pt", add_special_tokens=False).to(hf_model.device)
     max_new = int(min(req.max_tokens or 4096, 8192))
     temp = float(req.temperature if req.temperature is not None else 0.7)
@@ -86,14 +88,17 @@ def chat_completions(req: ChatCompletionRequest):
 
 
 def main():
-    global hf_tok, hf_model, MODEL_NAME
+    global hf_tok, hf_model, MODEL_NAME, NO_THINK
     ap = argparse.ArgumentParser()
     ap.add_argument("--hf_dir", required=True)
     ap.add_argument("--port", type=int, default=8210)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--model_name", default="qwen-bo")
+    ap.add_argument("--no_think", action="store_true",
+                    help="disable Qwen3 thinking (teacher mode: the visible analysis/plan is the reasoning we keep)")
     a = ap.parse_args()
     MODEL_NAME = a.model_name
+    NO_THINK = a.no_think
     hf_tok = AutoTokenizer.from_pretrained(a.hf_dir)
     hf_model = AutoModelForCausalLM.from_pretrained(
         a.hf_dir, torch_dtype=torch.bfloat16, attn_implementation="sdpa").cuda().eval()
