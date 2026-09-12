@@ -14,7 +14,10 @@ cd "$WT" || exit 1
 "$PY" bo_replay_format.py /home/jli199/boptim-agent/data/gpt_cifar_3d_seed0000.json \
   "$RAW"/qwen3-*_fourier2d/*.json "$RAW"/qwen3-*_rosenbrock/*.json "$RAW"/qwen3-*_sumsq/*.json \
   --out "$OUTDIR/reasoning.jsonl"
-"$PY" bo_replay_format.py "$RAW"/gp_fourier2d/*.json "$RAW"/gp_rosenbrock/*.json "$RAW"/gp_sumsq/*.json \
+# gp10_* = gp_hedge with its default 10 random initial points. The n_initial=3
+# variant (gp_*) lost to random search on fourier2d (regret 0.30 vs 0.27 on
+# 20 held-out seeds); gp10 beats random (0.24, 13/20), so imitate that one.
+"$PY" bo_replay_format.py "$RAW"/gp10_fourier2d/*.json "$RAW"/gp10_rosenbrock/*.json "$RAW"/gp10_sumsq/*.json \
   --no-explanation --out "$OUTDIR/points_only.jsonl"
 
 # shuffle with a fixed seed so the stream order is reproducible

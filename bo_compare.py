@@ -24,15 +24,41 @@ def load(d):
     return out
 
 
-def best_curve(t, iters):
+def best_curve(t, iters, norm=None):
+    """Best-so-far per iteration; with norm=(lo, hi) returns normalised regret
+    (best - lo) / (hi - lo) in [0, 1], 0 = grid optimum found."""
     sign = -1.0 if t.get("direction", "minimize") == "maximize" else 1.0
     vals = [sign * o["value"] for o in t["observations"]]
     curve, best = [], float("inf")
     for i in range(iters):
         if i < len(vals):
             best = min(best, vals[i])
-        curve.append(best)
+        curve.append(best if norm is None else (best - norm[0]) / (norm[1] - norm[0]))
     return curve
+
+
+def grid_range(objective, seed, n_grid=200):
+    """(min, max) of the objective on an n_grid^2 grid -- fourier2d & co. are
+    cheap closed forms, so this is a usable proxy for the global optimum."""
+    import sys
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    sys.path.insert(0, os.environ.get("BOPTIM_REPO", "/home/jli199/boptim-agent"))
+    from objective import build_objective
+
+    a = SimpleNamespace(objective=objective, objective_seed=seed, seed=seed, n_dims=None, n_fourier=5,
+                        bounds=None, direction="minimize", epochs=1, cifar_metric="test_accuracy",
+                        metrics=None, train_batch_size=128)
+    obj = build_objective(a)
+    b = obj.bounds
+    if len(b) != 2:
+        return None
+    xs = np.linspace(b[0][0], b[0][1], n_grid)
+    ys = np.linspace(b[1][0], b[1][1], n_grid)
+    v = np.array([[obj.evaluate([x, y]) for y in ys] for x in xs])
+    return float(v.min()), float(v.max())
 
 
 def main():
@@ -40,6 +66,8 @@ def main():
     ap.add_argument("--dirs", nargs="+", required=True, help="label=dir ...")
     ap.add_argument("--iters", type=int, default=15)
     ap.add_argument("--seeds", default=None, help="a-b inclusive; default: seeds common to all dirs")
+    ap.add_argument("--normalize", default=None, metavar="OBJECTIVE",
+                    help="report normalised regret against the objective's 200x200 grid min/max per seed")
     a = ap.parse_args()
     runs = {}
     for spec in a.dirs:
@@ -51,12 +79,17 @@ def main():
     else:
         seeds = set.intersection(*(set(r) for r in runs.values()))
     seeds = sorted(seeds)
+    norms = {}
+    if a.normalize:
+        for s in seeds:
+            norms[s] = grid_range(a.normalize, s)
+        print(f"normalised regret vs grid optimum of {a.normalize} (0 = optimum found)")
     print(f"paired seeds: {len(seeds)}  iters: {a.iters}")
     marks = [0, 2, 4, 7, 9, 14]
     marks = [m for m in marks if m < a.iters]
     print("label      n   " + "  ".join(f"t={m + 1:<2d}   " for m in marks) + "  final mean  median")
     for label, r in runs.items():
-        curves = [best_curve(r[s], a.iters) for s in seeds if s in r]
+        curves = [best_curve(r[s], a.iters, norms.get(s)) for s in seeds if s in r]
         n = len(curves)
         if not n:
             print(f"{label:10s} 0   (no trajectories for these seeds)")
@@ -72,7 +105,8 @@ def main():
         wins = ties = 0
         for s in seeds:
             if s in runs[a_] and s in runs[b_]:
-                x, y = best_curve(runs[a_][s], a.iters)[-1], best_curve(runs[b_][s], a.iters)[-1]
+                x = best_curve(runs[a_][s], a.iters, norms.get(s))[-1]
+                y = best_curve(runs[b_][s], a.iters, norms.get(s))[-1]
                 wins += x < y
                 ties += x == y
         print(f"{a_} beats {b_} on {wins}/{len(seeds)} seeds (ties {ties})")
