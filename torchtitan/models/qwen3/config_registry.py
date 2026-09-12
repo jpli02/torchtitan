@@ -101,6 +101,54 @@ def qwen3_1_7b() -> Trainer.Config:
     )
 
 
+def qwen3_1_7b_bo_sft() -> Trainer.Config:
+    """Full-backbone SFT of Qwen3-1.7B to act as the boptim-agent BO optimizer.
+
+    Data: single-turn rows built by boptim-agent/bo_replay_format.py -- the
+    optimizer's exact ask() prompt (template + bounds + history + best) paired
+    with the JSON reply it parses ({"analysis","plan","points","is_complete"}).
+    Read through the ``terminal_agent_sft`` dataset with the generic local-JSONL
+    mix (OURO_SFT_MIX=tb80sft or oracle12, OURO_SFT_LOCAL_JSONL=<file>); the
+    dataset layer is model-agnostic (assistant-only labels via the tokenizer's
+    chat template) despite its name.
+
+    Mirrors ouro_1_4b_thinking_terminal_sft: LR 2e-5 with 50-step warmup and
+    cosine decay (8e-4 is a pretraining rate and would scorch a finetune),
+    batch 1 x 4096, full activation checkpointing. 1.7B was chosen because it
+    full-finetunes on one 45GB card; a 4B needs Adam states no single free card
+    here holds.
+    """
+    cfg = qwen3_1_7b()
+    cfg.dataloader = HuggingFaceTextDataLoader.Config(dataset="terminal_agent_sft")
+    cfg.optimizer = OptimizersContainer.Config(lr=2e-5)
+    cfg.lr_scheduler = LRSchedulersContainer.Config(
+        warmup_steps=50,
+        decay_ratio=0.9,
+        decay_type="cosine",
+        min_lr_factor=0.1,
+    )
+    cfg.training = TrainingConfig(
+        local_batch_size=1,
+        seq_len=4096,
+        steps=1000,
+    )
+    cfg.checkpoint = CheckpointManager.Config(
+        # Without enable + initial_load_* the trainer starts from random init:
+        # the first smoke logged loss 12.4 (= ln(151k) vocab) and wrote no
+        # checkpoint. Load the HF safetensors from hf_assets_path, model only.
+        enable=True,
+        initial_load_path=cfg.hf_assets_path,
+        initial_load_in_hf=True,
+        initial_load_model_only=True,
+        interval=500,
+        last_save_model_only=True,
+        last_save_in_hf=True,
+        export_dtype="bfloat16",
+    )
+    cfg.activation_checkpoint = ActivationCheckpointConfig(mode="full")
+    return cfg
+
+
 def qwen3_14b() -> Trainer.Config:
     return Trainer.Config(
         hf_assets_path="./assets/hf/Qwen3-14B",
