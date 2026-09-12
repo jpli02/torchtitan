@@ -215,7 +215,7 @@
     <g class="node diag"><rect x="590" y="180" width="100" height="40" rx="4"/><text x="640" y="197" text-anchor="middle">oracle12</text><text class="s" x="640" y="212" text-anchor="middle">train-on-test · 20/24</text></g>
     <g class="node diag"><rect x="590" y="250" width="100" height="40" rx="4"/><text x="640" y="267" text-anchor="middle">oracle68</text><text class="s" x="640" y="282" text-anchor="middle">held-out · 3/24</text></g>
     <g class="node best"><rect x="770" y="40" width="120" height="40" rx="4"/><text x="830" y="57" text-anchor="middle">+ verify gate</text><text class="s" x="830" y="72" text-anchor="middle">harness only · 6/24</text></g>
-    <g class="node"><rect x="590" y="320" width="120" height="40" rx="4"/><text x="650" y="337" text-anchor="middle">tb80sft</text><text class="s" x="650" y="352" text-anchor="middle">TB-2 verified + TT · 7/24 · 2/80</text></g>
+    <g class="node"><rect x="590" y="320" width="120" height="40" rx="4"/><text x="650" y="337" text-anchor="middle">tb80sft</text><text class="s" x="650" y="352" text-anchor="middle">v1 void (bad prompts) · v2 running</text></g>
     <text class="lbl" x="50" y="395">Amber = contaminated, diagnostic only. Teal outline = best real results. traj* and tb80sft start from pretrained.</text>
   </svg>
   <div class="foot"><span>traj* also starts from pretrained (drawn on the repro row for space)</span><span>4</span></div>
@@ -415,7 +415,7 @@
       <dt>base</dt><dd>Ouro-1.4B-Thinking, pretrained</dd>
       <dt>data</dt><dd><span class="mono">tb80sft</span> — TB-2 verified ×5 (569 × 5) + TerminalTraj reweighted (4,479)</dd>
       <dt>steps</dt><dd><span class="num">20,000</span> · LR 2e-5</dd>
-      <dd class="result"><span class="big">7/24 · but 2/80</span><span class="sub">best on the 12-subset (partial 54.3%); on the full 80 only git-multibranch + hello-world, partial 49.2% — did not beat continue10k's 4/80</span></dd>
+      <dd class="result"><span class="big" style="color:var(--warn)">v1 VOID</span><span class="sub">7/24 and 2/80 were trained on prompt-corrupted rows: 100% of on-dist prompts opened with a stale task (adaptive-rejection-sampler) before the real one. Fixed; v2 rebuilt (overlap 0.48 vs 0.08) and retraining.</span></dd>
     </dl></div>
   </div>
   <div class="foot"><span>~2,300 more verified rows lost to unrecoverable string references in the scrape</span><span>13+</span></div>
@@ -567,8 +567,8 @@
   <h2>What is running, and what is waiting on a decision</h2>
   <div class="two">
     <div>
-      <h3>The 12-task win did not generalise</h3>
-      <p><span class="mono">tb80sft</span> was best on the 12-task subset (7/24, no gate) — but on the full 80 it scored <strong>2/80</strong> (clean run: 80/80 covered, 65 timeouts, 3 parse-errors), below continue10k's and batching5k's 4/80. It solved <span class="mono">git-multibranch</span>, which no prior checkpoint had, but dropped <span class="mono">fix-permissions</span>, which every other checkpoint gets — the same ±1 churn, no net gain. Partial credit 49.2% sits in continue10k's range, so capability is unchanged. <strong>Distribution-matched data won its subset but did not lift 80-task pass@1</strong> — a negative result consistent with seven prior data interventions, none of which pushed any checkpoint past 4/80. The two things that ever produced new capability remain non-data: the verification gate and the router NAS.</p>
+      <h3>tb80sft v1 is void — the test is being redone</h3>
+      <p>Inspecting a rendered row exposed a build bug: yoonholee's <span class="mono">system</span> step is a trial's <em>fully assembled</em> prompt (template + task + terminal screen), and the builder cached the first row's whole prompt as "the template". So <strong>every one of the 2,845 on-distribution rows opened with a complete wrong task</strong> (adaptive-rejection-sampler) before its own, headerless. Task/trajectory overlap: 0.08 in the rendered rows vs 0.45 at the source (label check 562/562 clean — the bug was mine). The 7/24 and the clean 2/80 both came from a checkpoint trained on those rows, so <strong>the earlier "distribution-matched data didn't generalise" conclusion is retracted</strong> — it was never a valid test. Fixed and rebuilt: overlap 0.48, one header and one terminal state per prompt. <strong>v2 is retraining now</strong> (same recipe, 20k steps) with the 12-task evals chained; this is the real test.</p>
       <h3 style="margin-top:22px">Proposed</h3>
       <p><strong>Rejection-sampled distillation.</strong> Run a strong agent through terminus-2 on the 68 held-out tasks, keep only verified successes, SFT from <span class="mono">continue10k</span>, evaluate the 12. Same clean held-out design as oracle68, but demonstrations of the search rather than the answer. Needs a strong model for ~68 agent episodes.</p>
       <p><strong>RL on task reward</strong> (GRPO or rejection-sampling SFT on the model's own successful rollouts) — the only method that trains on the model's own states with a success signal.</p>
