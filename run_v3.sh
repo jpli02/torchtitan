@@ -34,8 +34,10 @@ export CUDA_VISIBLE_DEVICES=$gpu
 export OURO_SFT_MIX=tb80sft
 export OURO_SFT_LOCAL_JSONL=$JSONL
 unset OURO_INIT_FROM OURO_SFT_REQUIRE_COMPLETE OURO_SFT_MIN_CMDS
-export WANDB_MODE=offline WANDB_PROJECT=ouro-terminal-sft
-export WANDB_RUN_NAME="ouro-${TAG}-${STEPS}"
+# WANDB_MODE=offline captures/buffers the process console, so torchtitan's
+# step logs never reach the redirected file (frozen log despite healthy
+# training at ~3.3s/step). Disable wandb; rely on the log + tb events.
+export WANDB_MODE=disabled
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 export HF_HUB_DOWNLOAD_TIMEOUT=60
 mkdir -p "$DUMP"
