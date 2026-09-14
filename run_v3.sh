@@ -50,19 +50,24 @@ mkdir -p "$DUMP"
   --parallelism.data_parallel_shard_degree 1 \
   --dump_folder "$DUMP" --checkpoint.folder "$DUMP/checkpoint" \
   --training.steps "$STEPS" \
-  --checkpoint.interval 5000 --metrics.log_freq 100 \
+  --checkpoint.interval 5000 --metrics.log_freq 20 \
   > /home/jli199/terminal_bench_eval/logs/${TAG}_train.log 2>&1
 echo "training exited $(date '+%m-%d %H:%M')" | tee -a "$OUT"
 
 SRC=$(ls -d "$DUMP"/checkpoint/step-* 2>/dev/null | sort -t- -k2 -n | tail -1)
 [ -n "$SRC" ] || { echo "ABORT - no checkpoint" | tee -a "$OUT"; exit 1; }
+# torchtitan's checkpoint saves ONLY the model weights (+ a sharded/ DCP copy);
+# it has no config/modeling/tokenizer, so those must come from the base model
+# assets, not from SRC. (The earlier symlink-from-SRC staging produced a
+# weights-only dir and every eval server VOIDed with nothing to load.)
+BASE=/home/jli199/torchtitan/assets/hf/Ouro-1.4B-Thinking
 rm -rf "$CLEAN"; mkdir -p "$CLEAN"
+cp "$SRC"/model-00001-of-00001.safetensors "$SRC"/model.safetensors.index.json "$CLEAN"/
 for f in config.json configuration_ouro.py modeling_ouro.py tokenizer.json \
-         tokenizer_config.json special_tokens_map.json vocab.json merges.txt \
-         model.safetensors.index.json model-00001-of-00001.safetensors; do
-  [ -e "$SRC/$f" ] && ln -s "$SRC/$f" "$CLEAN/$f"
+         tokenizer_config.json special_tokens_map.json vocab.json merges.txt; do
+  cp "$BASE/$f" "$CLEAN/$f"
 done
-echo "staged $CLEAN from $SRC" | tee -a "$OUT"
+echo "staged $CLEAN from $SRC + base aux ($(ls "$CLEAN" | wc -l) files)" | tee -a "$OUT"
 
 # task-parallel eval on the 12 tasks, ungated then gated
 CKPT="$CLEAN" BASENAME="$TAG" GATE=0 MINFREE=28000 bash eval_parallel.sh >> "$OUT" 2>&1
