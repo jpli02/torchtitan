@@ -25,13 +25,17 @@ cd "$WT" || exit 1
 /home/jli199/torchtitan/.venv/bin/python build_skill_sft.py --skill "$SKILL" \
   --total "$TOTAL" --frac "$FRAC" --out "$JSONL" | tee -a "$OUT"
 
-gpu=""
-for _ in $(seq 1 720); do
-  gpu=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits \
-        | tr -d ' ' | awk -F, '$2+0>=31000 {print $1; exit}')
-  [ -n "$gpu" ] && break
-  sleep 60
-done
+SEQLEN=${SEQLEN:-4096}
+MINFREE_TRAIN=${MINFREE_TRAIN:-31000}
+gpu="${GPU:-}"   # GPU=<n> pins the card; else auto-pick the FREEST card >= MINFREE_TRAIN
+if [ -z "$gpu" ]; then
+  for _ in $(seq 1 720); do
+    gpu=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits \
+          | tr -d ' ' | awk -F, -v m="$MINFREE_TRAIN" '$2+0>=m {print $2+0, $1}' | sort -rn | head -1 | awk '{print $2}')
+    [ -n "$gpu" ] && break
+    sleep 60
+  done
+fi
 [ -n "$gpu" ] || { echo "ABORT - no GPU" | tee -a "$OUT"; exit 1; }
 echo "[skill $SKILL] train from v3 on gpu $gpu, $STEPS steps $(date '+%m-%d %H:%M')" | tee -a "$OUT"
 
@@ -49,7 +53,7 @@ mkdir -p "$DUMP"
   --module ouro --config ouro_1_4b_thinking_terminal_sft \
   --parallelism.data_parallel_shard_degree 1 \
   --dump_folder "$DUMP" --checkpoint.folder "$DUMP/checkpoint" \
-  --training.steps "$STEPS" --checkpoint.interval "$STEPS" --metrics.log_freq 50 \
+  --training.steps "$STEPS" --training.seq_len "$SEQLEN" --checkpoint.interval "$STEPS" --metrics.log_freq 50 \
   > /home/jli199/terminal_bench_eval/logs/skill_${SKILL}_train.log 2>&1
 echo "training exited $(date '+%m-%d %H:%M')" | tee -a "$OUT"
 
