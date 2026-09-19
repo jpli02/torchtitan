@@ -244,3 +244,39 @@ def ouro_1_4b_thinking_terminal_sft() -> Trainer.Config:
         export_dtype="bfloat16",
     )
     return cfg
+
+
+def ouro_2_6b_thinking_terminal_sft() -> Trainer.Config:
+    """Same terminal-agent SFT recipe as ouro_1_4b_thinking_terminal_sft, on
+    Ouro-2.6B-Thinking. 2.6B is the 1.4B backbone at double depth (48 layers);
+    everything else in the recipe is inherited so only model capacity changes.
+
+    Rationale: the 1.4B per-skill and aggregate SFT plateaued at ~5/24 on the
+    12-task screen and 4/80, and matching the train/test tool distribution did
+    not move it (see the experiments page, Q7). The bottleneck read as model
+    capacity, so this repeats the identical data/recipe on the larger base.
+
+    Memory note: 2.6B doubles the layers, so activations and the Stage-I
+    stacked_step_logits both roughly double the 1.4B footprint (which already
+    peaked ~29GB at bs1/seq4096 on a 46GB card). Keep bs1 + full activation
+    checkpointing; if it OOMs on a shared card, drop seq_len to 2048 via
+    --training.seq_len (packing keeps all trajectory data) or use an exclusive
+    GPU. LR, warmup, loss stage, OURO_INIT_FROM handling are unchanged.
+    """
+    import dataclasses
+    import os as _os
+
+    cfg = ouro_1_4b_thinking_terminal_sft()
+    cfg.hf_assets_path = "./assets/hf/Ouro-2.6B-Thinking"
+    cfg.model_spec = model_registry("2.6B")
+    # re-apply the OURO_LOSS_STAGE override on the fresh 2.6B model_spec
+    if (_stage := _os.environ.get("OURO_LOSS_STAGE")) is not None:
+        cfg.model_spec = dataclasses.replace(
+            cfg.model_spec,
+            model=dataclasses.replace(cfg.model_spec.model, ouro_loss_stage=_stage),
+        )
+    # initial_load must point at the 2.6B weights (the 1.4B builder set it to
+    # the 1.4B path); honour OURO_INIT_FROM for continuations.
+    _init_from = _os.environ.get("OURO_INIT_FROM") or cfg.hf_assets_path
+    cfg.checkpoint = dataclasses.replace(cfg.checkpoint, initial_load_path=_init_from)
+    return cfg

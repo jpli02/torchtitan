@@ -1,0 +1,675 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>boptim Experiments</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f5f6f8; --surface:#ffffff; --surface-2:#eceef2; --line:#dcdfe6; --line-2:#c6cad3;
+  --text:#14171c; --text-2:#5b6270; --text-3:#8a909c;
+  --accent:#2a78d6; --accent-soft:#e3eefb;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --base:#7b8290;
+  --crit:#c5302c; --crit-bg:#fbe9e8; --warn:#a8701a; --warn-bg:#fbf1dd; --good:#1d7f3a; --good-bg:#e2f3e6; --info:#5b6270; --info-bg:#eceef2;
+  --tt-bg:#14171c; --tt-fg:#f5f6f8;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#15171b; --surface:#1d2025; --surface-2:#262a31; --line:#2e323a; --line-2:#3d424c;
+    --text:#f0f1f4; --text-2:#a6acb8; --text-3:#767d8a;
+    --accent:#4a90e6; --accent-soft:#1c2c42;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --base:#8e95a3;
+    --crit:#ef6e6a; --crit-bg:#3a1f1f; --warn:#e0a94a; --warn-bg:#3a2f18; --good:#5ec27a; --good-bg:#1a3322; --info:#a6acb8; --info-bg:#262a31;
+    --tt-bg:#f0f1f4; --tt-fg:#15171b;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#15171b; --surface:#1d2025; --surface-2:#262a31; --line:#2e323a; --line-2:#3d424c;
+  --text:#f0f1f4; --text-2:#a6acb8; --text-3:#767d8a;
+  --accent:#4a90e6; --accent-soft:#1c2c42;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --base:#8e95a3;
+  --crit:#ef6e6a; --crit-bg:#3a1f1f; --warn:#e0a94a; --warn-bg:#3a2f18; --good:#5ec27a; --good-bg:#1a3322; --info:#a6acb8; --info-bg:#262a31;
+  --tt-bg:#f0f1f4; --tt-fg:#15171b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.5;padding-block:0 64px;padding-inline:20px}
+.wrap{max-width:1080px;margin:0 auto}
+h1,h2,h3{font-family:"Schibsted Grotesk","Source Sans 3",system-ui,sans-serif;text-wrap:balance;margin:0;letter-spacing:-0.01em}
+h1{font-size:2rem;font-weight:700;line-height:1.15}
+h2{font-size:1.35rem;font-weight:600;margin-bottom:4px}
+h3{font-size:1.05rem;font-weight:600}
+p{margin:0}
+.eyebrow{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.84em;background:var(--surface-2);padding:1px 5px;border-radius:3px}
+a{color:var(--accent)}
+.num{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:.86em}
+
+header{padding-block:40px 28px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+header .sub{color:var(--text-2);max-width:66ch;font-size:1.05rem}
+.meta{display:flex;flex-wrap:wrap;gap:8px 20px;color:var(--text-2);font-size:.9rem}
+.meta b{color:var(--text);font-weight:600}
+nav.toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.86rem;margin-top:4px}
+nav.toc a{text-decoration:none;color:var(--text-2);border-bottom:1px solid var(--line-2)}
+nav.toc a:hover{color:var(--accent);border-color:var(--accent)}
+
+section{padding-block:40px 0}
+.sec-head{display:flex;flex-direction:column;gap:2px;margin-bottom:16px}
+.sec-head p{color:var(--text-2);max-width:72ch}
+.sub-head{margin:24px 0 10px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.sub-head p{color:var(--text-2);font-size:.92rem}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:24px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.tile .label{font-size:.78rem;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.tile .val{font-family:"Schibsted Grotesk",sans-serif;font-size:1.7rem;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile .val small{font-size:.9rem;color:var(--text-2);font-weight:500;font-family:"Source Sans 3",sans-serif}
+.tile .cmp{font-size:.86rem;color:var(--text-2)}
+.tile .cmp .num{color:var(--text)}
+
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:.74rem;font-weight:600;letter-spacing:.03em;padding:2px 8px;border-radius:999px;white-space:nowrap;line-height:1.5}
+.chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.chip.good{color:var(--good);background:var(--good-bg)}
+.chip.warn{color:var(--warn);background:var(--warn-bg)}
+.chip.crit{color:var(--crit);background:var(--crit-bg)}
+.chip.info{color:var(--info);background:var(--info-bg)}
+
+.callout{border-left:3px solid var(--crit);background:var(--crit-bg);padding:12px 16px;border-radius:0 6px 6px 0;display:flex;flex-direction:column;gap:6px;margin-top:16px}
+.callout.warn{border-color:var(--warn);background:var(--warn-bg)}
+.callout.info{border-color:var(--line-2);background:var(--surface-2)}
+.callout h3{font-size:1rem}
+.callout p{max-width:80ch;font-size:.95rem}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);font-weight:600;background:var(--surface-2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.8rem;white-space:nowrap}
+td.wrap,th.wrap{white-space:normal;min-width:110px}
+td.st{min-width:160px}
+td .sm{display:block;color:var(--text-3);font-size:.76rem;font-family:"Source Sans 3",sans-serif;line-height:1.35}
+tr.best td{background:var(--accent-soft)}
+tr.dim td{color:var(--text-3)}
+.src{padding:8px 10px;font-size:.76rem;color:var(--text-3)}
+.note{margin-top:8px;font-size:.84rem;color:var(--text-2);max-width:90ch}
+
+.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;align-items:start}
+.grid2.even{grid-template-columns:1fr 1fr}
+@media (max-width:820px){.grid2,.grid2.even{grid-template-columns:1fr}}
+
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:0 28px;font-size:.92rem}
+.settings dl{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:6px 14px}
+.settings dt{color:var(--text-2);font-weight:600;font-size:.82rem;padding-top:2px}
+.settings dd{margin:0}
+
+.fig{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px 10px;display:flex;flex-direction:column;gap:8px}
+.fig .title{font-weight:600;font-size:.95rem}
+.fig .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.8rem;color:var(--text-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:50%;display:inline-block;border:2px solid transparent}
+.legend i.sq{border-radius:2px}
+.legend i.line{width:16px;height:0;border-radius:0;border:0;border-top:2px solid var(--base)}
+.fig svg{width:100%;height:auto;display:block}
+.fig text{font-family:"Source Sans 3",system-ui,sans-serif;font-size:11px;fill:var(--text-2)}
+.fig text.lbl{font-family:"JetBrains Mono",monospace;font-size:10.5px;fill:var(--text)}
+.fig text.cat{font-size:11.5px;fill:var(--text)}
+.fig .grid line{stroke:var(--line);stroke-width:1}
+.fig .axis line{stroke:var(--line-2);stroke-width:1}
+.fig .cap{font-size:.8rem;color:var(--text-3);max-width:80ch}
+.tt{position:fixed;pointer-events:none;background:var(--tt-bg);color:var(--tt-fg);font-size:.78rem;padding:6px 9px;border-radius:4px;line-height:1.4;z-index:10;white-space:nowrap;font-family:"JetBrains Mono",monospace;opacity:0;transition:opacity .08s}
+.tt b{font-family:"Source Sans 3",sans-serif;font-size:.82rem}
+@media (prefers-reduced-motion:reduce){.tt{transition:none}}
+
+.issues{display:flex;flex-direction:column;gap:10px}
+.issue{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px 16px;display:grid;grid-template-columns:96px 1fr;gap:10px 16px;align-items:start}
+@media (max-width:560px){.issue{grid-template-columns:1fr}}
+.issue h3{font-size:.98rem;margin-bottom:2px}
+.issue p{font-size:.9rem;color:var(--text-2);max-width:84ch}
+.issue .where{font-size:.76rem;color:var(--text-3);margin-top:4px}
+.issue .line-tag{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);font-weight:600;margin-bottom:2px}
+
+ul.plain{padding-left:18px;margin:6px 0 0}
+ul.plain li{margin-bottom:5px;font-size:.92rem;max-width:90ch}
+.dropped{columns:2;column-gap:28px;font-size:.88rem;color:var(--text-2)}
+.dropped li{break-inside:avoid;margin-bottom:5px}
+@media (max-width:700px){.dropped{columns:1}}
+.blk{margin-top:22px}
+.blk>.eyebrow{margin-bottom:8px;color:var(--accent)}
+.blk>.eyebrow::before{content:"";display:inline-block;width:18px;height:2px;background:var(--accent);vertical-align:middle;margin-right:8px}
+.concl{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 6px 6px 0;margin-top:14px}
+.concl h3{font-size:1rem;margin-bottom:4px}
+.concl p,.concl li{font-size:.93rem;max-width:84ch}
+.concl ul{margin:6px 0 0;padding-left:18px}
+.concl li{margin-bottom:4px}
+.foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--text-3);font-size:.82rem}
+
+.q{padding-block:44px 0}
+.q .qn{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.q h2{font-size:1.5rem;line-height:1.25;margin:4px 0 12px;max-width:30ch}
+.ans{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 6px 6px 0}
+.ans .lab{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:4px}
+.ans p{max-width:82ch}
+.ans ul{margin:6px 0 0;padding-left:18px}.ans li{margin-bottom:4px;max-width:84ch;font-size:.95rem}
+.ev{margin-top:18px}.ev>.lab{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);font-weight:600;margin-bottom:8px}
+details.set{margin-top:16px;border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:0 14px}
+details.set summary{cursor:pointer;padding:10px 0;font-weight:600;font-size:.9rem;color:var(--text-2)}
+details.set summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+details.set[open]{padding-bottom:14px}
+.part{margin-top:56px;padding-top:20px;border-top:1px solid var(--line)}
+.part .eyebrow{color:var(--text-3)}
+.part h2.pt{font-size:1.15rem;color:var(--text-2);font-weight:600}
+.qa{display:grid;grid-template-columns:1fr;gap:0;border:1px solid var(--line);border-radius:6px;background:var(--surface);margin-top:20px}
+.qa a{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:6px 20px;padding:11px 16px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit}
+.qa a:last-child{border-bottom:none}.qa a:hover{background:var(--accent-soft)}
+.qa .qq{font-weight:600}.qa .aa{color:var(--text-2);font-size:.93rem}
+@media (max-width:700px){.qa a{grid-template-columns:1fr}}
+.pos{font-weight:700;color:var(--good);background:var(--good-bg);padding:0 4px;border-radius:3px;white-space:nowrap}
+</style>
+<div class="wrap">
+<header>
+  <div class="eyebrow">boptim-agent · Bayesian optimisation with GP and LLM optimisers</div>
+  <h1>boptim Experiments</h1>
+  <p class="sub">Seven questions about what the optimisers achieved on CIFAR-10, on the Ouro-1.4B exit gate, and on Terminal-Bench. Each section asks one question, answers it first, then shows the evidence.</p>
+</header>
+<div class="part" id="cifar"><div class="eyebrow">Part 1</div><h2 class="pt">CIFAR-10 hyperparameter search</h2></div>
+<section class="q" id="q1">
+  <div class="qn">Q1 · CIFAR-10</div>
+  <h2>How much can BO improve CIFAR-10 accuracy?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>About 1 point.</b> gp_hedge reaches <b class="pos">0.910 test accuracy</b>; gpt-5-mini and qwen3.5-9b reach 0.897–0.900 under the same 10-evaluation budget.</p></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Optimiser</th><th>Explanation</th><th class="n">test accuracy</th><th class="n">± std</th><th class="n">vs gp_hedge</th><th class="st">Status</th></tr></thead>
+      <tbody>
+        <tr class="best"><td>gp_hedge</td><td>—</td><td class="n">0.910</td><td class="n">0.000</td><td class="n">—</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>qwen3.5-9b</td><td>off</td><td class="n">0.900</td><td class="n">0.0033</td><td class="n">−1.0 pt</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>gpt-5-mini</td><td>on</td><td class="n">0.899</td><td class="n">0.000</td><td class="n">−1.1 pt</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>gpt-5-mini</td><td>off</td><td class="n">0.898</td><td class="n">0.000</td><td class="n">−1.2 pt</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>qwen3.5-9b</td><td>on</td><td class="n">0.8966</td><td class="n">0.000</td><td class="n">−1.3 pt</td><td class="st"><span class="chip good">done</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Setting for every row: n_epochs 10, train_batch_size 128, batch_size 1, max_iter 10, optim_seed 42, objective_seed 42, 2 replicates. Configs: <code>configs/cifar10_{gp_hedge,gpt,gpt_explanation,qwen3.5_9b,qwen3.5_9b_explanation}.yaml</code>.</p>
+  </div>
+  <details class="set"><summary>Task & settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Objective</dt><dd><code>objective/cifar.py</code>: ResNet-18 on CIFAR-10, <b>10 epochs per evaluation</b>, train batch 128; maximise test accuracy</dd>
+      <dt>Search space</dt><dd>lr ∈ [1e-3, 0.5] · momentum ∈ [0.5, 0.99] · weight decay ∈ [0, 1e-2]</dd>
+      <dt>Budget</dt><dd><code>max_iter 10</code>, <code>batch_size 1</code>, <code>optim_seed 42</code>, <code>objective_seed 42</code>, 2 replicates.</dd>
+    </dl>
+    <dl>
+      <dt>Optimisers configured</dt><dd>gp_hedge, gpt (with and without explanation), qwen3-4b, qwen3-8b, qwen3.5-9b · <code>configs/cifar10_*.yaml</code></dd>
+      <dt>Hardware</dt><dd>4× A6000 on the collaborator's branch <code>pw29/cifar_datagen</code>; locally the qwen optimiser needs vllm (not installed) or an API endpoint</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<section class="q" id="q2">
+  <div class="qn">Q2 · CIFAR-10</div>
+  <h2>What is the main reason for the gain?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>Search guided by a surrogate model.</b> The GP uses the observed history; the LLMs mostly propose known-good ResNet settings.</p><ul>
+      <li><b>gp_hedge 0.910 vs LLMs 0.897–0.900.</b> On a smooth 3-D SGD space with 10 evaluations, the GP surrogate searches better than an LLM reading the history.</li>
+      <li><b>Explanation mode changes nothing:</b> gpt-5-mini 0.898 → 0.899, qwen3.5-9b 0.900 → 0.8966. The written reasoning does not steer the proposals.</li>
+      <li><b>LLMs cluster within 0.4 pt of each other</b> in both modes: prior knowledge of good ResNet settings, not search.</li>
+      <li><b>n = 2 seeds, 1-pt effect.</b> Directional only.</li>
+    </ul></div>
+</section>
+<div class="part" id="ouro"><div class="eyebrow">Part 2</div><h2 class="pt">Ouro-1.4B exit gate on HumanEval and MBPP</h2></div>
+<section class="q" id="q3">
+  <div class="qn">Q3 · Ouro gate</div>
+  <h2>How much does tuning the Ouro gate gain on HumanEval and MBPP?</h2>
+  <div class="ans"><div class="lab">Answer</div><ul>
+      <li><b>HumanEval, vs full depth:</b> 4.0 → 1.229 loops, <b class="pos">3.25× faster</b>, pass@1 0.689 → 0.7195 (<b class="pos">+3.0 pt</b>).</li>
+      <li><b>HumanEval, vs the untuned gate at its best threshold</b> (1.248 loops / 0.7256): 1.02× faster, −0.6 pt. No optimiser beats it.</li>
+      <li><b>MBPP, full 500:</b> 1.358 loops / 0.528. Vs full depth (4.0 / 0.520): <b class="pos">2.95× faster</b>, <b class="pos">+0.8 pt</b>. Vs untuned thr 0.111 (1.440 / 0.536): 1.06× faster, −0.8 pt, inside stderr.</li>
+      <li><b>By optimiser, vs full depth:</b> gp_hedge <b class="pos">3.25× faster</b> at 0.7195; chatgpt and qwen <b class="pos">3.31× faster</b> at 0.7073.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="sub-head"><h3>HumanEval</h3></div>
+<div class="grid2">
+    <div class="fig" id="fig-he">
+      <div class="title">Loops vs pass@1, every evaluated point</div>
+      <div class="legend">
+        <span><i class="line"></i> untuned gate, threshold sweep</span>
+        <span><i style="background:var(--s1)"></i> gp_hedge</span>
+        <span><i style="background:var(--s2)"></i> chatgpt (gpt-5-mini)</span>
+        <span><i style="background:var(--s3)"></i> qwen3.5-9b</span>
+        <span><i style="border-color:var(--s1)"></i> gp_hedge, random-init gate</span>
+      </div>
+      <div id="he-chart"></div>
+      <p class="cap">Dashed line is the 0.68 floor the runs used. Off-chart: untuned threshold 0.0 (1.00 loops, 0.378) and three random-init penalty points at 1.0–1.34 loops, pass@1 0.378–0.567. Nothing sits above and left of the threshold-0.111 baseline point.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Untuned gate, thr</th><th class="n">loops</th><th class="n">pass@1</th></tr></thead>
+        <tbody>
+          <tr class="dim"><td>0.000</td><td class="n">1.000</td><td class="n">0.3780</td></tr>
+          <tr class="best"><td>0.111 · reference baseline</td><td class="n">1.248</td><td class="n">0.7256</td></tr>
+          <tr><td>0.222</td><td class="n">1.454</td><td class="n">0.7256</td></tr>
+          <tr><td>0.333</td><td class="n">2.170</td><td class="n">0.7317</td></tr>
+          <tr><td>0.444</td><td class="n">2.271</td><td class="n">0.7256</td></tr>
+          <tr><td>0.556</td><td class="n">3.042</td><td class="n">0.7073</td></tr>
+          <tr><td>0.667</td><td class="n">3.157</td><td class="n">0.6951</td></tr>
+          <tr><td>0.778 – 1.0 · full depth</td><td class="n">4.000</td><td class="n">0.6890</td></tr>
+        </tbody>
+      </table>
+      <p class="src">Source: <code>boptim_scratch/baseline_pretrained/baseline_sweep_results.json</code></p>
+    </div>
+  </div>
+  <div class="tablewrap" style="margin-top:16px">
+    <table>
+      <thead><tr><th>Optimiser</th><th>Run</th><th>Search</th><th class="n">Iters</th><th class="n">Best loops</th><th class="n">@ (γ, thr)</th><th class="n">pass@1</th><th class="n wrap">speed · pass@1 vs untuned</th><th class="st">Status</th></tr></thead>
+      <tbody>
+        <tr class="best"><td>gp_hedge</td><td>H1<span class="sm">ouro_full_local_18_191546.log</span></td><td>γ[0,1] × thr[0.5,1]</td><td class="n">10/10</td><td class="n">1.2288</td><td class="n">(0.791, 0.500)</td><td class="n">0.7195</td><td class="n wrap">1.02× faster<br>−0.6 pt</td><td class="st"><span class="chip good">done</span><span class="sm">best pass@1 of any tuned point; 1 problem short of untuned</span></td></tr>
+        <tr><td>gp_hedge, random-init gate</td><td>H7<span class="sm">state_gp_hedge_ouro_8d0c98fc…json</span></td><td>thr[0.1,1]</td><td class="n">10/10</td><td class="n">1.6463</td><td class="n">(1.0, 0.804)</td><td class="n">0.6951</td><td class="n wrap">1.32× slower<br>−3.0 pt</td><td class="st"><span class="chip warn">3 penalties</span><span class="sm">a random gate collapses below thr 0.15</span></td></tr>
+        <tr><td>fixed point, random-init, 1000 steps</td><td>H8<span class="sm">ouro_router_nas_fixed_29_192058.log</span></td><td>(0.791, 0.5)</td><td class="n">1/1</td><td class="n">1.3086</td><td class="n">(0.791, 0.500)</td><td class="n">0.6829</td><td class="n wrap">1.05× slower<br>−4.3 pt</td><td class="st"><span class="chip good">done</span><span class="sm">10× more SFT of a random gate is worse than 100 steps of the pretrained one</span></td></tr>
+        <tr><td>chatgpt</td><td>H2<span class="sm">ouro_gpt_local_23_194925.log</span></td><td>same, 8 iters</td><td class="n">8/8</td><td class="n">1.3021</td><td class="n">(1.0, 0.695)</td><td class="n">0.7012</td><td class="n wrap">1.04× slower<br>−2.4 pt</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>chatgpt</td><td>H5<span class="sm">state_chatgpt_ouro_4ccc88ec…json</span></td><td>same, resumable</td><td class="n">10/10</td><td class="n">1.2077</td><td class="n">(1.0, 0.50)</td><td class="n">0.7073</td><td class="n wrap">1.03× faster<br>−1.8 pt</td><td class="st"><span class="chip good">done</span><span class="sm">walks monotonically to the corner of the box</span></td></tr>
+        <tr><td>qwen</td><td>H6<span class="sm">state_qwen_ouro_3aa6649d…json</span></td><td>same, resumable</td><td class="n">10/10</td><td class="n">1.2077</td><td class="n">(1.0, 0.50)</td><td class="n">0.7073</td><td class="n wrap">1.03× faster<br>−1.8 pt</td><td class="st"><span class="chip good">done</span><span class="sm">same corner as chatgpt; last 5 evals within 0.004 loops of each other</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Δ is against the untuned gate at threshold 0.111. Against full depth every run looks good (H1: <b class="pos">3.25× faster</b>, <b class="pos">+3.0 pt</b>), which is why the floor went unnoticed until the threshold sweep was run.</p>
+<div class="sub-head"><h3>MBPP</h3></div>
+<div class="callout">
+    <h3>The threshold dimension was never applied</h3>
+    <p>All 60 MBPP eval shard commands carry <code>--early_exit_threshold 0.9</code>: <code>ouro_mbpp.py::_eval_cmd</code> passes the class default instead of the BO proposal. γ≈0.5 with thr 0.55, 1.0 and 0.1 all give exactly 2.3183 loops / 0.5333. M1–M3 are γ-only searches at thr 0.9. Still in the working copy.</p>
+  </div>
+  <div class="grid2" style="margin-top:16px">
+    <div class="fig" id="fig-mb">
+      <div class="title">Loops vs pass@1 (baseline on 500, BO on 150-subset)</div>
+      <div class="legend">
+        <span><i class="line"></i> untuned gate, full 500, threshold sweep</span>
+        <span><i class="sq" style="background:var(--base)"></i> tuned (1.0, 0.5), full 500</span>
+        <span><i style="background:var(--s1)"></i> gp_hedge</span>
+        <span><i style="background:var(--s2)"></i> chatgpt</span>
+        <span><i style="background:var(--s3)"></i> qwen</span>
+      </div>
+      <div id="mb-chart"></div>
+      <p class="cap">BO points ran at effective threshold 0.9 on a different problem subset than the grey baseline, so vertical distance between them is not a valid comparison. Penalised points sit on the 0.50 floor. Off-chart: untuned thr 0.0 (1.00 loops, 0.354).</p>
+    </div>
+    <div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Optimiser</th><th class="n">Iters</th><th class="n">Best loops</th><th class="n">@ (γ, thr proposed)</th><th class="n">pass@1</th><th class="st">Status</th></tr></thead>
+          <tbody>
+            <tr><td>chatgpt · M1</td><td class="n">10/10</td><td class="n">2.0202</td><td class="n">(0.958, 0.574)</td><td class="n">0.5067</td><td class="st"><span class="chip warn">2 penalties</span><span class="sm">thr never applied</span></td></tr>
+            <tr><td>gp_hedge · M2</td><td class="n">10/10</td><td class="n">2.2848</td><td class="n">(0.567, 0.1)</td><td class="n">0.5267</td><td class="st"><span class="chip warn">3 penalties</span><span class="sm">thr never applied</span></td></tr>
+            <tr><td>qwen · M3</td><td class="n">10/10</td><td class="n">2.0205</td><td class="n">(0.957, 0.1)</td><td class="n">0.5067</td><td class="st"><span class="chip warn">5 penalties</span><span class="sm">thr never applied</span></td></tr>
+            <tr class="best"><td>validation of HumanEval winner (1.0, 0.5) on full 500 · M4</td><td class="n">1</td><td class="n">1.358</td><td class="n">(1.0, 0.5)</td><td class="n">0.528</td><td class="st"><span class="chip good">done</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tablewrap" style="margin-top:14px">
+        <table>
+          <thead><tr><th>Untuned gate, full 500</th><th class="n">loops</th><th class="n">pass@1</th></tr></thead>
+          <tbody>
+            <tr class="best"><td>thr 0.111</td><td class="n">1.440</td><td class="n">0.536</td></tr>
+            <tr><td>thr 0.333 (best pass@1)</td><td class="n">2.323</td><td class="n">0.542</td></tr>
+            <tr><td>thr ≥ 0.778 · full depth</td><td class="n">4.000</td><td class="n">0.520</td></tr>
+            <tr><td>fixed 1 / 2 / 3 loops</td><td class="n">1 / 2 / 3</td><td class="n">0.354 / 0.528 / 0.536</td></tr>
+          </tbody>
+        </table>
+        <p class="src">stderr ≈ 0.022. Source: <code>boptim_scratch/mbpp_baseline/</code></p>
+      </div>
+    </div>
+  </div>
+  <p class="note">Setting: lm-eval <code>mbpp</code>, 0-shot chat, first 150 of 500 problems, 512 tokens, floor 0.50. The only defensible comparison is M4 against the full-500 sweep: 1.06× faster than untuned thr 0.111 at −0.8 pt, inside stderr; <b class="pos">2.95× faster</b> and <b class="pos">+0.8 pt</b> against full depth.</p>
+  </div>
+  <details class="set"><summary>Task & settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Model</dt><dd>ByteDance Ouro-1.4B looped LM, 4 universal-transformer steps per token, learned exit gate <code>Linear(2048→1)</code> = 2,049 params. Backbone frozen; only the gate is trained</dd>
+      <dt>Search space</dt><dd>x0 <code>adaptive_gamma</code> ∈ [0,1] (train-time gate-loss margin) · x1 <code>early_exit_threshold</code> ∈ [0.5,1] on the first runs, [0.1,1] later (eval-only)</dd>
+      <dt>Objective</dt><dd>minimise <code>avg_loops</code>; pass@1 ≤ floor gives <code>loop_penalty = 10.0</code>. <b>floor 0.68</b>, slack 1.0</dd>
+      <dt>One evaluation</dt><dd>torchtitan <code>ouro_1_4b_sft</code>, 100 steps, lr 3e-4, batch 2, 1 GPU, then benchmark eval on 2 GPUs: 33–42 min per point</dd>
+    </dl>
+    <dl>
+      <dt>HumanEval eval</dt><dd>EvalPlus-canonical prompt, chat template, <code>--no_system</code>, KV-cache, eager attention, fp32, 512 gen tokens, all 164 problems. 1 problem = 0.61 pt</dd>
+      <dt>Optimisers</dt><dd><b>gp_hedge</b> skopt GP, EI/LCB/PI portfolio, 3 initial points, seed 42 · <b>chatgpt</b> gpt-5-mini, no explanation · <b>qwen</b> qwen3.5-9b via OpenRouter, T 0.7 · <b>claude</b> claude-sonnet-5 via CLI · <b>random</b></dd>
+      <dt>Baseline</dt><dd>Pretrained gate, no SFT, swept over threshold. thr 0.111 gives <b>1.248 loops / 0.7256</b>; full depth 4.0 / 0.689</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<section class="q" id="q4">
+  <div class="qn">Q4 · Ouro gate</div>
+  <h2>Why is the gain so limited?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>The pretrained gate is already too strong on HumanEval, and tuning cannot beat it.</b> With no training at all, sweeping its exit threshold gives 1.248 loops at pass@1 0.7256. That sweep already traces the speed–accuracy front. The best tuned point, gp_hedge at 1.229 loops / 0.7195, is 1.02× faster and one problem short; chatgpt and qwen land lower still at 0.7073. No optimiser, no random-init gate and no NAS architecture gets above that line.</p></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="sub-head"><h3>Router NAS: a larger search space leads back to the same linear gate</h3></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Optimiser</th><th class="n">Evals</th><th class="n">Feasible</th><th class="n">Best loops</th><th>Best architecture</th><th class="n">pass@1 (20)</th><th class="st">Status</th></tr></thead>
+      <tbody>
+        <tr class="best"><td>gp_hedge</td><td class="n">25/25</td><td class="n">16</td><td class="n">1.178</td><td>linear gate, γ 0.249, thr 0.291</td><td class="n">0.80</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>claude-sonnet-5</td><td class="n">25/25</td><td class="n">21</td><td class="n">1.184</td><td>linear gate, γ 0.0, thr 0.1</td><td class="n">0.80</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>random</td><td class="n">25/25</td><td class="n">14</td><td class="n">1.904</td><td>—</td><td class="n">—</td><td class="st"><span class="chip good">done</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">6-D space: layers {0,1,2} × hidden {64,128,256} × act {relu,gelu,silu,tanh} × norm {F,T} × γ × thr; random-init routers, 100 SFT steps. Scored with lm-eval <code>humaneval</code> on <b>20 problems</b> (pass@1 in 0.05 steps, stderr ≈ 0.09), floor 0.64. Both searches converge on the plain linear gate, so the NAS found no architecture worth keeping. Not comparable with the 164-problem EvalPlus numbers above. Logs in <code>~/.claude/jobs/c0d2da0a/tmp/nas_*.log</code>.</p>
+  </div>
+</section>
+<div class="part" id="tbench"><div class="eyebrow">Part 3</div><h2 class="pt">Ouro on Terminal-Bench</h2></div>
+<section class="q" id="q5">
+  <div class="qn">Q5 · Terminal-Bench</div>
+  <h2>Does the tuned gate transfer to Terminal-Bench?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>No.</b> The gate tuned on HumanEval exits on loop 1 for long agent prompts: output on 1/15 trials against 12/15 for the base model, and both resolve 0/15. Terminal-Bench was never used as a BO objective.</p></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Model, 15 curated tasks, non-thinking Ouro-1.4B</th><th class="n">resolved</th><th class="n">trials with output</th><th class="n">zero-token trials</th></tr></thead>
+      <tbody>
+        <tr><td>pretrained, full depth</td><td class="n">0/15</td><td class="n">12/15</td><td class="n">3/15</td></tr>
+        <tr><td>router γ 1.0, thr 0.5 (HumanEval 1.2077 loops / 0.7073)</td><td class="n">0/15</td><td class="n">1/15</td><td class="n">14/15</td></tr>
+      </tbody>
+    </table>
+    <p class="src">The README in <code>boptim_scratch/terminal_bench_compare/</code> reports the 12/15 → 1/15 "engagement" collapse and recommends the checkpoint for short-form completion only. It omits that both sides resolved 0/15. Source: <code>terminal_bench_eval/logs/tb_compare_{baseline,sft}.log</code></p>
+  </div>
+  </div>
+</section>
+<section class="q" id="q6">
+  <div class="qn">Q6 · Terminal-Bench</div>
+  <h2>How far does SFT get, and why is pass@1 still low?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b class="pos">0/80 → 4/80</b> (<b class="pos">0/24 → 5/24</b> on the 12-task subset, 7/24 with the gated agent), then flat across every recipe.</p><ul>
+      <li><b>Pass@1 stays low over the 80 tasks:</b> pretrained 0/80, every SFT recipe 2–4/80 (3–5/24 on the subset), always the same two easy tasks.</li>
+      <li><b>The SFT dataset distribution mismatches the test tasks:</b> generic terminal data and leaderboard trajectories for 38 unrelated tasks; more of it (1k → 20k steps) does not move the score.</li>
+      <li><b>Verified by overfitting:</b> training on the 12 test tasks themselves (oracle12) jumps <b class="pos">5/24 → 20/24</b> in 300 steps, so the model can execute these tasks once it is shown their own solutions. But matching the tool distribution with <em>disjoint</em> data does not transfer (<a href="#q7">Q7</a>): the gap is generalisation capacity, and the fix is a larger base.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="grid2">
+    <div class="fig" id="fig-tb">
+      <div class="title">12-task subset, trials solved out of 24, by checkpoint</div>
+      <div class="legend">
+        <span><i class="sq" style="background:var(--s1)"></i> ungated (stock terminus-2)</span>
+        <span><i class="sq" style="background:var(--s2)"></i> gated (TerminusVerify)</span>
+      </div>
+      <div id="tb-chart"></div>
+      <p class="cap">Chronological, top to bottom. The oracle12 checkpoint (20/24) is trained on the test tasks and is left off. Missing gated bars mean the gated harness was not run for that checkpoint.</p>
+    </div>
+    <div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>80-task runs</th><th class="n">solved</th><th class="n">partial</th><th>tasks</th></tr></thead>
+          <tbody>
+            <tr class="dim"><td>pretrained Ouro-1.4B</td><td class="n">1/80</td><td class="n">—</td><td>hello-world</td></tr>
+            <tr class="dim"><td>pretrained Ouro-Thinking</td><td class="n">0/80</td><td class="n">42.4 %</td><td>9 usable turns total</td></tr>
+            <tr class="best"><td>continue10k</td><td class="n">4/80</td><td class="n">50.9 %</td><td>fix-pandas-version, vim-terminal-task, fix-permissions, hello-world</td></tr>
+            <tr><td>sft20k</td><td class="n">2/80</td><td class="n">47.4 %</td><td>fix-permissions, hello-world · 1,042 HTTP-500s</td></tr>
+            <tr><td>repro11k</td><td class="n">3/80</td><td class="n">—</td><td>heterogeneous-dates, fix-permissions, hello-world</td></tr>
+            <tr class="best"><td>batching5k</td><td class="n">4/80</td><td class="n">49.9 %</td><td>fibonacci-server, fix-pandas-version, fix-permissions, hello-world</td></tr>
+          </tbody>
+        </table>
+        <p class="src">Six tasks ever solved on the 80. No checkpoint exceeds 4/80.</p>
+      </div>
+      <div class="tablewrap" style="margin-top:14px">
+        <table>
+          <thead><tr><th>Exit-threshold sweep on batching5k, 12 tasks × 1</th><th class="n">loops</th><th class="n">solved</th><th class="n">500s</th></tr></thead>
+          <tbody>
+            <tr><td>thr 0.2</td><td class="n">2.249</td><td class="n">3/12</td><td class="n">54</td></tr>
+            <tr><td>thr 0.4</td><td class="n">2.946</td><td class="n">2/12</td><td class="n">62</td></tr>
+            <tr><td>thr 0.6</td><td class="n">3.438</td><td class="n">2/12</td><td class="n">11</td></tr>
+            <tr><td>thr 0.8 / 1.0</td><td class="n">4.000</td><td class="n">2/12</td><td class="n">0 / 1</td></tr>
+          </tbody>
+        </table>
+        <p class="src">One attempt per task, so solved counts are noise; speed (<b class="pos">1.78× faster</b> at thr 0.2) is the stable output.</p>
+      </div>
+    </div>
+  </div>
+  <div class="tablewrap" style="margin-top:16px">
+    <table>
+      <thead><tr><th>Checkpoint</th><th>Recipe</th><th class="n">12-task</th><th class="n">gated</th><th class="n">partial</th><th class="st">Notes</th></tr></thead>
+      <tbody>
+        <tr class="dim"><td>pretrained Ouro-Thinking</td><td>—</td><td class="n">0/24</td><td class="n">—</td><td class="n">—</td><td class="st">three runs, all 0/24</td></tr>
+        <tr><td>sft1k<span class="sm">ouro_terminal_sft</span></td><td>base → original mix, 1k steps</td><td class="n">4/24</td><td class="n">—</td><td class="n">—</td><td class="st">pass@5 on the 5 simplest tasks: 7/25</td></tr>
+        <tr><td>sft10k<span class="sm">ouro_terminal_sft_10k</span></td><td>base → original, 10k</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st">superseded</td></tr>
+        <tr class="best"><td>continue10k<span class="sm">ouro_sft_continue · ouro_c10k_clean</span></td><td>sft1k → longhorizon, +10k</td><td class="n">5/24</td><td class="n">4/24</td><td class="n">45.5 %</td><td class="st">reference checkpoint; 4/80 on the full set</td></tr>
+        <tr><td>router2k<span class="sm">ouro_router_sft</span></td><td>sft1k → longhorizon, 2k, <b>gate-only</b>, served thr 0.5</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st"><span class="chip warn">51 HTTP-500s</span><span class="sm">loops 4.00 → 2.67 (<b class="pos">1.5× faster</b>) is the robust part; the only gate-only TB checkpoint</span></td></tr>
+        <tr><td>longhorizon1k<span class="sm">ouro_sft_longhorizon · ouro_lh_clean</span></td><td>continue10k → litecoder mix, +1k</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st">"horizon was the wrong lever"</td></tr>
+        <tr><td>sft20k<span class="sm">ouro_sft_20k · ouro_20k_clean</span></td><td>base → combined mix, 20k</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">80-task only: 2/80 with 1,042 HTTP-500s from 3 OOM shards</td></tr>
+        <tr><td>repro11k<span class="sm">ouro_repro_c10k · ouro_repro_clean</span></td><td>base → longhorizon, 11k in one run</td><td class="n">5/24</td><td class="n">—</td><td class="n">40.3 %</td><td class="st">reproduces continue10k; 3/80 defines the ±1 noise floor</td></tr>
+        <tr><td>batching5k<span class="sm">ouro_batching_sft · ouro_batching_clean</span></td><td>continue10k → longhorizon with ≥1.5 cmds/turn, +5k, 1e-5</td><td class="n">4/24</td><td class="n">6/24</td><td class="n">41.7 %</td><td class="st">multi-command turns 0/660 → 48/406; step-1000 and step-2000 both 4/24 gated</td></tr>
+        <tr><td>traj1k / traj10k<span class="sm">ouro_traj10k</span></td><td>base → terminaltraj, 1k / 10k</td><td class="n">3/24 · 4/24</td><td class="n">—</td><td class="n">28.6 · 27.8 %</td><td class="st">traj1k corrected after 278 OOM 500s on a 23 GB card</td></tr>
+        <tr class="best"><td>traj20k<span class="sm">ouro_traj20k · ouro_traj20k_clean</span></td><td>base → terminaltraj, 20k (final loss 0.183)</td><td class="n">5/24</td><td class="n">7/24</td><td class="n">54.3 · 58.6 %</td><td class="st">best 12-task result on both harnesses; never run on the 80</td></tr>
+        <tr class="dim"><td>oracle12<span class="sm">ouro_oracle12</span></td><td>continue10k → solutions of the 12 eval tasks, 300 steps</td><td class="n">20/24</td><td class="n">—</td><td class="n">91.7 %</td><td class="st"><span class="chip info">train-on-test</span><span class="sm">sanity check only, never a score</span></td></tr>
+        <tr><td>oracle68<span class="sm">ouro_oracle68</span></td><td>continue10k → solutions of the 68 held-out tasks, 500 steps</td><td class="n">3/24</td><td class="n">—</td><td class="n">25.7 %</td><td class="st">20/24 trials declare done on turn 1; contaminated for any 80-task use</td></tr>
+        <tr><td>tb80sft v2 @10k<span class="sm">ouro_tb80sft_v2_10k</span></td><td>base → tb80sft v2, 10k of 20k</td><td class="n">4/24</td><td class="n">—</td><td class="n">36.1 %</td><td class="st">the 20k eval died (disk full on /tmp, shared-GPU OOM) at 3/8</td></tr>
+        <tr><td>tb80sft v3<span class="sm">ouro_tb80sft_v3 · ouro_tb80sft_v3_clean</span></td><td>base → tb80sft v3, 20k (final loss 0.065)</td><td class="n">5/24</td><td class="n">6/24</td><td class="n">45.5 · 51.4 %</td><td class="st">latest result; not yet in slides. 0 HTTP-500s</td></tr>
+      </tbody>
+    </table>
+  </div>
+<div class="sub-head"><h3>Train vs test distribution</h3></div>
+<div class="grid2 even">
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Task type (5)</th><th class="n">train samples</th><th class="n">test samples</th><th class="n">train %</th><th class="n">test %</th></tr></thead>
+        <tbody>
+            <tr><td>Software engineering + debugging</td><td class="n">2,692</td><td class="n">27</td><td class="n">36.8 %</td><td class="n">33.8 %</td></tr>
+            <tr><td>System administration + file operations</td><td class="n">1,472</td><td class="n">21</td><td class="n">20.1 %</td><td class="n">26.2 %</td></tr>
+            <tr><td>Data science + model training + scientific computing</td><td class="n">2,027</td><td class="n">17</td><td class="n">27.7 %</td><td class="n">21.2 %</td></tr>
+            <tr><td>Security</td><td class="n">777</td><td class="n">12</td><td class="n">10.6 %</td><td class="n">15.0 %</td></tr>
+            <tr><td>Games + other</td><td class="n">356</td><td class="n">3</td><td class="n">4.9 %</td><td class="n">3.8 %</td></tr>
+        </tbody>
+      </table>
+      <p class="src">Train = tb80sft rows by domain label (7,324); test = the 80 tasks by <code>task.yaml</code> category. At 5 types the two distributions agree within 7 points, because the bulk data was already reweighted by category. Task type is too coarse to show the mismatch.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Skill (21, multi-label)</th><th class="n">train samples</th><th class="n">test samples</th><th class="n">train %</th><th class="n">test %</th><th>train ÷ test share</th></tr></thead>
+        <tbody>
+            <tr><td>permissions / archives</td><td class="n">2,570</td><td class="n">20</td><td class="n">33.5 %</td><td class="n">25.0 %</td><td><span class="chip good">matched ×1.34</span></td></tr>
+            <tr><td>python env (pip/conda)</td><td class="n">1,065</td><td class="n">19</td><td class="n">13.9 %</td><td class="n">23.8 %</td><td><span class="chip good">matched ×0.58</span></td></tr>
+            <tr><td>text processing (sed/awk/regex)</td><td class="n">1,684</td><td class="n">17</td><td class="n">21.9 %</td><td class="n">21.2 %</td><td><span class="chip good">matched ×1.03</span></td></tr>
+            <tr><td>crypto / secrets</td><td class="n">973</td><td class="n">14</td><td class="n">12.7 %</td><td class="n">17.5 %</td><td><span class="chip good">matched ×0.72</span></td></tr>
+            <tr><td>C/C++ build</td><td class="n">884</td><td class="n">13</td><td class="n">11.5 %</td><td class="n">16.2 %</td><td><span class="chip good">matched ×0.71</span></td></tr>
+            <tr><td>web / network services</td><td class="n">1,041</td><td class="n">13</td><td class="n">13.6 %</td><td class="n">16.2 %</td><td><span class="chip good">matched ×0.83</span></td></tr>
+            <tr><td>scientific (numpy/R/stan)</td><td class="n">1,096</td><td class="n">12</td><td class="n">14.3 %</td><td class="n">15.0 %</td><td><span class="chip good">matched ×0.95</span></td></tr>
+            <tr><td>pytorch / training</td><td class="n">295</td><td class="n">8</td><td class="n">3.8 %</td><td class="n">10.0 %</td><td><span class="chip crit">under ×0.38</span></td></tr>
+            <tr><td>data files (csv/parquet/pandas)</td><td class="n">818</td><td class="n">8</td><td class="n">10.6 %</td><td class="n">10.0 %</td><td><span class="chip good">matched ×1.06</span></td></tr>
+            <tr><td>huggingface</td><td class="n">262</td><td class="n">7</td><td class="n">3.4 %</td><td class="n">8.8 %</td><td><span class="chip crit">under ×0.39</span></td></tr>
+            <tr><td>games / puzzles</td><td class="n">221</td><td class="n">7</td><td class="n">2.9 %</td><td class="n">8.8 %</td><td><span class="chip crit">under ×0.33</span></td></tr>
+            <tr><td>git</td><td class="n">470</td><td class="n">6</td><td class="n">6.1 %</td><td class="n">7.5 %</td><td><span class="chip good">matched ×0.82</span></td></tr>
+            <tr><td>qemu / VM</td><td class="n">469</td><td class="n">5</td><td class="n">6.1 %</td><td class="n">6.2 %</td><td><span class="chip good">matched ×0.98</span></td></tr>
+            <tr><td>cron / services</td><td class="n">263</td><td class="n">5</td><td class="n">3.4 %</td><td class="n">6.2 %</td><td><span class="chip good">matched ×0.55</span></td></tr>
+            <tr><td>fasttext</td><td class="n">34</td><td class="n">3</td><td class="n">0.4 %</td><td class="n">3.8 %</td><td><span class="chip crit">under ×0.12</span></td></tr>
+            <tr><td>tmux</td><td class="n">76</td><td class="n">2</td><td class="n">1.0 %</td><td class="n">2.5 %</td><td><span class="chip crit">under ×0.40</span></td></tr>
+            <tr><td>sqlite / SQL</td><td class="n">340</td><td class="n">2</td><td class="n">4.4 %</td><td class="n">2.5 %</td><td><span class="chip warn">over ×1.77</span></td></tr>
+            <tr><td>rust / cargo</td><td class="n">21</td><td class="n">2</td><td class="n">0.3 %</td><td class="n">2.5 %</td><td><span class="chip crit">under ×0.11</span></td></tr>
+            <tr><td>jupyter</td><td class="n">41</td><td class="n">1</td><td class="n">0.5 %</td><td class="n">1.2 %</td><td><span class="chip crit">under ×0.43</span></td></tr>
+            <tr><td>vim / editors</td><td class="n">360</td><td class="n">1</td><td class="n">4.7 %</td><td class="n">1.2 %</td><td><span class="chip warn">over ×3.75</span></td></tr>
+            <tr><td>docker / containers</td><td class="n">350</td><td class="n">0</td><td class="n">4.6 %</td><td class="n">0.0 %</td><td><span class="chip info">not in test</span></td></tr>
+        </tbody>
+      </table>
+      <p class="src">A row or task counts for a skill if its description or commands match the skill's keywords. Train = tb80sft v3 (7,682 rows); test = instruction + reference solution of the 80 tasks. Script and JSON: <code>boptim_scratch/tb_dist/skill_dist.py</code></p>
+    </div>
+  </div>
+  <p class="note">At skill level the mismatch is visible: fasttext and rust are under-represented about 9×, games, pytorch, huggingface, tmux and jupyter 2–3×, while docker commands fill 4.6 % of training rows and appear in no test task.</p>
+  </div>
+  <details class="set"><summary>Task & settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Benchmark</dt><dd>terminal-bench 0.2.18, local copy of terminal-bench-core 0.1.1: <b>80 tasks</b>. Two protocols: a <b>12-task subset × 2 attempts</b> ("n/24") and <b>80 tasks × 1 attempt</b> ("n/80", 2–3 GPU shards)</dd>
+      <dt>Agents</dt><dd><b>ungated</b> = stock terminus-2. <b>gated</b> = TerminusVerify, which refuses a task_complete that ran no commands (max 2 pushbacks). Gated numbers are a harness change and not comparable to stock</dd>
+      <dt>Metrics</dt><dd><code>is_resolved</code> per trial; partial credit = fraction of parser tests passed (a no-op agent gets 42.4 % on the 80). Noise floor ±1 task: two same-recipe runs gave 4/80 and 3/80 sharing 2 tasks</dd>
+      <dt>Serving</dt><dd><code>ouro_openai_server.py</code>, bf16, temperature 0.7, optional <code>--early_exit_threshold</code>; 420 s agent budget (trials run to ~720 s; 56/80 tasks ask for 360 s)</dd>
+    </dl>
+    <dl>
+      <dt>Training</dt><dd>torchtitan <code>ouro_1_4b_thinking_terminal_sft</code>, <b>all 1.43 B params</b>, Stage-I loss with 0.01 entropy bonus, assistant-only masking, lr 2e-5 (1e-5 for continuations), batch 1 × 4096, 1 GPU, 3.3–5.3 s/step. "1k / 10k / 20k" are SFT steps</dd>
+      <dt>Gate-only variants</dt><dd>router2k (stage2_adaptive, 2,049 params, served at thr 0.5) and the HumanEval router <code>router_gamma1.0_thr0.5.safetensors</code></dd>
+      <dt>Baseline</dt><dd>Pretrained Ouro-1.4B: 1/80. Pretrained Ouro-1.4B-Thinking: <b>0/80</b> (three runs) and <b>0/24</b> (three runs); it never stops generating, 9 usable turns across 80 tasks</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<section class="q" id="q7">
+  <div class="qn">Q7 · Terminal-Bench</div>
+  <h2>Does matching the data distribution per skill lift pass@1?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>No.</b> Concentrating one skill's trajectories to ~40 % of the set and fine-tuning from the v3 checkpoint leaves every task at its <b>0</b> baseline. Of 14 skills run so far, 11 moved nothing; 3 tasks flicker to <b>1/2</b> — fix-git, path-tracing-reverse, conda-env-conflict-resolution — right at the ±1 noise floor. Distribution matching, per-task or aggregate, does not move the benchmark.</p><ul>
+      <li><b>It refines Q6, not contradicts it.</b> The model executes a task's <em>own</em> solution (oracle12, 20/24) but does not transfer skill-matched <em>disjoint</em> data to unseen tasks. The gap is generalisation capacity, not data volume — closing it needs the task's own answer or a larger base, not a better tool mix.</li>
+      <li><b>One plausible signal in the noise:</b> concentrating C/C++-build data was the run that moved <code>path-tracing-reverse</code>, a write-a-C-program task. Narrow, and still 1 of 2 attempts.</li>
+      <li><b>Highest-headroom skills moved nothing:</b> perms-arch (2,570 rows), python-env (1,065), web-net, crypto, sci all 0. Not a data-availability artifact.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Skill concentrated</th><th class="n">train rows</th><th class="n">test tasks eval'd</th><th class="st">pass@2 result</th></tr></thead>
+      <tbody>
+        <tr><td>data files (csv/pandas)</td><td class="n">818</td><td class="n">8</td><td class="st"><span class="chip warn">2 tasks &rarr; 1/2</span><span class="sm">conda-env-conflict-resolution (new); csv-to-parquet (v3 already solved)</span></td></tr>
+        <tr><td>text processing (sed/awk)</td><td class="n">1,684</td><td class="n">8</td><td class="st"><span class="chip warn">fix-git &rarr; 1/2</span><span class="sm">new solve, noise floor</span></td></tr>
+        <tr><td>C/C++ build</td><td class="n">884</td><td class="n">8</td><td class="st"><span class="chip warn">path-tracing-reverse &rarr; 1/2</span><span class="sm">new; mechanistically plausible</span></td></tr>
+        <tr><td>permissions / archives</td><td class="n">2,570</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>python env (pip/conda)</td><td class="n">1,065</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>scientific (numpy/R)</td><td class="n">1,096</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>web / network services</td><td class="n">1,041</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>crypto / secrets</td><td class="n">973</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>qemu / VM</td><td class="n">469</td><td class="n">5</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>vim / editors</td><td class="n">360</td><td class="n">1</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>pytorch / training</td><td class="n">295</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>huggingface</td><td class="n">262</td><td class="n">7</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>tmux</td><td class="n">76</td><td class="n">2</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>jupyter</td><td class="n">41</td><td class="n">1</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr class="dim"><td>games, git, cron/services, fasttext, sqlite</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="st"><span class="chip info">running</span></td></tr>
+      </tbody>
+    </table>
+    <p class="src">Baselines are 0 for every listed task except csv-to-parquet. A "new" solve was 0 in the v3 and 80-task evals. Results: <code>~/.claude/jobs/c0d2da0a/tmp/skill_*.txt</code></p>
+  </div>
+  <p class="note">Reading it plainly: the tool-distribution lever does not lift pass@1 for the 1.4 B model. The three flips sit at the noise floor and await a higher-attempt re-check; even taken at face value they are single tasks at the model's capability edge, not a general lift.</p>
+  <div class="concl"><h3>Next step: scale the model, not the data</h3><p>1.4 B is too small to learn these tasks from demonstrations it did not memorise. The next run repeats the SFT recipe on <b>Ouro-2.6B-Thinking</b>; capacity, not tool-distribution match, is the lever left to pull.</p></div>
+  </div>
+  <details class="set"><summary>Task &amp; settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Per-skill set</dt><dd><code>build_skill_sft.py</code>: one target skill concentrated to <b>~40 %</b> of a 2,000-row set (its trajectories upsampled), the rest general terminal rows so agent format survives. A row "uses" a skill when its <b>assistant turns</b> match the skill regex, never the terminus-2 boilerplate</dd>
+      <dt>Training</dt><dd>continue from the <b>v3 checkpoint</b> (a working agent, 0 on these tasks), <code>OURO_INIT_FROM</code>, 1,000 steps (2,000 for tmux), lr 2e-5, batch 1; reruns at seq_len 2048 to fit alongside a co-tenant that held ~15 GB/card</dd>
+    </dl>
+    <dl>
+      <dt>Eval</dt><dd>pass@2 on up to 8 of the skill's test tasks, stock terminus-2. Test tasks map from <code>tb_dist/skill_dist.json</code></dd>
+      <dt>No contamination</dt><dd>the concentrated sets are drawn from tb80sft v3, which excludes all 80 eval tasks; the model never sees a test task's own solution</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<section id="end" style="padding-top:24px"><p class="foot">Sources: <code>~/boptim-agent/{runs,logs,configs,objective,data}</code>, <code>~/boptim_scratch/</code>, <code>~/terminal_bench_eval/logs</code>, <code>/tmp/tb_runs</code>, <code>~/.claude/jobs/c0d2da0a/tmp/</code>, and the <code>ouro-terminal-sft</code> torchtitan worktree.</p></section>
+</div>
+<div class="tt" id="tt"></div>
+
+<script>
+(function(){
+  const ns='http://www.w3.org/2000/svg';
+  const el=(n,a,txt)=>{const e=document.createElementNS(ns,n);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e;};
+  const tt=document.getElementById('tt');
+  function showTT(html,ev){tt.innerHTML=html;tt.style.opacity=1;const r=tt.getBoundingClientRect();let x=ev.clientX+14,y=ev.clientY+14;if(x+r.width>innerWidth-8)x=ev.clientX-r.width-14;if(y+r.height>innerHeight-8)y=ev.clientY-r.height-14;tt.style.left=x+'px';tt.style.top=y+'px';}
+  function hideTT(){tt.style.opacity=0;}
+  function hover(svg,W,H,hits,ring){
+    const ov=el('rect',{x:0,y:0,width:W,height:H,fill:'transparent'});svg.appendChild(ov);
+    if(ring)svg.appendChild(ring);
+    function pos(ev){const r=svg.getBoundingClientRect();return[(ev.clientX-r.left)*W/r.width,(ev.clientY-r.top)*H/r.height];}
+    ov.addEventListener('mousemove',ev=>{const[px,py]=pos(ev);let best=null,bd=1e9;hits.forEach(h=>{const d=h.box?(px>=h.box[0]&&px<=h.box[2]&&py>=h.box[1]&&py<=h.box[3]?0:1e9):(h.x-px)**2+(h.y-py)**2;if(d<bd){bd=d;best=h;}});
+      if(best&&bd<18*18){if(ring&&!best.box){ring.setAttribute('cx',best.x);ring.setAttribute('cy',best.y);ring.setAttribute('opacity',1);}showTT(best.html,ev);}else{if(ring)ring.setAttribute('opacity',0);hideTT();}});
+    ov.addEventListener('mouseleave',()=>{if(ring)ring.setAttribute('opacity',0);hideTT();});
+  }
+
+  /* ---------- scatter (HumanEval) ---------- */
+  const HE = {
+    xDomain:[1.0,4.1], yDomain:[0.675,0.737], floor:0.68,
+    xTicks:[1,1.5,2,2.5,3,3.5,4], yTicks:[0.68,0.69,0.70,0.71,0.72,0.73],
+    base:[[0.111,1.248,.7256],[0.222,1.454,.7256],[0.333,2.170,.7317],[0.444,2.271,.7256],[0.556,3.042,.7073],[0.667,3.157,.6951],[0.778,4.0,.689]],
+    baseLabels:{0.111:"thr 0.111",0.333:"thr 0.333",0.778:"full depth"},
+    series:[
+      {name:"gp_hedge (H1)",color:"var(--s1)",pts:[[1.4337,.7012,"0.5, 0.75"],[2.332,.6951,"0, 0.5"],[4.0,.689,"0, 1.0"],[1.4584,.7134,"0.369, 0.74"],[1.2617,.7195,"1.0, 0.624"],[1.3026,.7012,"1.0, 0.695"],[3.0271,.6951,"0, 0.655"],[1.2288,.7195,"0.791, 0.5"],[1.2833,.7134,"0.401, 0.5"],[4.0,.689,"0.785, 1.0"]],label:{i:7,t:"H1 best 1.229",dy:-8}},
+      {name:"chatgpt (H5)",color:"var(--s2)",pts:[[1.4645,.7073,"0.7, 0.8"],[1.3493,.7073,"0.9, 0.75"],[1.3102,.7012,"0.95, 0.7"],[1.2984,.7073,"0.98, 0.68"],[1.2864,.7134,"0.99, 0.66"],[1.2712,.7195,"1, 0.64"],[1.2505,.7195,"1, 0.6"],[1.2407,.7134,"1, 0.58"],[1.2282,.7195,"1, 0.55"],[1.2077,.7073,"1, 0.5"]],label:{i:9,t:"GPT & Qwen best 1.208",dy:16}},
+      {name:"qwen (H6)",color:"var(--s3)",pts:[[1.3241,.7134,"0.65, 0.65"],[1.2564,.7195,"0.75, 0.55"],[1.2227,.7195,"0.85, 0.5"],[1.2122,.7073,"0.95, 0.5"],[1.2098,.7073,"0.98, 0.5"],[1.2077,.7073,"1, 0.5"]]},
+      {name:"gp_hedge random-init (H7)",color:"var(--s1)",hollow:true,pts:[[4.0,.689,"0, 1.0"],[2.9012,.7195,"0.834, 0.985"],[2.2723,.689,"0.925, 0.925"],[1.8084,.689,"1, 0.853"],[3.4979,.689,"0, 0.819"],[1.6936,.689,"1, 0.819"],[1.6463,.6951,"1, 0.804"]]}
+    ]
+  };
+  const MB = {
+    xDomain:[1.0,4.1], yDomain:[0.495,0.548], floor:0.50,
+    xTicks:[1,1.5,2,2.5,3,3.5,4], yTicks:[0.50,0.51,0.52,0.53,0.54],
+    base:[[0.111,1.440,.536],[0.222,1.723,.530],[0.333,2.323,.542],[0.444,2.535,.540],[0.556,3.082,.516],[0.667,3.321,.520],[0.778,4.0,.520]],
+    baseLabels:{0.111:"thr 0.111",0.333:"thr 0.333",0.778:"full depth"},
+    extra:[{x:1.358,y:.528,t:"tuned (1.0, 0.5) full 500",lbl:"tuned, full 500"}],
+    series:[
+      {name:"chatgpt (M1)",color:"var(--s2)",pts:[[2.3183,.5333,"0.5, 0.75"],[2.1396,.5067,"0.8, 0.65"],[2.0641,.5133,"0.9, 0.6"],[2.011,.5000,"0.96, 0.57 · penalty"],[2.0508,.5067,"0.93, 0.585"],[2.0202,.5067,"0.958, 0.574"]],label:{i:5,t:"M1 best 2.020",dy:-8}},
+      {name:"gp_hedge (M2)",color:"var(--s1)",pts:[[2.3183,.5333,"0.5, 0.55"],[4.0,.5000,"0, 0.1 · penalty"],[4.0,.5000,"0, 1.0 · penalty"],[2.3223,.5333,"0.491, 0.639"],[2.3182,.5333,"0.506, 1.0"],[2.3181,.5333,"0.506, 0.1"],[2.2930,.5267,"0.552, 1.0"],[2.008,.5000,"0.966, 1.0 · penalty"],[2.2964,.5333,"0.543, 0.1"],[2.2848,.5267,"0.566, 0.1"]],label:{i:9,t:"M2 best 2.285",dy:-8}},
+      {name:"qwen (M3)",color:"var(--s3)",pts:[[2.3183,.5333,"0.5, 0.55"],[2.1679,.5067,"0.75, 0.25"],[2.1163,.5067,"0.85, 0.2"],[2.0641,.5133,"0.9, 0.15"],[2.0245,.5067,"0.95, 0.1"],[2.000,.5000,"0.98, 0.1 · penalty"],[2.0205,.5067,"0.957, 0.1"]]}
+    ]
+  };
+  function scatter(mount,cfg){
+    const W=680,H=380,m={t:16,r:20,b:44,l:56};
+    const iw=W-m.l-m.r, ih=H-m.t-m.b;
+    const sx=v=>m.l+(v-cfg.xDomain[0])/(cfg.xDomain[1]-cfg.xDomain[0])*iw;
+    const sy=v=>m.t+ih-(v-cfg.yDomain[0])/(cfg.yDomain[1]-cfg.yDomain[0])*ih;
+    const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'Scatter of average loops against pass@1'});
+    const grid=el('g',{class:'grid'}),axis=el('g',{class:'axis'});
+    cfg.yTicks.forEach(t=>{grid.appendChild(el('line',{x1:m.l,x2:W-m.r,y1:sy(t),y2:sy(t)}));svg.appendChild(el('text',{x:m.l-8,y:sy(t)+4,'text-anchor':'end'},t.toFixed(2)));});
+    cfg.xTicks.forEach(t=>{svg.appendChild(el('text',{x:sx(t),y:H-m.b+18,'text-anchor':'middle'},t.toFixed(1)));});
+    svg.appendChild(grid);
+    axis.appendChild(el('line',{x1:m.l,x2:W-m.r,y1:m.t+ih,y2:m.t+ih}));
+    axis.appendChild(el('line',{x1:m.l,x2:m.l,y1:m.t,y2:m.t+ih}));
+    svg.appendChild(axis);
+    svg.appendChild(el('text',{x:m.l+iw/2,y:H-8,'text-anchor':'middle'},'average loops per token (lower is better)'));
+    svg.appendChild(el('text',{x:14,y:m.t+ih/2,'text-anchor':'middle',transform:`rotate(-90 14 ${m.t+ih/2})`},'pass@1'));
+    svg.appendChild(el('line',{x1:m.l,x2:W-m.r,y1:sy(cfg.floor),y2:sy(cfg.floor),stroke:'var(--crit)','stroke-width':1.5,'stroke-dasharray':'5 4',opacity:.75}));
+    svg.appendChild(el('text',{x:W-m.r-4,y:sy(cfg.floor)-5,'text-anchor':'end',fill:'var(--crit)'},`floor ${cfg.floor.toFixed(2)}`));
+    const d=cfg.base.map((p,i)=>(i?'L':'M')+sx(p[1])+' '+sy(p[2])).join(' ');
+    svg.appendChild(el('path',{d,fill:'none',stroke:'var(--base)','stroke-width':2,'stroke-linejoin':'round'}));
+    const hits=[];
+    cfg.base.forEach(p=>{svg.appendChild(el('circle',{cx:sx(p[1]),cy:sy(p[2]),r:4.5,fill:'var(--base)',stroke:'var(--surface)','stroke-width':2}));hits.push({x:sx(p[1]),y:sy(p[2]),html:`<b>untuned gate, thr ${p[0]}</b><br>${p[1].toFixed(3)} loops · pass@1 ${p[2].toFixed(4)}`});
+      const L=cfg.baseLabels[p[0]];if(L){svg.appendChild(el('text',{class:'lbl',x:sx(p[1])+(p[0]>=0.7?-8:8),y:sy(p[2])+(p[0]==0.111?-9:14),'text-anchor':p[0]>=0.7?'end':'start',fill:'var(--text-2)'},L));}});
+    (cfg.extra||[]).forEach(e=>{svg.appendChild(el('rect',{x:sx(e.x)-5,y:sy(e.y)-5,width:10,height:10,fill:'var(--base)',stroke:'var(--surface)','stroke-width':2}));hits.push({x:sx(e.x),y:sy(e.y),html:`<b>${e.t}</b><br>${e.x.toFixed(3)} loops · pass@1 ${e.y.toFixed(3)}`});svg.appendChild(el('text',{class:'lbl',x:sx(e.x)-8,y:sy(e.y)-9,'text-anchor':'end'},e.lbl));});
+    cfg.series.forEach(s=>{s.pts.forEach((p,i)=>{
+      svg.appendChild(el('circle',{cx:sx(p[0]),cy:sy(p[1]),r:5,fill:s.hollow?'var(--surface)':s.color,stroke:s.hollow?s.color:'var(--surface)','stroke-width':2}));
+      hits.push({x:sx(p[0]),y:sy(p[1]),html:`<b>${s.name}</b><br>γ, thr = ${p[2]}<br>${p[0].toFixed(4)} loops · pass@1 ${p[1].toFixed(4)}`});
+      if(s.label&&s.label.i===i){svg.appendChild(el('text',{class:'lbl',x:sx(p[0])+9,y:sy(p[1])+s.label.dy,'text-anchor':'start'},s.label.t));}
+    });});
+    hover(svg,W,H,hits,el('circle',{r:9,fill:'none',stroke:'var(--text)','stroke-width':1.5,opacity:0,'pointer-events':'none'}));
+    mount.appendChild(svg);
+  }
+  scatter(document.getElementById('he-chart'),HE);
+  scatter(document.getElementById('mb-chart'),MB);
+
+  /* ---------- Terminal-Bench grouped horizontal bars ---------- */
+  const TB=[
+    {n:"pretrained Ouro-Thinking",u:0,g:null,note:"three runs, all 0/24"},
+    {n:"sft1k",u:4,g:null},
+    {n:"sft10k",u:3,g:null},
+    {n:"continue10k",u:5,g:4},
+    {n:"router2k (gate-only)",u:3,g:null,note:"51 HTTP-500s"},
+    {n:"longhorizon1k",u:3,g:null},
+    {n:"repro11k",u:5,g:null},
+    {n:"batching5k",u:4,g:6},
+    {n:"traj1k",u:3,g:null},
+    {n:"traj10k",u:4,g:null},
+    {n:"traj20k",u:5,g:7},
+    {n:"oracle68",u:3,g:null,note:"trained on the other 68 tasks"},
+    {n:"tb80sft v2 @10k",u:4,g:null},
+    {n:"tb80sft v3",u:5,g:6}
+  ];
+  (function(){
+    const W=680,rowH=30,m={t:8,r:24,b:30,l:212},H=m.t+TB.length*rowH+m.b;
+    const iw=W-m.l-m.r;const sx=v=>m.l+v/8*iw;
+    const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'Trials solved out of 24 per checkpoint'});
+    const grid=el('g',{class:'grid'});
+    [0,2,4,6,8].forEach(t=>{grid.appendChild(el('line',{x1:sx(t),x2:sx(t),y1:m.t,y2:H-m.b}));svg.appendChild(el('text',{x:sx(t),y:H-m.b+16,'text-anchor':'middle'},t));});
+    svg.appendChild(grid);
+    svg.appendChild(el('text',{x:m.l+iw/2,y:H-2,'text-anchor':'middle'},'trials solved, of 24'));
+    const hits=[];
+    TB.forEach((r,i)=>{
+      const y=m.t+i*rowH;
+      svg.appendChild(el('text',{class:'cat',x:m.l-10,y:y+rowH/2+4,'text-anchor':'end'},r.n));
+      const hasG=r.g!=null;const bh=hasG?10:14;const y1=hasG?y+4:y+8;
+      const bu=el('rect',{x:sx(0),y:y1,width:Math.max(sx(r.u)-sx(0),0),height:bh,fill:'var(--s1)',rx:0});svg.appendChild(bu);
+      if(r.u>0)svg.appendChild(el('text',{class:'lbl',x:sx(r.u)+5,y:y1+bh-2},r.u));
+      hits.push({box:[sx(0),y1,Math.max(sx(r.u),sx(0)+4),y1+bh],html:`<b>${r.n}</b><br>ungated ${r.u}/24${r.note?'<br>'+r.note:''}`});
+      if(hasG){const y2=y1+bh+2;svg.appendChild(el('rect',{x:sx(0),y:y2,width:sx(r.g)-sx(0),height:bh,fill:'var(--s2)'}));svg.appendChild(el('text',{class:'lbl',x:sx(r.g)+5,y:y2+bh-2},r.g));hits.push({box:[sx(0),y2,sx(r.g),y2+bh],html:`<b>${r.n}</b><br>gated ${r.g}/24`});}
+    });
+    svg.appendChild(el('line',{x1:sx(0),x2:sx(0),y1:m.t,y2:H-m.b,stroke:'var(--line-2)'}));
+    hover(svg,W,H,hits,null);
+    document.getElementById('tb-chart').appendChild(svg);
+  })();
+})();
+</script>
+
+</body></html>

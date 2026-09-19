@@ -74,6 +74,36 @@ ouro_configs = {
             backend="cos_sin",
         ),
     ),
+    # ByteDance/Ouro-2.6B(-Thinking): identical to 1.4B except double the
+    # decoder depth (48 layers vs 24). config.json matches: dim 2048, 16 heads,
+    # head_dim 128, intermediate 5632, vocab 49152, total_ut_steps 4.
+    "2.6B": OuroModel.Config(
+        vocab_size=49152,
+        dim=2048,
+        n_layers=48,
+        total_ut_steps=4,
+        early_exit_threshold=1.0,
+        norm=RMSNorm.Config(eps=1e-6),
+        tok_embeddings=Embedding.Config(),
+        layer=OuroTransformerBlock.Config(
+            attention_norm=RMSNorm.Config(eps=1e-6),
+            ffn_norm=RMSNorm.Config(eps=1e-6),
+            feed_forward=FeedForward.Config(hidden_dim=5632),
+            attention=GQAttention.Config(
+                n_heads=16,
+                n_kv_heads=16,
+                head_dim=128,
+                attn_backend="sdpa",
+                rope_backend="cos_sin",
+            ),
+        ),
+        rope=RoPE.Config(
+            dim=128,
+            max_seq_len=65536,
+            theta=1000000.0,
+            backend="cos_sin",
+        ),
+    ),
 }
 
 
