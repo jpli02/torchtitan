@@ -269,6 +269,10 @@ def ouro_2_6b_thinking_terminal_sft() -> Trainer.Config:
     cfg = ouro_1_4b_thinking_terminal_sft()
     cfg.hf_assets_path = "./assets/hf/Ouro-2.6B-Thinking"
     cfg.model_spec = model_registry("2.6B")
+    # int8 optimizer states (torchao AdamW8bit): fp32 AdamW's ~21GB of moments
+    # OOM 2.6B on one 46GB card, and FSDP's checkpoint load hangs on a cross-rank
+    # collective for this model. 8-bit states (~5GB) let full-FT fit single-GPU.
+    cfg.optimizer = dataclasses.replace(cfg.optimizer, name="AdamW8bit")
     # re-apply the OURO_LOSS_STAGE override on the fresh 2.6B model_spec
     if (_stage := _os.environ.get("OURO_LOSS_STAGE")) is not None:
         cfg.model_spec = dataclasses.replace(
@@ -277,6 +281,17 @@ def ouro_2_6b_thinking_terminal_sft() -> Trainer.Config:
         )
     # initial_load must point at the 2.6B weights (the 1.4B builder set it to
     # the 1.4B path); honour OURO_INIT_FROM for continuations.
+    #
+    # OURO_INIT_DCP=1 loads a torchtitan DCP checkpoint instead of HF safetensors.
+    # This is REQUIRED under FSDP: the HF-format initial load (initial_load_in_hf)
+    # hangs on a collective mismatch across ranks (rank 1 stuck on the first
+    # BROADCAST while rank 0 reaches the ALLGATHER), because that path issues a
+    # rank-dependent number of collectives. DCP load is distributed-native.
+    # Produce the DCP dir once with scripts/checkpoint_conversion/convert_from_hf.py
+    # --model_name ouro --model_flavor 2.6B, then point OURO_INIT_FROM at it.
     _init_from = _os.environ.get("OURO_INIT_FROM") or cfg.hf_assets_path
-    cfg.checkpoint = dataclasses.replace(cfg.checkpoint, initial_load_path=_init_from)
+    _in_hf = _os.environ.get("OURO_INIT_DCP") is None
+    cfg.checkpoint = dataclasses.replace(
+        cfg.checkpoint, initial_load_path=_init_from, initial_load_in_hf=_in_hf
+    )
     return cfg

@@ -93,6 +93,13 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
     @staticmethod
     def _resolve_optimizer_cls(name: str) -> type:
         optimizer_classes = {"Adam": torch.optim.Adam, "AdamW": torch.optim.AdamW}
+        # AdamW8bit (torchao) keeps optimizer states in int8 -> ~4x smaller than
+        # fp32 AdamW. Used to fit Ouro-2.6B full-FT on one 46GB card, since fp32
+        # AdamW needs ~21GB of moments that OOM single-GPU and FSDP's checkpoint
+        # load hangs on a cross-rank collective mismatch for this model.
+        if name == "AdamW8bit":
+            from torchao.optim import AdamW8bit
+            return AdamW8bit
         if name not in optimizer_classes:
             raise NotImplementedError(f"Optimizer {name} not added.")
         return optimizer_classes[name]
@@ -100,7 +107,7 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
     @staticmethod
     def _build_optimizer_kwargs(config: Config) -> dict[str, Any]:
         assert config.implementation in ["fused", "foreach", "for-loop"]
-        return {
+        kwargs = {
             "lr": config.lr,
             "betas": (config.beta1, config.beta2),
             "eps": config.eps,
@@ -108,6 +115,11 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
             "fused": config.implementation == "fused",
             "foreach": config.implementation == "foreach",
         }
+        # torchao's AdamW8bit does not accept the fused/foreach impl flags.
+        if config.name == "AdamW8bit":
+            kwargs.pop("fused")
+            kwargs.pop("foreach")
+        return kwargs
 
     def __init__(self, config: Config, *, model_parts: list[nn.Module]) -> None:
         optimizer_cls = self._resolve_optimizer_cls(config.name)
