@@ -67,6 +67,18 @@ batch-size arguments do not override the config; read `research/terminal_sft/tra
 
 **1. Exit-gate Bayesian optimisation (HumanEval / MBPP).** Each BO evaluation runs `ouro_1_4b_sft` for 100
 steps at a proposed `adaptive_gamma`, exports the gate, and scores loops-per-token and pass@1.
+The driver is the `ask -> evaluate -> tell` loop in `boptim-agent/main.py`; `evaluate` is what calls into this
+repository:
+
+```python
+for i in range(start_iter, max_iter):
+    points, ask_explanation = optimizer.ask(n_points=batch_size)   # GP acquisition or an LLM's JSON proposal
+    if len(points) == 0:
+        break                                                      # optimizer declared itself done
+    fvals = objective_fn.evaluate_batch(points)                    # Ouro: 100-step gate SFT + benchmark eval
+    result, tell_explanation = optimizer.tell(points, [sign * fv for fv in fvals])   # sign=-1 when maximizing
+```
+
 
 | Script | Role |
 |---|---|
