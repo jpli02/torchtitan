@@ -1,0 +1,19 @@
+{
+ "total": 31,
+ "by_category": {
+  "security": 2,
+  "scientific_computing": 0,
+  "file_operations": 0,
+  "debugging": 12,
+  "data_science": 17
+ },
+ "generator": "openai/gpt-5-mini",
+ "attempts": 2,
+ "source": "nvidia/Nemotron-Terminal-Synthetic-Tasks (Harbor->0.2.18, rejection-sampled on task tests)",
+ "yield_note": "trials->resolved: security 80->2, debugging 71->13, data_science 80->17, file_operations 79->0, scientific_computing 80->0",
+ "gaps_not_covered": [
+  "system-administration",
+  "model-training",
+  "games (not Nemotron categories)"
+ ]
+}

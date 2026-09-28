@@ -27,6 +27,7 @@ from torchtitan.components.optimizer import (
     OptimizersContainer,
     OptimizersInBackwardContainer,
 )
+from torchtitan.components.humaneval_evaluator import HumanEvalEvaluator
 from torchtitan.components.quantization import QuantizationConverter
 from torchtitan.components.tokenizer import BaseTokenizer, HuggingFaceTokenizer
 from torchtitan.components.validate import BaseValidator, Validator
@@ -103,6 +104,9 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
         compile: CompileConfig = field(default_factory=CompileConfig)
         comm: CommConfig = field(default_factory=CommConfig)
         validator: Validator.Config = field(default_factory=Validator.Config)
+        humaneval_eval: HumanEvalEvaluator.Config = field(
+            default_factory=HumanEvalEvaluator.Config
+        )
         debug: DebugConfig = field(default_factory=DebugConfig)
 
         def __post_init__(self):
@@ -172,6 +176,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
     optimizers: OptimizersContainer
     lr_schedulers: LRSchedulersContainer
     validator: BaseValidator
+    humaneval_evaluator: HumanEvalEvaluator | None
     metrics_processor: MetricsProcessor
     checkpointer: CheckpointManager
 
@@ -318,7 +323,9 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
             buffer_device = None
 
         self.loss_fn = model_spec.build_loss_fn(
-            config.compile, parallel_dims=parallel_dims
+            config.compile,
+            parallel_dims=parallel_dims,
+            model_config=model_config,
         )
 
         # verify batch sizes
@@ -500,6 +507,12 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
                 pp_has_last_stage=pp_has_last_stage,
             )
 
+        self.humaneval_evaluator = (
+            config.humaneval_eval.build(dump_folder=config.dump_folder)
+            if config.humaneval_eval.enable
+            else None
+        )
+
         logger.info(
             "Trainer is initialized with "
             f"local batch size {config.training.local_batch_size}, "
@@ -550,7 +563,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
                 # entire step will not be executed.
                 raise DataloaderExhaustedError() from ex
             input_dict, labels = batch
-            ntokens_batch = labels.numel()
+            ntokens_batch = (labels != IGNORE_INDEX).sum().item()
             self.ntokens_seen += ntokens_batch
             self.metrics_processor.ntokens_since_last_log += ntokens_batch
             self.metrics_processor.data_loading_times.append(
@@ -659,7 +672,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
         *,
         input_dict: dict[str, torch.Tensor],
         labels: torch.Tensor,
-        global_valid_tokens: torch.Tensor,
+        global_valid_tokens: int | float,
     ) -> torch.Tensor:
         model_parts = self.model_parts
         parallel_dims = self.parallel_dims
@@ -746,7 +759,10 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
             batch_mesh = parallel_dims.get_mesh("batch")
             global_valid_tokens = dist_utils.dist_sum(local_valid_tokens, batch_mesh)
         else:
-            global_valid_tokens = local_valid_tokens.float()
+            global_valid_tokens = local_valid_tokens.item()
+        # Guard against all-IGNORE_INDEX steps (e.g. SFT window entirely in a
+        # tool-result message) which would produce NaN via 0/0 and corrupt weights.
+        global_valid_tokens = max(global_valid_tokens, 1)
 
         # Process each microbatch: move to GPU, forward/backward, then free
         accumulated_losses = []
@@ -796,7 +812,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
             # local_avg_loss = local_loss_sum / local_valid_tokens
             #                = (loss * global_valid_tokens) / local_valid_tokens
             # global_max_loss = max(local_avg_loss)
-            local_avg_loss = loss * global_valid_tokens / local_valid_tokens
+            local_avg_loss = loss * global_valid_tokens / local_valid_tokens.clamp(min=1)
             global_avg_loss, global_max_loss, global_ntokens_seen = (
                 dist_utils.dist_sum(loss, loss_mesh),
                 dist_utils.dist_max(local_avg_loss, loss_mesh),
@@ -814,9 +830,15 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
         extra_metrics = {
             "n_tokens_seen": global_ntokens_seen,
             "lr": lr,
+            "global_step": self.step,
         }
+        if hasattr(self.loss_fn, "get_aux_metrics"):
+            extra_metrics.update(self.loss_fn.get_aux_metrics())
+        # Use a run-relative step for the WandB x-axis (starts at 1 for each new
+        # run) so resumed runs don't have a gap from 0 to the checkpoint step.
+        run_step = self.step - self.initial_step
         self.metrics_processor.log(
-            self.step,
+            run_step,
             global_avg_loss,
             global_max_loss,
             float(grad_norm.item()),
@@ -828,6 +850,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
         config = self.config
 
         self.checkpointer.load(step=config.checkpoint.load_step)
+        self.initial_step = self.step
         logger.info(f"Training starts at step {self.step + 1}")
 
         with (
@@ -852,9 +875,14 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
                     logger.warning("Ran out of data; last step was canceled.")
                     break
 
-                self.checkpointer.save(
-                    self.step, last_step=(self.step == config.training.steps)
+                last_step = self.step == config.training.steps
+                ckpt_id = self.checkpointer.checkpoint_id_if_saving(
+                    self.step, last_step=last_step
                 )
+                self.checkpointer.save(self.step, last_step=last_step)
+
+                if self.humaneval_evaluator is not None and ckpt_id is not None:
+                    self.humaneval_evaluator.evaluate(ckpt_id, self.step)
 
                 # Run validation if validator is available
                 if self.config.validator.enable and self.validator.should_validate(
@@ -897,3 +925,5 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
             self.checkpointer.close()
         if hasattr(self, "metrics_processor") and self.metrics_processor:
             self.metrics_processor.close()
+        if hasattr(self, "humaneval_evaluator") and self.humaneval_evaluator:
+            self.humaneval_evaluator.wait()

@@ -7,7 +7,12 @@
 import unittest
 
 import torch
-from torchtitan.components.loss import cross_entropy_loss, IGNORE_INDEX
+from torchtitan.components.loss import (
+    cross_entropy_loss,
+    IGNORE_INDEX,
+    loop_lm_adaptive_gate_loss_sum,
+    loop_lm_entropy_regularized_loss_sum,
+)
 
 
 class TestLoss(unittest.TestCase):
@@ -136,6 +141,35 @@ class TestLoss(unittest.TestCase):
             places=5,
             msg="Global averaged loss should equal weighted average of per-token losses",
         )
+
+    def test_loop_lm_entropy_regularized_loss(self):
+        torch.manual_seed(0)
+        b, s, v, t = 2, 5, 32, 3
+        step_logits = torch.randn(b, s, v, t, requires_grad=True)
+        labels = torch.randint(0, v, (b, s))
+        labels[0, 0] = IGNORE_INDEX
+        p = torch.softmax(torch.randn(b, s, t), dim=-1)
+        pred = {"stacked_exit_pdf": p, "stacked_step_logits": step_logits}
+        loss = loop_lm_entropy_regularized_loss_sum(pred, labels, beta=0.05)
+        loss.backward()
+        self.assertIsNotNone(step_logits.grad)
+
+    def test_loop_lm_adaptive_gate_loss_detaches_lm(self):
+        torch.manual_seed(1)
+        b, s, v, t = 2, 5, 32, 4
+        step_logits = torch.randn(b, s, v, t, requires_grad=True)
+        gate_logits = torch.randn(b, s, t, requires_grad=True)
+        gate_lambda = torch.sigmoid(gate_logits)
+        labels = torch.randint(0, v, (b, s))
+        pred = {
+            "stacked_step_logits": step_logits,
+            "gate_lambda": gate_lambda,
+            "total_ut_steps": t,
+        }
+        loss = loop_lm_adaptive_gate_loss_sum(pred, labels, k=50.0, gamma=0.005)
+        loss.backward()
+        self.assertIsNone(step_logits.grad)
+        self.assertIsNotNone(gate_logits.grad)
 
 
 if __name__ == "__main__":

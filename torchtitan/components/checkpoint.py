@@ -214,7 +214,7 @@ class CheckpointManager(Configurable):
         When enable is set to true, checkpoints will be in {--dump_folder}/{--checkpoint.folder}.
         """
 
-        interval: int = 500
+        interval: int = 100
         """Checkpointing interval in steps."""
 
         initial_load_path: str | None = None
@@ -971,6 +971,14 @@ class CheckpointManager(Configurable):
             enable_garbage_collection=True,
             to_hf=self.last_save_in_hf,
         )
+
+    def checkpoint_id_if_saving(
+        self, curr_step: int, last_step: bool = False
+    ) -> str | None:
+        """Return the checkpoint path for curr_step if a save will happen, else None."""
+        if self._should_save(curr_step, last_step):
+            return self._create_checkpoint_id(curr_step)
+        return None
 
     def _should_save(self, curr_step: int, last_step: bool = False) -> bool:
         if not self.enable or self.load_only:

@@ -4,6 +4,10 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
+import json
+import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
@@ -33,6 +37,627 @@ def _process_c4_text(sample: dict[str, Any]) -> str:
     return sample["text"]
 
 
+_SWE_REBENCH_ROLE_FIELDS: dict[str, tuple[str, ...]] = {
+    "system": ("role", "content"),
+    "assistant": ("role", "content", "tool_calls"),
+    "user": ("role", "content"),
+    "tool": ("role", "content", "name", "tool_call_id"),
+}
+
+
+def _load_swe_rebench_openhands_dataset(dataset_path: str):
+    """HF coding trajectories (OpenHands-style); streamed for scale."""
+    return load_dataset(dataset_path, split="train", streaming=True)
+
+
+def _deserialize_swe_rebench_trajectory(sample: dict[str, Any]) -> list[dict[str, Any]]:
+    """Keep per-role fields and parse string tool ``function.arguments`` as JSON."""
+    trajectory: list[dict[str, Any]] = []
+    for raw in sample["trajectory"]:
+        role = raw["role"]
+        if role not in _SWE_REBENCH_ROLE_FIELDS:
+            raise ValueError(f"Unknown trajectory role {role!r}")
+        field_names = _SWE_REBENCH_ROLE_FIELDS[role]
+        msg = {name: copy.deepcopy(raw[name]) for name in field_names}
+        if msg["role"] == "assistant" and msg.get("tool_calls") is not None:
+            for i, tool_call in enumerate(msg["tool_calls"]):
+                fn = tool_call.get("function") or {}
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    msg["tool_calls"][i]["function"]["arguments"] = json.loads(args)
+        trajectory.append(msg)
+    return trajectory
+
+
+def _process_swe_rebench_openhands_text(sample: dict[str, Any]) -> str:
+    """One training document: compact JSON of the deserialized message list."""
+    trajectory = _deserialize_swe_rebench_trajectory(sample)
+    return json.dumps(trajectory, ensure_ascii=False, separators=(",", ":"))
+
+
+# Roles whose tokens should be trained on during SFT.
+_SFT_TRAINABLE_ROLES = {"assistant"}
+
+
+def _format_msg_for_template(msg: dict[str, Any]) -> dict[str, str]:
+    """Flatten a rich trajectory message to {role, content} for the chat template.
+
+    Complex fields (tool_calls, tool_call_id, name) are JSON-serialised and
+    appended to the content string so no information is silently dropped.
+    """
+    role = msg["role"]
+    parts: list[str] = []
+    if msg.get("content"):
+        parts.append(str(msg["content"]))
+    if msg.get("tool_calls"):
+        parts.append(json.dumps(msg["tool_calls"], ensure_ascii=False))
+    if msg.get("name"):
+        parts.append(f"[tool: {msg['name']}]")
+    if msg.get("tool_call_id"):
+        parts.append(f"[tool_call_id: {msg['tool_call_id']}]")
+    return {"role": role, "content": "\n".join(parts)}
+
+
+def _sft_tokens_from_messages(
+    messages: list[dict[str, str]], tokenizer: BaseTokenizer
+) -> tuple[list[int], list[int]]:
+    """SFT tokenisation for a {role, content} message list: only assistant turns
+    carry loss signal.
+
+    Applies the tokenizer's chat template incrementally (one message at a time)
+    to locate each message's exact token span.  Non-assistant tokens are replaced
+    by IGNORE_INDEX in the returned label sequence.
+
+    Returns:
+        token_ids  – full sequence of token IDs
+        label_ids  – parallel sequence; IGNORE_INDEX where the token is not a
+                     training target, otherwise identical to token_ids
+    """
+    token_ids: list[int] = []
+    label_ids: list[int] = []
+
+    for i, msg in enumerate(messages):
+        # Tokenize the conversation up through message i.  The boundary for
+        # message i is found by diffing against the tokenization of messages[:i].
+        # This requires the chat template to be prefix-consistent (the first
+        # len(template(msgs[:i])) tokens of template(msgs[:i+1]) must equal
+        # template(msgs[:i])).  Standard Jinja chat templates satisfy this.
+        curr_tokens = tokenizer.encode(
+            tokenizer.apply_chat_template(messages[: i + 1]),
+            add_bos=True,
+            add_eos=False,
+        )
+        if i > 0:
+            prev_len = len(
+                tokenizer.encode(
+                    tokenizer.apply_chat_template(messages[:i]),
+                    add_bos=True,
+                    add_eos=False,
+                )
+            )
+        else:
+            prev_len = 0
+        msg_tokens = curr_tokens[prev_len:]
+        if msg["role"] in _SFT_TRAINABLE_ROLES:
+            label_ids.extend(msg_tokens)
+        else:
+            label_ids.extend([IGNORE_INDEX] * len(msg_tokens))
+        token_ids.extend(msg_tokens)
+
+    # EOS always included in the training signal.
+    if tokenizer.eos_id is not None:
+        token_ids.append(tokenizer.eos_id)
+        label_ids.append(tokenizer.eos_id)
+
+    return token_ids, label_ids
+
+
+def _swe_rebench_sft_tokens(
+    sample: dict[str, Any], tokenizer: BaseTokenizer
+) -> tuple[list[int], list[int]]:
+    """SFT tokens for one SWE-rebench trajectory (assistant-only loss)."""
+    raw_messages = _deserialize_swe_rebench_trajectory(sample)
+    messages = [_format_msg_for_template(m) for m in raw_messages]
+    return _sft_tokens_from_messages(messages, tokenizer)
+
+
+# ---------------------------------------------------------------------------
+# nvidia/OpenCodeReasoning  (R1 reasoning traces over competitive-programming
+# problems).  Each row: input (problem statement), output (reasoning+solution),
+# solution, plus source/dataset/split/index metadata.
+#   - split_0: `input` holds the problem statement directly.
+#   - split_1: `input` is the placeholder "-"; the statement must be recovered
+#     from the original BAAI/TACO or codeparrot/apps row via (dataset, split,
+#     index).  Those side datasets are loaded once and cached on first use.
+# SFT format: a single user turn (problem) + assistant turn (reasoning+solution),
+# trained assistant-only via _sft_tokens_from_messages.
+# ---------------------------------------------------------------------------
+
+_OCR_SIDE_DATASET_PATHS = {"taco": "BAAI/TACO", "apps": "codeparrot/apps"}
+# Lazily-populated cache: source name -> loaded (map-style) DatasetDict.
+_OCR_SIDE_DATASETS: dict[str, Any] = {}
+
+
+def _load_open_code_reasoning_dataset(dataset_path: str, split: str):
+    """Stream one OpenCodeReasoning split (config name == split name).
+
+    No shuffle by default -- every run reads the same examples in the same
+    order, which is why repeat "seeds" of a run that otherwise has no other
+    source of randomness (e.g. Ouro's stage2_adaptive SFT, which loads the
+    gate from a pretrained checkpoint rather than a random init) were
+    producing byte-identical checkpoints regardless of --debug.seed. Opt in
+    to a real seeded buffered shuffle via OURO_SFT_DATA_SEED so repeat runs
+    can actually see different training examples; unset (the default)
+    reproduces the exact prior behavior for every existing config.
+    """
+    ds = load_dataset(dataset_path, name=split, split=split, streaming=True)
+    data_seed = os.environ.get("OURO_SFT_DATA_SEED")
+    if data_seed is not None:
+        ds = ds.shuffle(seed=int(data_seed), buffer_size=10_000)
+    return ds
+
+
+def _ocr_question(sample: dict[str, Any]) -> str:
+    """Problem statement for a row: ``input`` directly, or reconstructed from the
+    original TACO/APPS row for split_1 (where ``input`` is the placeholder "-")."""
+    question = sample.get("input", "")
+    if question != "-":
+        return question
+
+    source = sample["dataset"]
+    if source not in _OCR_SIDE_DATASET_PATHS:
+        raise ValueError(
+            f"OpenCodeReasoning row needs reconstruction but dataset={source!r} "
+            f"is not one of {list(_OCR_SIDE_DATASET_PATHS)}"
+        )
+    if source not in _OCR_SIDE_DATASETS:
+        logger.info(f"Loading OpenCodeReasoning side dataset {source} for question reconstruction")
+        _OCR_SIDE_DATASETS[source] = load_dataset(
+            _OCR_SIDE_DATASET_PATHS[source], trust_remote_code=True
+        )
+    return _OCR_SIDE_DATASETS[source][sample["split"]][int(sample["index"])]["question"]
+
+
+def _open_code_reasoning_messages(sample: dict[str, Any]) -> list[dict[str, str]]:
+    """One problem as a [user, assistant] chat: assistant = reasoning+solution."""
+    return [
+        {"role": "user", "content": _ocr_question(sample)},
+        {"role": "assistant", "content": sample["output"]},
+    ]
+
+
+def _process_open_code_reasoning_text(sample: dict[str, Any]) -> str:
+    """Non-SFT path: compact JSON of the [user, assistant] message list."""
+    messages = _open_code_reasoning_messages(sample)
+    return json.dumps(messages, ensure_ascii=False, separators=(",", ":"))
+
+
+def _open_code_reasoning_sft_tokens(
+    sample: dict[str, Any], tokenizer: BaseTokenizer
+) -> tuple[list[int], list[int]]:
+    """SFT tokens for one OpenCodeReasoning row (assistant-only loss)."""
+    return _sft_tokens_from_messages(
+        _open_code_reasoning_messages(sample), tokenizer
+    )
+
+
+# ---------------------------------------------------------------------------
+# Terminal-agent SFT mixture.
+#
+# Three public corpora of terminus-style agent trajectories, interleaved into a
+# single stream. All three were generated by driving a strong teacher model
+# through the SAME terminus-2 harness that Terminal-Bench itself uses, so their
+# assistant turns are already in the exact response format the benchmark's
+# parser expects (a JSON object with analysis/plan/commands/task_complete).
+# That format match is the whole point of this mixture: the base Ouro model
+# fails Terminal-Bench largely by emitting prose or malformed JSON that the
+# harness cannot turn into actions, not by lacking shell knowledge.
+#
+# Sources and why each is here:
+#   nvidia/Nemotron-Terminal-Corpus  -- by far the largest (~139k usable rows)
+#       and the only one with published Terminal-Bench deltas at several model
+#       scales; carries the bulk of the mixture weight.
+#   m-a-p/TerminalTraj               -- 20k verified LONG-horizon trajectories
+#       (up to 376 turns/row vs. tens elsewhere), the only source that teaches
+#       staying coherent deep into a session, which is where the base model's
+#       agent loop tends to fall apart.
+#   open-thoughts/OpenThoughts-Agent-v1-SFT -- 15.2k rows over a narrower
+#       domain (nl2bash + InferredBugs); a small auxiliary share for diversity.
+#
+# Deliberately NOT included:
+#   allenai/TMax-SFT-16.5K / camel-ai/seta-env -- despite "SFT" in the former's
+#       name, both are TASK/ENVIRONMENT definitions (task_id, description,
+#       pytest validators, container defs), not chat trajectories. Using them
+#       would require first generating teacher rollouts through their Docker
+#       environments -- a separate pipeline stage, not a data-mixing change.
+#   Nemotron's `dataset_adapters` config (226k rows) -- fails to load with
+#       ArrowNotImplementedError ("Nested data conversions not implemented for
+#       chunked array outputs"); the three skill_based_* configs supply far
+#       more data than a 1k-step run consumes, so it is simply left out.
+#
+# Weights favour LONG trajectories. Measured turn counts (120-row samples):
+#     Nemotron skill_based_medium   mean 11  median 12  max   18
+#     Nemotron skill_based_easy     (same family, short)
+#     TerminalTraj                  mean 31  median 26  max  150
+#     OpenThoughts-Agent            mean 12  median 10  max   36
+# The first mix put 65% of its mass on Nemotron, whose episodes never exceed 18
+# turns, giving a weighted mean of ~16 turns. Terminal-Bench tasks that this
+# model fails run 30-50+ turns, and the observed failure was exactly "makes
+# real partial progress, then never closes out" -- i.e. it learned to act for
+# about a dozen turns and declare completion. Training loss and held-out CE
+# both improved monotonically (CE -64% at 1k, -70% at 10k) while task success
+# did not move at all, which is what a horizon mismatch looks like: the model
+# fits the data it was given, and that data is too short.
+#
+# TerminalTraj is the only genuinely long-horizon source available, so it now
+# carries the majority of the mass. Its 20k rows are ample for a 10k-step run
+# (10k steps at bs1/seq4096 = 41M tokens, and these rows are large).
+# LiteCoder-Terminal-SFT is the long-horizon anchor. Measured turn counts
+# (120-row samples), against what the benchmark actually demands (30-50+):
+#     LiteCoder-Terminal-SFT   mean 53.5  median 44  max 100  47% >=50 turns
+#     TerminalTraj             mean 28.0  median 24  max 120  10% >=50 turns
+#     Nemotron skill_based_*   mean 11    median 12  max  18   0% >=50 turns
+# It is also already in OUR action format -- its assistant turns are terminus
+# JSON ({"analysis": ..., "commands": [...]}) under ShareGPT from/value naming,
+# which _normalise_terminal_messages already maps -- so it lengthens the
+# horizon without touching the output format.
+#
+# Deliberately NOT used: nebius/SWE-rebench-openhands-trajectories, despite
+# being far longer still (mean 131.5, median 125, 100% >=50 turns). It is
+# OpenHands tool-calling, and the terminus-2 harness parses only terminus JSON;
+# training a second action format into a model whose entire measured benefit is
+# emitting parseable actions risks the same class of regression as the n-gram
+# guard did (pass@5 0.400 -> 0.000). Long-horizon without format risk beats
+# longer-horizon with it.
+#
+# CURRENT MIX = the union of the two mixes that produced the SFT-10k and
+# continue10k checkpoints, weights averaged between them:
+#
+#   source                          SFT-10k   continue10k   this (mean)
+#   Nemotron skill_based_medium      0.45        0.30          0.375
+#   Nemotron skill_based_easy        0.20        --            0.10
+#   TerminalTraj                     0.25        0.60          0.425
+#   OpenThoughts-Agent               0.10        0.10          0.10
+#
+# Weighted mean ~18.7 turns, i.e. between SFT-10k's 16 and continue10k's 19.5.
+#
+# LiteCoder is deliberately absent even though it is the longest terminus-format
+# corpus available (mean 53.5 turns): a +1k run on it scored 0.125 pass@1 / 2 of
+# 12 tasks against the continue10k it started from at 0.208 / 3 of 12, both
+# clean runs. Horizon was the wrong lever, so it is not re-introduced here.
+# Named mixes, selected with OURO_SFT_MIX (default "combined"). Keeping the
+# historical mixes addressable means a past checkpoint's data can be reproduced
+# exactly without editing this file and losing the others.
+#
+#   mix          mean turns   used by
+#   original     ~16          SFT-1k, SFT-10k
+#   longhorizon  ~19.5        continue10k, router2k
+#   litecoder    ~31.6        longhorizon+1k   (measured: HURT -- 0.125 vs 0.208)
+#   combined     ~18.7        sft20k           (union of original+longhorizon)
+#   terminaltraj  15.1        single-corpus run from the pretrained base
+#
+# Per-corpus measurement (250 rows each) that motivates "terminaltraj":
+#
+#   corpus                          fmt%   turns mean/med   ends complete
+#   Nemotron/skill_based_medium      89%       5.9 / 6           12%
+#   Nemotron/skill_based_easy        87%       7.4 / 7           97%
+#   m-a-p/TerminalTraj              100%      15.1 / 13          92%
+#   OpenThoughts-Agent-v1-SFT        99%       6.0 / 6          100%
+#
+# skill_based_medium abandons 88% of its trajectories and carried 30-45% weight
+# in EVERY mix above, so a third of the training signal was sessions that give
+# up. TerminalTraj is the only corpus that is 100% terminus-2 format (what
+# terminal-bench's agent parses) and its horizon is ~2x the others, though still
+# short of the benchmark's median of 22 turns.
+_TERMINAL_SFT_MIXES: dict[str, list[tuple[str, str | None, str, float]]] = {
+    "terminaltraj": [
+        ("m-a-p/TerminalTraj", None, "messages", 1.0),
+    ],
+    # TRAIN-ON-TEST DIAGNOSTIC. A local JSONL built from the eval tasks' own
+    # oracle solutions (build_oracle12.py). Contaminated by construction; the
+    # checkpoint answers "can the model execute perfect demonstrations of these
+    # exact tasks through the agent loop?" and must never be reported as a
+    # score. repo_id "json" routes to OURO_SFT_LOCAL_JSONL in the loader.
+    "oracle12": [
+        ("json", None, "messages", 1.0),
+    ],
+    # TB-80-TARGETED SET (build_tb80_sft.py). Verified multi-turn terminus-2
+    # trajectories on Terminal-Bench 2.0 tasks disjoint from our 80 (scraped
+    # leaderboard runs, reward=1, pointer-free, re-rendered to the exact JSON
+    # the eval agent parses), upsampled and capped per task, plus TerminalTraj
+    # finished trajectories reweighted to TB-80's category mix. Same local-JSONL
+    # route as oracle12 via OURO_SFT_LOCAL_JSONL. Clean for the 80-task eval
+    # by task name; the 27 overlapping TB-2 tasks are excluded at build time.
+    "tb80sft": [
+        ("json", None, "messages", 1.0),
+    ],
+    "original": [
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.45),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.20),
+        ("m-a-p/TerminalTraj", None, "messages", 0.25),
+        ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
+    ],
+    "longhorizon": [
+        ("m-a-p/TerminalTraj", None, "messages", 0.60),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.30),
+        ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
+    ],
+    "litecoder": [
+        ("Lite-Coder/LiteCoder-Terminal-SFT", None, "conversations", 0.60),
+        ("m-a-p/TerminalTraj", None, "messages", 0.25),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.15),
+    ],
+    "combined": [
+        ("m-a-p/TerminalTraj", None, "messages", 0.425),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_medium", "conversations", 0.375),
+        ("nvidia/Nemotron-Terminal-Corpus", "skill_based_easy", "conversations", 0.10),
+        ("open-thoughts/OpenThoughts-Agent-v1-SFT", None, "conversations", 0.10),
+    ],
+}
+
+_MIX_NAME = os.environ.get("OURO_SFT_MIX", "combined")
+if _MIX_NAME not in _TERMINAL_SFT_MIXES:
+    raise ValueError(
+        f"OURO_SFT_MIX={_MIX_NAME!r} is not one of {sorted(_TERMINAL_SFT_MIXES)}"
+    )
+_TERMINAL_SFT_SOURCES: list[tuple[str, str | None, str, float]] = \
+    _TERMINAL_SFT_MIXES[_MIX_NAME]
+
+# Rows whose assistant turns are all empty teach nothing (every label would be
+# IGNORE_INDEX) but still consume a slot in the packed sequence buffer.
+_TERMINAL_SFT_MIN_ASSISTANT_CHARS = 1
+
+# Keep at most this many leading turns per trajectory.
+#
+# _sft_tokens_from_messages locates each turn's token span by re-applying the
+# chat template to the whole prefix, so its cost is quadratic in turn count.
+# Measured on this mixture with the Ouro tokenizer: 46 turns = 0.95s, 76 turns =
+# 3.85s. TerminalTraj rows run to 376 turns, which extrapolates to ~90s to
+# tokenize ONE row -- and because the dataloader tokenises inline in the
+# training loop, that lands as a multi-minute stall rather than a background
+# cost. Truncating to a prefix is semantically harmless for SFT (a trajectory
+# prefix is itself a valid trajectory) and bounds the worst case to ~2.5s.
+# 64 covers the large majority of rows in the mixture untouched.
+_TERMINAL_SFT_MAX_TURNS = 64
+
+
+def _normalise_terminal_messages(
+    raw_messages: Any,
+) -> list[dict[str, str]] | None:
+    """Coerce one source row's message list into [{role, content}, ...].
+
+    Returns None for rows that cannot contribute a training signal (malformed,
+    or carrying no non-empty assistant turn), so the caller can drop them.
+    """
+    if not isinstance(raw_messages, (list, tuple)):
+        return None
+
+    out: list[dict[str, str]] = []
+    assistant_chars = 0
+    for msg in raw_messages:
+        if not isinstance(msg, dict):
+            return None
+        # TerminalTraj/OpenThoughts/Nemotron all use {"role", "content"}, but
+        # some rows in the wild use ShareGPT's {"from", "value"} spelling.
+        role = msg.get("role", msg.get("from"))
+        content = msg.get("content", msg.get("value"))
+        if role is None or content is None:
+            return None
+        role = str(role)
+        # ShareGPT role aliases -> ChatML roles the Ouro template understands.
+        role = {"human": "user", "gpt": "assistant", "bot": "assistant"}.get(role, role)
+        if not isinstance(content, str):
+            # A few sources nest structured content (e.g. tool-call blocks) as a
+            # list of parts; flatten to their text so the turn is still usable.
+            if isinstance(content, (list, tuple)):
+                parts = [
+                    p.get("text", "") if isinstance(p, dict) else str(p)
+                    for p in content
+                ]
+                content = "".join(parts)
+            else:
+                content = str(content)
+        if role == "assistant":
+            assistant_chars += len(content.strip())
+        out.append({"role": role, "content": content})
+
+    if not out or assistant_chars < _TERMINAL_SFT_MIN_ASSISTANT_CHARS:
+        return None
+
+    if len(out) > _TERMINAL_SFT_MAX_TURNS:
+        # Keep the TAIL, not the head. Task completion lives at the END of a
+        # trajectory ("task_complete": true in the final assistant turn), so
+        # head-truncation deletes precisely the behaviour this SFT exists to
+        # teach. Measured on TerminalTraj: of the rows exceeding this cap, 8 of
+        # 9 had their completion cut off by head-truncation. Every sampled row
+        # in all three corpora ends in a claimed completion, so the tail is the
+        # highest-value span in the row.
+        #
+        # A leading system/user turn carries the task statement, without which
+        # the retained tail is context-free, so preserve the first turn and
+        # take the last (cap - 1).
+        head, tail = out[:1], out[-(_TERMINAL_SFT_MAX_TURNS - 1):]
+        out = head + tail
+        # The spliced tail may now begin with an assistant turn whose prompt is
+        # missing; drop leading assistant turns after the preserved head so the
+        # conversation still alternates sensibly.
+        while len(out) > 1 and out[1]["role"] == "assistant":
+            out.pop(1)
+        # And never end on a non-assistant turn: it would add tokens with no
+        # loss signal.
+        while out and out[-1]["role"] != "assistant":
+            out.pop()
+        if len(out) < 2:
+            return None
+    return out
+
+
+def _load_terminal_agent_sft_dataset(dataset_path: str):
+    """Interleave the terminal-agent trajectory corpora into one stream.
+
+    Streaming (rather than a full download) keeps this usable on a shared box:
+    the corpora total >8GB on disk, while a 1k-step run touches only a small
+    fraction of that. `all_exhausted` would re-loop the small sources many times
+    over before the large one finishes; `first_exhausted` is the honest choice
+    here since we stop at a step count, not an epoch boundary, and re-looping a
+    15k-row source would just repeat data inside a single run.
+    """
+    from datasets import interleave_datasets
+
+    parts = []
+    weights = []
+    for repo_id, config_name, messages_column, weight in _TERMINAL_SFT_SOURCES:
+        # A repo_id of "json" means a local JSONL (the oracle12 diagnostic mix);
+        # datasets' json builder needs the file path via data_files.
+        extra = {}
+        if repo_id == "json":
+            extra["data_files"] = os.environ["OURO_SFT_LOCAL_JSONL"]
+        ds = load_dataset(
+            repo_id, config_name, split="train", streaming=True, **extra
+        )
+        # Normalise each source's own column name to a single "messages" field
+        # so one sample_to_tokens can serve the whole mixture. remove_columns
+        # drops the per-source metadata (run_id, model, ...) that would
+        # otherwise make the interleaved schemas incompatible.
+        ds = ds.map(
+            partial(_terminal_sft_row_to_messages, messages_column=messages_column),
+            remove_columns=list(ds.features) if ds.features else None,
+        )
+        parts.append(ds)
+        weights.append(weight)
+
+    total = sum(weights)
+    probabilities = [w / total for w in weights]
+    logger.info(
+        "terminal_agent_sft mixture: "
+        + ", ".join(
+            f"{repo}{'/' + cfg if cfg else ''}={p:.0%}"
+            for (repo, cfg, _, _), p in zip(_TERMINAL_SFT_SOURCES, probabilities)
+        )
+    )
+    return interleave_datasets(
+        parts,
+        probabilities=probabilities,
+        seed=42,
+        stopping_strategy="first_exhausted",
+    )
+
+
+def _count_commands(content: str) -> int:
+    """How many entries in this assistant turn's terminus `commands` list."""
+    if not content or '"commands"' not in content:
+        return 0
+    m = re.search(r"\{.*\}", content, re.S)
+    if not m:
+        return 0
+    try:
+        d = json.loads(m.group(0))
+    except Exception:
+        # Truncated/imperfect JSON is common in trajectories; fall back to
+        # counting keystroke entries, which is what the count is a proxy for.
+        return content.count('"keystrokes"')
+    c = d.get("commands")
+    return len(c) if isinstance(c, list) else 0
+
+
+def _row_mean_commands(messages: list[dict[str, str]]) -> float:
+    """Mean commands per assistant turn for a whole trajectory."""
+    counts = [
+        _count_commands(m.get("content") or "")
+        for m in messages
+        if m.get("role") == "assistant"
+    ]
+    return (sum(counts) / len(counts)) if counts else 0.0
+
+
+# Minimum mean commands-per-assistant-turn for a row to be kept when
+# OURO_SFT_MIN_CMDS is set.
+#
+# Why this exists: the served model collapsed to EXACTLY one command per turn --
+# 1682 of 1696 turns in an 80-task run, never more -- while the training data
+# averages 1.72 and reaches 9. Probing the model's own next-token distribution
+# at the batching decision point gives P(start another command) = 0.00027 vs
+# ~0.195 implied by the data: roughly 700x under. Token-level CE learns the 73%
+# singleton mode, and SFT sharpens that mode until the tail is gone.
+#
+# This matters because 65 of 80 tasks fail on agent_timeout at ~21 turns of
+# ~20s: at 1 command/turn the agent gets 21 shell commands per task, where the
+# data's own mean would give ~36. Filtering to batching-dense trajectories
+# raises the target distribution so the mode itself moves.
+_MIN_CMDS = float(os.environ.get("OURO_SFT_MIN_CMDS", "0"))
+
+# OURO_SFT_REQUIRE_COMPLETE=1 drops trajectories whose final assistant turn does
+# not set task_complete=true -- sessions that were abandoned rather than
+# finished. Measured over 1200 rows of the longhorizon mix:
+#
+#   ends complete    818 rows   mean 13.8 turns   median 12
+#   ends incomplete  382 rows   mean  6.4 turns   median  6
+#
+# The abandoned trajectories are HALF the length of the finished ones, so the
+# mix's short median is substantially an artifact of including them, and this
+# one filter addresses both the horizon gap and the give-up behaviour. One
+# sampled example ends with C-c on a hung process and simply stops -- that is
+# what we were teaching.
+#
+# Caveat: task_complete=true is a CLAIM, not a verified solve. This removes
+# give-ups without guaranteeing correctness, and could reinforce the
+# claim-without-verifying habit (the model was measured declaring done 8/8 times
+# at ~30% of tests passing), which is what the terminus verification gate
+# defends against. Evaluate the two together.
+_REQUIRE_COMPLETE = os.environ.get("OURO_SFT_REQUIRE_COMPLETE", "0") == "1"
+
+
+def _ends_complete(messages: list[dict[str, str]]) -> bool:
+    """Does the last parseable assistant turn declare task_complete=true?"""
+    last = None
+    for m in messages:
+        if m.get("role") != "assistant":
+            continue
+        content = m.get("content") or ""
+        if '"task_complete"' not in content:
+            continue
+        match = re.search(r"\{.*\}", content, re.S)
+        if not match:
+            continue
+        try:
+            last = json.loads(match.group(0))
+        except Exception:
+            continue
+    return bool(last and last.get("task_complete") is True)
+
+
+def _terminal_sft_row_to_messages(
+    sample: dict[str, Any], messages_column: str
+) -> dict[str, Any]:
+    """Map one raw row to {"messages": [...]}; [] marks a row to skip."""
+    normalised = _normalise_terminal_messages(sample.get(messages_column))
+    if normalised is None:
+        return {"messages": []}
+    if _MIN_CMDS > 0 and _row_mean_commands(normalised) < _MIN_CMDS:
+        return {"messages": []}
+    if _REQUIRE_COMPLETE and not _ends_complete(normalised):
+        return {"messages": []}
+    return {"messages": normalised}
+
+
+def _process_terminal_agent_sft_text(sample: dict[str, Any]) -> str:
+    """Non-SFT path: compact JSON of the normalised message list."""
+    return json.dumps(
+        sample.get("messages") or [], ensure_ascii=False, separators=(",", ":")
+    )
+
+
+def _terminal_agent_sft_tokens(
+    sample: dict[str, Any], tokenizer: BaseTokenizer
+) -> tuple[list[int], list[int]]:
+    """SFT tokens for one mixed terminal-agent row (assistant-only loss)."""
+    messages = sample.get("messages") or []
+    if not messages:
+        # Dropped by normalisation; contribute nothing to the packed buffer.
+        return [], []
+    return _sft_tokens_from_messages(messages, tokenizer)
+
+
 # Add your dataset here - more information at docs/datasets.md
 DATASETS = {
     "c4": DatasetConfig(
@@ -50,12 +675,66 @@ DATASETS = {
         loader=partial(_load_c4_dataset, split="validation"),
         sample_processor=_process_c4_text,
     ),
+    "swe_rebench_openhands": DatasetConfig(
+        path="nebius/SWE-rebench-openhands-trajectories",
+        loader=_load_swe_rebench_openhands_dataset,
+        sample_processor=_process_swe_rebench_openhands_text,
+    ),
+    # SFT variant: identical data but loss is masked to assistant turns only.
+    "swe_rebench_openhands_sft": DatasetConfig(
+        path="nebius/SWE-rebench-openhands-trajectories",
+        loader=_load_swe_rebench_openhands_dataset,
+        sample_processor=_process_swe_rebench_openhands_text,
+        sample_to_tokens=_swe_rebench_sft_tokens,
+    ),
+    # nvidia/OpenCodeReasoning — R1 reasoning traces. split_0's `input` is
+    # self-contained (~568k rows); split_1's question is reconstructed from
+    # TACO/APPS (~167k rows). SFT variants train assistant-only.
+    "open_code_reasoning_split_0": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_0"),
+        sample_processor=_process_open_code_reasoning_text,
+    ),
+    "open_code_reasoning_split_0_sft": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_0"),
+        sample_processor=_process_open_code_reasoning_text,
+        sample_to_tokens=_open_code_reasoning_sft_tokens,
+    ),
+    "open_code_reasoning_split_1": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_1"),
+        sample_processor=_process_open_code_reasoning_text,
+    ),
+    "open_code_reasoning_split_1_sft": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_1"),
+        sample_processor=_process_open_code_reasoning_text,
+        sample_to_tokens=_open_code_reasoning_sft_tokens,
+    ),
+    # Convenience alias: the self-contained split_0 SFT set.
+    "open_code_reasoning_sft": DatasetConfig(
+        path="nvidia/OpenCodeReasoning",
+        loader=partial(_load_open_code_reasoning_dataset, split="split_0"),
+        sample_processor=_process_open_code_reasoning_text,
+        sample_to_tokens=_open_code_reasoning_sft_tokens,
+    ),
+    # Terminal-Bench-oriented agent-trajectory mixture (see
+    # _TERMINAL_SFT_SOURCES above for the per-corpus rationale). `path` is
+    # unused -- the loader owns the repo list -- but DatasetConfig requires it,
+    # so it names the dominant source for log readability.
+    "terminal_agent_sft": DatasetConfig(
+        path="nvidia/Nemotron-Terminal-Corpus",
+        loader=_load_terminal_agent_sft_dataset,
+        sample_processor=_process_terminal_agent_sft_text,
+        sample_to_tokens=_terminal_agent_sft_tokens,
+    ),
 }
 
 
 def _validate_dataset(
     dataset_name: str, dataset_path: str | None = None
-) -> tuple[str, Callable, Callable]:
+) -> tuple[str, Callable, Callable, Callable | None]:
     """Validate dataset name and path."""
     if dataset_name not in DATASETS:
         raise ValueError(
@@ -66,7 +745,7 @@ def _validate_dataset(
     config = DATASETS[dataset_name]
     path = dataset_path or config.path
     logger.info(f"Preparing {dataset_name} dataset from {path}")
-    return path, config.loader, config.sample_processor
+    return path, config.loader, config.sample_processor, config.sample_to_tokens
 
 
 class HuggingFaceTextDataset(IterableDataset, Stateful):
@@ -83,7 +762,7 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
         # Force lowercase for consistent comparison
         dataset_name = dataset_name.lower()
 
-        path, dataset_loader, text_processor = _validate_dataset(
+        path, dataset_loader, text_processor, sample_to_tokens = _validate_dataset(
             dataset_name, dataset_path
         )
         ds = dataset_loader(path)
@@ -94,12 +773,17 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
         self.seq_len = seq_len
         self.infinite = infinite
         self._text_processor = text_processor
+        # When set, bypasses the text processor and drives the SFT label-mask path.
+        self._sample_to_tokens: Callable | None = sample_to_tokens
 
         # Variables for checkpointing
         self._sample_idx = 0
         self._epoch: int = 0
         self._inputs_buffer: list[int] = []
         self._positions_buffer: list[int] = []
+        # Parallel label buffer used only in the SFT masking path.
+        # Each position holds the target token ID or IGNORE_INDEX.
+        self._label_buffer: list[int] = []
 
     def _get_data_iter(self):
         # For map-style datasets, resume by skipping to the correct index
@@ -117,12 +801,20 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
 
         while True:
             for sample in self._get_data_iter():
-                # Use the dataset-specific text processor
-                sample_text = self._text_processor(sample)
-                sample_tokens = self._tokenizer.encode(
-                    sample_text, add_bos=True, add_eos=True
-                )
-                self._inputs_buffer.extend(sample_tokens)
+                if self._sample_to_tokens is not None:
+                    # SFT masking path: processor returns (token_ids, label_ids) directly.
+                    sample_tokens, sample_labels = self._sample_to_tokens(
+                        sample, self._tokenizer
+                    )
+                    self._inputs_buffer.extend(sample_tokens)
+                    self._label_buffer.extend(sample_labels)
+                else:
+                    # Standard next-token-prediction path.
+                    sample_text = self._text_processor(sample)
+                    sample_tokens = self._tokenizer.encode(
+                        sample_text, add_bos=True, add_eos=True
+                    )
+                    self._inputs_buffer.extend(sample_tokens)
                 # Per-document positions reset at document boundaries,
                 # matching inference frameworks (e.g. vLLM) that start
                 # positions at 0 per request.  Positions wrap at seq_len
@@ -145,7 +837,13 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
                         max_buffer_token_len:
                     ]
                     input = x[:-1]
-                    label = x[1:]
+                    if self._sample_to_tokens is not None:
+                        # SFT: label at position i is the pre-computed target for token i+1.
+                        y = torch.LongTensor(self._label_buffer[:max_buffer_token_len])
+                        self._label_buffer = self._label_buffer[max_buffer_token_len:]
+                        label = y[1:]
+                    else:
+                        label = x[1:]
                     positions = pos[:-1]
                     yield {"input": input, "positions": positions}, label
 
@@ -165,13 +863,31 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
                         self._data.set_epoch(self._data.epoch + 1)
 
     def load_state_dict(self, state_dict):
-        self._inputs_buffer = state_dict["inputs_buffer"]
+        self._inputs_buffer = state_dict.get(
+            "inputs_buffer", state_dict.get("token_buffer", [])
+        )
         if "positions_buffer" not in state_dict:
             logger.warning(
                 "Checkpoint missing 'positions_buffer'. Falling back to empty buffer. "
                 "RoPE positions may be incorrect with block_causal attention."
             )
         self._positions_buffer = state_dict.get("positions_buffer", [])
+        self._label_buffer = state_dict.get("label_buffer", [])
+        # SFT path: if the token/label buffers have different lengths (e.g. the
+        # checkpoint was saved from a non-SFT run that never populated
+        # label_buffer), the buffers are unusable together.  Clear all of them so
+        # the next sample starts fresh.
+        if self._sample_to_tokens is not None and len(self._inputs_buffer) != len(
+            self._label_buffer
+        ):
+            logger.warning(
+                f"Discarding mismatched token/label buffers on checkpoint restore "
+                f"(token={len(self._inputs_buffer)}, label={len(self._label_buffer)}). "
+                "This is expected when switching between SFT and non-SFT datasets."
+            )
+            self._inputs_buffer = []
+            self._positions_buffer = []
+            self._label_buffer = []
 
         if isinstance(self._data, Dataset):
             self._sample_idx = state_dict["sample_idx"]
@@ -183,6 +899,7 @@ class HuggingFaceTextDataset(IterableDataset, Stateful):
         _state_dict: dict[str, Any] = {
             "inputs_buffer": self._inputs_buffer,
             "positions_buffer": self._positions_buffer,
+            "label_buffer": self._label_buffer,
         }
 
         if isinstance(self._data, Dataset):
