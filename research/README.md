@@ -1,8 +1,8 @@
 # research/ — Ouro experiment scripts
 
-Everything here was written for one fork-specific research programme: tune and train
+Everything here was written for one research programme: fine-tune
 [ByteDance Ouro](https://huggingface.co/ByteDance/Ouro-1.4B) (a looped Transformer with an early-exit gate)
-and measure it on HumanEval, MBPP and Terminal-Bench. The write-up with every number is the
+as a terminal agent and measure it on Terminal-Bench. The write-up with every number is the
 [boptim Experiments page](https://claude.ai/artifact/RSGyFVwqfHdoFTnoBGNKib); the top-level
 [README](../README.md) explains
 the model flavors, configs and pipelines.
@@ -14,7 +14,7 @@ harness under `~/terminal_bench_eval`, run outputs under `~/boptim_scratch` and 
 
 | Directory | What is in it |
 |---|---|
-| `bo_gate/` | Exit-gate Bayesian optimisation and its evaluation protocol: HumanEval / MBPP EvalPlus runs (local `run_he_*.sh`, Slurm `run_ouro_*.slurm`), KV-cache and parity validation, the 6-D router NAS (`run_nas.sh`, `modeling_ouro_nas.py`, `nas_compare.py`), `random_search.py` baseline, `.env.vllm` for the vLLM eval venv. The BO loop itself is in `boptim-agent`, the parent repository that vendors this one as `torchtitan/`. |
+| `bo_gate/` | Earlier exit-gate Bayesian optimisation and router NAS drivers, plus `.env.vllm` for the vLLM eval venv. The BO loop itself is in boptim-agent (the parent repo); see the experiments page appendix. |
 | `pretrain/` | `run_ouro_train.slurm`, the original Slurm wrapper around `run_train.sh`. |
 | `terminal_sft/data/` | Building terminus-2 SFT sets: `build_tb80_sft.py` (verified TB-2 trajectories + domain-reweighted TerminalTraj), `build_tb80sft_v3.py` + `skill_mine.py` (thin-skill thickening), `build_skill_sft.py` (one skill at ~40 %), `build_oracle*.py` (train-on-test diagnostics), coverage / contamination / distribution audits, `generated_data/` (first harvested batch). |
 | `terminal_sft/train/` | Training drivers: `run_v3.sh` (1.4B, 20k steps), `run_26b.sh` (2.6B, AdamW8bit), `run_skill.sh` / `run_skill_26b.sh` + `run_all_skills_26b.sh` (per-skill probes), earlier recipes (`run_tb80_sft.sh`, `run_traj*.sh`, `run_batching_sft.sh`, `run_oracle*.sh`), checkpoint export (`convert_sweep.sh`). |
