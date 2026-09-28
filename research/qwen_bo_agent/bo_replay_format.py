@@ -30,7 +30,7 @@ import json
 import os
 import re
 
-DEFAULT_REPO = os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boptim-agent"))
+DEFAULT_REPO = os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 
 
 def load_template(repo: str, name: str) -> str:

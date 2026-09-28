@@ -16,7 +16,7 @@ Objectives come from boptim-agent's OBJECTIVE_REGISTRY. Synthetic ones (sumsq,
 rosenbrock, fourier2d, ...) are free and fast; cifar is a 10-epoch ResNet per
 evaluation and is NOT what you want for volume.
 
-Usage (run from the boptim-agent checkout, research/boptim-agent by default):
+Usage (run from the boptim-agent checkout; torchtitan is its submodule, so it defaults to the parent dir):
   python research/qwen_bo_agent/gen_bo_traj.py --objective sumsq --optim chatgpt --model gpt-5-mini \
       --n 20 --seed_start 0 --max_iter 15 --out data/trajectories_gen
 """
@@ -27,7 +27,7 @@ import sys
 from datetime import datetime
 from types import SimpleNamespace
 
-sys.path.insert(0, os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boptim-agent")))
+sys.path.insert(0, os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")))
 
 
 def _load_keys(path=os.path.expanduser("~/.boptim_keys.env")):

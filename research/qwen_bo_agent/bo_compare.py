@@ -45,7 +45,7 @@ def grid_range(objective, seed, n_grid=200):
 
     import numpy as np
 
-    sys.path.insert(0, os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boptim-agent")))
+    sys.path.insert(0, os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")))
     from objective import build_objective
 
     a = SimpleNamespace(objective=objective, objective_seed=seed, seed=seed, n_dims=None, n_fourier=5,

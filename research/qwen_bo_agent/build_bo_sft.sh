@@ -19,7 +19,7 @@ PY=/home/jli199/torchtitan/.venv/bin/python
 mkdir -p "$OUTDIR"
 cd "$WT" || exit 1
 
-"$PY" $WT/research/qwen_bo_agent/bo_replay_format.py ${BOPTIM_REPO:-$WT/research/boptim-agent}/data/gpt_cifar_3d_seed0000.json \
+"$PY" $WT/research/qwen_bo_agent/bo_replay_format.py ${BOPTIM_REPO:-$WT/..}/data/gpt_cifar_3d_seed0000.json \
   "$RAW"/gp10r_fourier2d/*.json "$RAW"/gp10r_rosenbrock/*.json "$RAW"/gp10r_sumsq/*.json \
   --out "$OUTDIR/reasoning.jsonl"
 

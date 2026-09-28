@@ -10,7 +10,7 @@
 #   TEACHER=.../Qwen3-14B GPUS="5 6 7 8" bash $WT/research/qwen_bo_agent/run_teacher_gen.sh
 set -u
 WT=/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft
-REPO=${BOPTIM_REPO:-$WT/research/boptim-agent}   # boptim-agent submodule (override with BOPTIM_REPO)
+REPO=${BOPTIM_REPO:-$WT/..}   # boptim-agent = parent checkout when torchtitan is its submodule (override with BOPTIM_REPO)
 OUTROOT=${OUTROOT:-/home/jli199/boptim_scratch/bo_traj}
 LOGDIR=/home/jli199/terminal_bench_eval/logs
 TEACHER=${TEACHER:-/home/jli199/torchtitan/assets/hf/Qwen3-14B}

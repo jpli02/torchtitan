@@ -1,4 +1,0 @@
-[submodule "research/boptim-agent"]
-	path = research/boptim-agent
-	url = git@github.com:research4pan/boptim-agent.git
-	branch = jpli02/cifar
