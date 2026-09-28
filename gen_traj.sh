@@ -9,9 +9,12 @@
 set -u
 cd /home/jli199/terminal_bench_eval || exit 1
 set -a; . ~/.boptim_keys.env 2>/dev/null || true; set +a
+export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-$QWEN_API_KEY}"
+export TB_MAX_TOKENS="${TB_MAX_TOKENS:-8192}"
 : "${TASKS_DIR:?}"; : "${RUNID:?}"
 MODEL=${MODEL:-openai/gpt-5-mini}
 ATT=${ATT:-2}; CONC=${CONC:-2}
+AGENT_TIMEOUT=${AGENT_TIMEOUT:-1800}   # reasoning teachers are slow per turn; give room to finish
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
 OUT=$TMP/${RUNID}.txt; : > "$OUT"
 echo "[gen] model=$MODEL tasks=$TASKS_DIR attempts=$ATT conc=$CONC $(date '+%m-%d %H:%M')" | tee -a "$OUT"
@@ -21,7 +24,7 @@ timeout 36000 .venv/bin/tb run \
   --dataset-path "$TASKS_DIR" \
   --agent terminus-2 --model "$MODEL" \
   --n-attempts "$ATT" --n-concurrent "$CONC" \
-  --global-agent-timeout-sec 600 \
+  --global-agent-timeout-sec "$AGENT_TIMEOUT" \
   --output-path /tmp/tb_runs --run-id "$RUNID" --no-livestream \
   >> /home/jli199/terminal_bench_eval/logs/${RUNID}.tb.log 2>&1
 

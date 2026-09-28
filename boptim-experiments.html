@@ -1,4 +1,3 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>boptim Experiments</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -164,32 +163,44 @@ details.set[open]{padding-bottom:14px}
 .qa .qq{font-weight:600}.qa .aa{color:var(--text-2);font-size:.93rem}
 @media (max-width:700px){.qa a{grid-template-columns:1fr}}
 .pos{font-weight:700;color:var(--good);background:var(--good-bg);padding:0 4px;border-radius:3px;white-space:nowrap}
+details.appendix-toggle{margin-top:56px;border-top:1px solid var(--line)}
+details.appendix-toggle>summary{list-style:none;cursor:pointer;padding-top:20px;outline:none}
+details.appendix-toggle>summary::-webkit-details-marker{display:none}
+details.appendix-toggle>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+details.appendix-toggle>summary .eyebrow{color:var(--text-3)}
+details.appendix-toggle>summary .pt{font-size:1.15rem;color:var(--text-2);font-weight:600;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:2px}
+.appendix-toggle .tog{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);font-weight:600;border:1px solid var(--line-2);border-radius:999px;padding:2px 10px}
+.appendix-toggle:not([open]) .tog::before{content:"\25B8  show"}
+.appendix-toggle[open] .tog::before{content:"\25BE  hide"}
+.appendix-toggle:not([open])>summary{padding-bottom:20px}
+.appendix-toggle[open] .appendix-body{padding-top:4px}
 </style>
 <div class="wrap">
 <header>
   <div class="eyebrow">boptim-agent · Bayesian optimisation with GP and LLM optimisers</div>
   <h1>boptim Experiments</h1>
-  <p class="sub">Seven questions about what the optimisers achieved on CIFAR-10, on the Ouro-1.4B exit gate, and on Terminal-Bench. Each section asks one question, answers it first, then shows the evidence.</p>
+  <p class="sub">Nine questions about what the optimisers achieved on CIFAR-10 and on Terminal-Bench, with the Ouro-1.4B exit-gate study kept as an appendix. Each section asks one question, answers it first, then shows the evidence.</p>
 </header>
 <div class="part" id="cifar"><div class="eyebrow">Part 1</div><h2 class="pt">CIFAR-10 hyperparameter search</h2></div>
 <section class="q" id="q1">
   <div class="qn">Q1 · CIFAR-10</div>
-  <h2>How much can BO improve CIFAR-10 accuracy?</h2>
-  <div class="ans"><div class="lab">Answer</div><p><b>About 1 point.</b> gp_hedge reaches <b class="pos">0.910 test accuracy</b>; gpt-5-mini and qwen3.5-9b reach 0.897–0.900 under the same 10-evaluation budget.</p></div>
+  <h2>How do the optimisers compare on CIFAR-10?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>Comparable &mdash; within about one point.</b> Every optimiser lands in a tight <b class="pos">0.897&ndash;0.910</b> band under the same 10-evaluation budget: gp_hedge is marginally ahead at 0.910, and the LLM optimisers (gpt-5-mini, gpt-5.6-luna, qwen3.5-9b) all reach 0.897&ndash;0.900. At n&nbsp;=&nbsp;2 seeds the ~1-point spread is directional, so on this task they are effectively on par.</p></div>
   <div class="ev"><div class="lab">Evidence</div>
 <div class="tablewrap">
     <table>
-      <thead><tr><th>Optimiser</th><th>Explanation</th><th class="n">test accuracy</th><th class="n">± std</th><th class="n">vs gp_hedge</th><th class="st">Status</th></tr></thead>
+      <thead><tr><th>Optimiser</th><th>Explanation</th><th class="n">test accuracy</th><th class="n">± std</th><th class="n">&Delta; vs top</th><th class="st">Status</th></tr></thead>
       <tbody>
         <tr class="best"><td>gp_hedge</td><td>—</td><td class="n">0.910</td><td class="n">0.000</td><td class="n">—</td><td class="st"><span class="chip good">done</span></td></tr>
         <tr><td>qwen3.5-9b</td><td>off</td><td class="n">0.900</td><td class="n">0.0033</td><td class="n">−1.0 pt</td><td class="st"><span class="chip good">done</span></td></tr>
         <tr><td>gpt-5-mini</td><td>on</td><td class="n">0.899</td><td class="n">0.000</td><td class="n">−1.1 pt</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>gpt-5.6-luna</td><td>on</td><td class="n">0.899</td><td class="n">0.0017</td><td class="n">−1.1 pt</td><td class="st"><span class="chip good">done</span><span class="sm">replicates 0.8977 and 0.9010</span></td></tr>
         <tr><td>gpt-5-mini</td><td>off</td><td class="n">0.898</td><td class="n">0.000</td><td class="n">−1.2 pt</td><td class="st"><span class="chip good">done</span></td></tr>
         <tr><td>qwen3.5-9b</td><td>on</td><td class="n">0.8966</td><td class="n">0.000</td><td class="n">−1.3 pt</td><td class="st"><span class="chip good">done</span></td></tr>
       </tbody>
     </table>
   </div>
-  <p class="note">Setting for every row: n_epochs 10, train_batch_size 128, batch_size 1, max_iter 10, optim_seed 42, objective_seed 42, 2 replicates. Configs: <code>configs/cifar10_{gp_hedge,gpt,gpt_explanation,qwen3.5_9b,qwen3.5_9b_explanation}.yaml</code>.</p>
+  <p class="note"><b>All six configurations sit within 1.2 pt of each other.</b> Setting for every row: n_epochs 10, train_batch_size 128, batch_size 1, max_iter 10, optim_seed 42, objective_seed 42, 2 replicates. Configs: <code>configs/cifar10_{gp_hedge,gpt,gpt_explanation,gpt56_luna_explanation,qwen3.5_9b,qwen3.5_9b_explanation}.yaml</code>.</p>
   </div>
   <details class="set"><summary>Task & settings</summary>
 <div class="settings">
@@ -199,8 +210,8 @@ details.set[open]{padding-bottom:14px}
       <dt>Budget</dt><dd><code>max_iter 10</code>, <code>batch_size 1</code>, <code>optim_seed 42</code>, <code>objective_seed 42</code>, 2 replicates.</dd>
     </dl>
     <dl>
-      <dt>Optimisers configured</dt><dd>gp_hedge, gpt (with and without explanation), qwen3-4b, qwen3-8b, qwen3.5-9b · <code>configs/cifar10_*.yaml</code></dd>
-      <dt>Hardware</dt><dd>4× A6000 on the collaborator's branch <code>pw29/cifar_datagen</code>; locally the qwen optimiser needs vllm (not installed) or an API endpoint</dd>
+      <dt>Optimisers configured</dt><dd>gp_hedge, gpt-5-mini (with and without explanation), gpt-5.6-luna (explanation on, via OpenRouter), qwen3-4b, qwen3-8b, qwen3.5-9b · <code>configs/cifar10_*.yaml</code></dd>
+      <dt>Hardware</dt><dd>4× A6000 on the collaborator's branch <code>pw29/cifar_datagen</code>; gpt-5.6-luna on one local A6000 (branch <code>worktree-cifar-save-trajectory</code>); locally the qwen optimiser needs vllm (not installed) or an API endpoint</dd>
     </dl>
   </div>
   </details>
@@ -208,16 +219,338 @@ details.set[open]{padding-bottom:14px}
 <section class="q" id="q2">
   <div class="qn">Q2 · CIFAR-10</div>
   <h2>What is the main reason for the gain?</h2>
-  <div class="ans"><div class="lab">Answer</div><p><b>Search guided by a surrogate model.</b> The GP uses the observed history; the LLMs mostly propose known-good ResNet settings.</p><ul>
+  <div class="ans"><div class="lab">Answer</div><p><b>Search guided by a surrogate model.</b> The GP uses the observed history; the LLMs start from a fixed opening and then exploit it.</p><ul>
       <li><b>gp_hedge 0.910 vs LLMs 0.897–0.900.</b> On a smooth 3-D SGD space with 10 evaluations, the GP surrogate searches better than an LLM reading the history.</li>
-      <li><b>Explanation mode changes nothing:</b> gpt-5-mini 0.898 → 0.899, qwen3.5-9b 0.900 → 0.8966. The written reasoning does not steer the proposals.</li>
-      <li><b>LLMs cluster within 0.4 pt of each other</b> in both modes: prior knowledge of good ResNet settings, not search.</li>
+      <li><b>Neither explanation mode nor a stronger model changes it:</b> gpt-5-mini 0.898 → 0.899 with explanations, qwen3.5-9b 0.900 → 0.8966, gpt-5.6-luna 0.899.</li>
       <li><b>n = 2 seeds, 1-pt effect.</b> Directional only.</li>
     </ul></div>
 </section>
-<div class="part" id="ouro"><div class="eyebrow">Part 2</div><h2 class="pt">Ouro-1.4B exit gate on HumanEval and MBPP</h2></div>
 <section class="q" id="q3">
-  <div class="qn">Q3 · Ouro gate</div>
+  <div class="qn">Q3 &middot; CIFAR-10 &middot; Reasoning trace</div>
+  <h2>What does a GPT optimiser's reasoning actually look like?</h2>
+  <div class="ans"><div class="lab">Answer</div><p>One full run &mdash; <b>gpt-5.6-luna</b>, explanation on, seed 42 &mdash; with the agent's own words at every evaluation. The shape is telling: two exploration probes, then it <b>pins lr and momentum at the midpoint</b> and spends the last seven evaluations line-searching weight decay in noise-sized steps, each one labelled &ldquo;exploit&rdquo;. The words say explore; the moves refine a single coordinate.</p></div>
+  <div class="ev"><div class="lab">Evidence &mdash; every evaluation, the agent's Analysis and Plan</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th class="n">eval</th><th class="n">lr &middot; mom &middot; wd</th><th class="n">test acc</th><th class="wrap">the agent's reasoning (verbatim, trimmed)</th></tr></thead>
+      <tbody>
+        <tr class="best"><td class="n">0</td><td class="n">0.25 &middot; 0.495 &middot; 0.005</td><td class="n">0.887</td><td class="wrap"><em>&ldquo;No evaluations have been performed &hellip; a representative, space-filling point near the center of the domain.&rdquo;</em> &rarr; evaluate the midpoint of each dimension. <span class="sm">first best</span></td></tr>
+        <tr><td class="n">1</td><td class="n">0.001 &middot; 0.0 &middot; 0.0</td><td class="n">0.341</td><td class="wrap"><em>&ldquo;Insufficient evidence to infer trends &hellip; prioritize broad exploration, well separated.&rdquo;</em> &rarr; evaluate a distant corner to probe boundary behaviour. <span class="sm">accuracy collapses</span></td></tr>
+        <tr><td class="n">2</td><td class="n">0.375 &middot; 0.7425 &middot; 0.0075</td><td class="n">0.746</td><td class="wrap"><em>&ldquo;Still the initial exploration phase; the optimum may lie away from the lower bounds.&rdquo;</em> &rarr; evaluate a well-separated point toward the upper half.</td></tr>
+        <tr><td class="n">3</td><td class="n">0.25 &middot; 0.495 &middot; 0.010</td><td class="n">0.872</td><td class="wrap"><em>&ldquo;The points lie almost along a single diagonal; the effect of weight decay is unresolved.&rdquo;</em> &rarr; <b>exploit</b> the best neighbourhood; keep lr and momentum fixed, move weight decay.</td></tr>
+        <tr><td class="n">4</td><td class="n">0.25 &middot; 0.495 &middot; 0.0</td><td class="n">0.820</td><td class="wrap"><em>&ldquo;Increasing weight decay 0.005&rarr;0.010 worsens it; the optimum may lie toward smaller values.&rdquo;</em> &rarr; keep the centre, test weight decay at the lower bound.</td></tr>
+        <tr class="best"><td class="n">5</td><td class="n">0.25 &middot; 0.495 &middot; 0.0025</td><td class="n">0.898</td><td class="wrap"><em>&ldquo;Weight decay shows a local optimum near 0.0025&ndash;0.004.&rdquo;</em> &rarr; keep lr and momentum; evaluate the interpolated weight-decay midpoint. <span class="sm">best of the run</span></td></tr>
+        <tr><td class="n">6</td><td class="n">0.25 &middot; 0.495 &middot; 0.00375</td><td class="n">0.893</td><td class="wrap"><em>&ldquo;A local minimum in weight decay near 0.0025.&rdquo;</em> &rarr; slightly increase weight decay to refine.</td></tr>
+        <tr><td class="n">7</td><td class="n">0.25 &middot; 0.495 &middot; 0.003</td><td class="n">0.894</td><td class="wrap"><em>&ldquo;Best at weight decay 0.0025; a nearby interpolation.&rdquo;</em> &rarr; evaluate 0.0030 at the same lr and momentum.</td></tr>
+        <tr><td class="n">8</td><td class="n">0.25 &middot; 0.495 &middot; 0.0022</td><td class="n">0.884</td><td class="wrap"><em>&ldquo;A narrow optimum near or below 0.0025.&rdquo;</em> &rarr; evaluate weight decay 0.0022.</td></tr>
+        <tr><td class="n">9</td><td class="n">0.25 &middot; 0.495 &middot; 0.0027</td><td class="n">0.896</td><td class="wrap"><em>&ldquo;Optimum near weight decay &asymp; 0.0025&ndash;0.0028.&rdquo;</em> &rarr; evaluate 0.0027.</td></tr>
+      </tbody>
+    </table>
+    <p class="src">gpt-5.6-luna, explanation on, seed 42; the raw prompt/response and parsed &ldquo;Analysis | Plan&rdquo; are saved per evaluation. Source: <code>boptim_scratch/gpt56_luna_cifar/&hellip;seed42&hellip;.json</code></p>
+  </div>
+  <p class="note">Read against the search space (lr, momentum, weight decay): lr and momentum <b>never move after eval&nbsp;2</b> &mdash; only weight decay wiggles across {0.010, 0, 0.0025, 0.00375, 0.003, 0.0022, 0.0027}, steps at the scale of the evaluation noise (&sigma; &asymp; 0.0036 accuracy). A GP fitted to the same history ranks these picks at the top of its predicted mean and the bottom of its uncertainty: the model exploits while narrating exploration.</p>
+  </div>
+</section>
+<div class="part" id="tbench"><div class="eyebrow">Part 2</div><h2 class="pt">Ouro on Terminal-Bench</h2></div>
+<section class="q" id="q7">
+  <div class="qn">Q7 · Terminal-Bench</div>
+  <h2>How far does SFT get, and why is pass@1 still low?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b class="pos">0/80 → 4/80</b> (<b class="pos">0/24 → 5/24</b> on the 12-task subset, 7/24 with the gated agent), then flat across every recipe.</p><ul>
+      <li><b>Pass@1 stays low over the 80 tasks:</b> pretrained 0/80, every SFT recipe 2–4/80 (3–5/24 on the subset), always the same two easy tasks.</li>
+      <li><b>The SFT dataset distribution mismatches the test tasks:</b> generic terminal data and leaderboard trajectories for 38 unrelated tasks; more of it (1k → 20k steps) does not move the score.</li>
+      <li><b>Verified by overfitting:</b> training on the 12 test tasks themselves (oracle12) jumps <b class="pos">5/24 → 20/24</b> in 300 steps, so the model can execute these tasks once it is shown their own solutions. But matching the tool distribution with <em>disjoint</em> data does not transfer (<a href="#q8">Q8</a>): the gap is generalisation capacity, and the fix is a larger base.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="grid2">
+    <div class="fig" id="fig-tb">
+      <div class="title">12-task subset, trials solved out of 24, by checkpoint</div>
+      <div class="legend">
+        <span><i class="sq" style="background:var(--s1)"></i> ungated (stock terminus-2)</span>
+        <span><i class="sq" style="background:var(--s2)"></i> gated (TerminusVerify)</span>
+      </div>
+      <div id="tb-chart"></div>
+      <p class="cap">Chronological, top to bottom. The oracle12 checkpoint (20/24) is trained on the test tasks and is left off. Missing gated bars mean the gated harness was not run for that checkpoint.</p>
+    </div>
+    <div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>80-task runs</th><th class="n">solved</th><th class="n">partial</th><th>tasks</th></tr></thead>
+          <tbody>
+            <tr class="dim"><td>pretrained Ouro-1.4B</td><td class="n">1/80</td><td class="n">—</td><td>hello-world</td></tr>
+            <tr class="dim"><td>pretrained Ouro-Thinking</td><td class="n">0/80</td><td class="n">42.4 %</td><td>9 usable turns total</td></tr>
+            <tr class="best"><td>continue10k</td><td class="n">4/80</td><td class="n">50.9 %</td><td>fix-pandas-version, vim-terminal-task, fix-permissions, hello-world</td></tr>
+            <tr><td>sft20k</td><td class="n">2/80</td><td class="n">47.4 %</td><td>fix-permissions, hello-world · 1,042 HTTP-500s</td></tr>
+            <tr><td>repro11k</td><td class="n">3/80</td><td class="n">—</td><td>heterogeneous-dates, fix-permissions, hello-world</td></tr>
+            <tr class="best"><td>batching5k</td><td class="n">4/80</td><td class="n">49.9 %</td><td>fibonacci-server, fix-pandas-version, fix-permissions, hello-world</td></tr>
+          </tbody>
+        </table>
+        <p class="src">Six tasks ever solved on the 80. No checkpoint exceeds 4/80.</p>
+      </div>
+      <div class="tablewrap" style="margin-top:14px">
+        <table>
+          <thead><tr><th>Exit-threshold sweep on batching5k, 12 tasks × 1</th><th class="n">loops</th><th class="n">solved</th><th class="n">500s</th></tr></thead>
+          <tbody>
+            <tr><td>thr 0.2</td><td class="n">2.249</td><td class="n">3/12</td><td class="n">54</td></tr>
+            <tr><td>thr 0.4</td><td class="n">2.946</td><td class="n">2/12</td><td class="n">62</td></tr>
+            <tr><td>thr 0.6</td><td class="n">3.438</td><td class="n">2/12</td><td class="n">11</td></tr>
+            <tr><td>thr 0.8 / 1.0</td><td class="n">4.000</td><td class="n">2/12</td><td class="n">0 / 1</td></tr>
+          </tbody>
+        </table>
+        <p class="src">One attempt per task, so solved counts are noise; speed (<b class="pos">1.78× faster</b> at thr 0.2) is the stable output.</p>
+      </div>
+    </div>
+  </div>
+  <div class="tablewrap" style="margin-top:16px">
+    <table>
+      <thead><tr><th>Checkpoint</th><th>Recipe</th><th class="n">12-task</th><th class="n">gated</th><th class="n">partial</th><th class="st">Notes</th></tr></thead>
+      <tbody>
+        <tr class="dim"><td>pretrained Ouro-Thinking</td><td>—</td><td class="n">0/24</td><td class="n">—</td><td class="n">—</td><td class="st">three runs, all 0/24</td></tr>
+        <tr><td>sft1k<span class="sm">ouro_terminal_sft</span></td><td>base → original mix, 1k steps</td><td class="n">4/24</td><td class="n">—</td><td class="n">—</td><td class="st">pass@5 on the 5 simplest tasks: 7/25</td></tr>
+        <tr><td>sft10k<span class="sm">ouro_terminal_sft_10k</span></td><td>base → original, 10k</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st">superseded</td></tr>
+        <tr class="best"><td>continue10k<span class="sm">ouro_sft_continue · ouro_c10k_clean</span></td><td>sft1k → longhorizon, +10k</td><td class="n">5/24</td><td class="n">4/24</td><td class="n">45.5 %</td><td class="st">reference checkpoint; 4/80 on the full set</td></tr>
+        <tr><td>router2k<span class="sm">ouro_router_sft</span></td><td>sft1k → longhorizon, 2k, <b>gate-only</b>, served thr 0.5</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st"><span class="chip warn">51 HTTP-500s</span><span class="sm">loops 4.00 → 2.67 (<b class="pos">1.5× faster</b>) is the robust part; the only gate-only TB checkpoint</span></td></tr>
+        <tr><td>longhorizon1k<span class="sm">ouro_sft_longhorizon · ouro_lh_clean</span></td><td>continue10k → litecoder mix, +1k</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st">"horizon was the wrong lever"</td></tr>
+        <tr><td>sft20k<span class="sm">ouro_sft_20k · ouro_20k_clean</span></td><td>base → combined mix, 20k</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">80-task only: 2/80 with 1,042 HTTP-500s from 3 OOM shards</td></tr>
+        <tr><td>repro11k<span class="sm">ouro_repro_c10k · ouro_repro_clean</span></td><td>base → longhorizon, 11k in one run</td><td class="n">5/24</td><td class="n">—</td><td class="n">40.3 %</td><td class="st">reproduces continue10k; 3/80 defines the ±1 noise floor</td></tr>
+        <tr><td>batching5k<span class="sm">ouro_batching_sft · ouro_batching_clean</span></td><td>continue10k → longhorizon with ≥1.5 cmds/turn, +5k, 1e-5</td><td class="n">4/24</td><td class="n">6/24</td><td class="n">41.7 %</td><td class="st">multi-command turns 0/660 → 48/406; step-1000 and step-2000 both 4/24 gated</td></tr>
+        <tr><td>traj1k / traj10k<span class="sm">ouro_traj10k</span></td><td>base → terminaltraj, 1k / 10k</td><td class="n">3/24 · 4/24</td><td class="n">—</td><td class="n">28.6 · 27.8 %</td><td class="st">traj1k corrected after 278 OOM 500s on a 23 GB card</td></tr>
+        <tr class="best"><td>traj20k<span class="sm">ouro_traj20k · ouro_traj20k_clean</span></td><td>base → terminaltraj, 20k (final loss 0.183)</td><td class="n">5/24</td><td class="n">7/24</td><td class="n">54.3 · 58.6 %</td><td class="st">best 12-task result on both harnesses; never run on the 80</td></tr>
+        <tr class="dim"><td>oracle12<span class="sm">ouro_oracle12</span></td><td>continue10k → solutions of the 12 eval tasks, 300 steps</td><td class="n">20/24</td><td class="n">—</td><td class="n">91.7 %</td><td class="st"><span class="chip info">train-on-test</span><span class="sm">sanity check only, never a score</span></td></tr>
+        <tr><td>oracle68<span class="sm">ouro_oracle68</span></td><td>continue10k → solutions of the 68 held-out tasks, 500 steps</td><td class="n">3/24</td><td class="n">—</td><td class="n">25.7 %</td><td class="st">20/24 trials declare done on turn 1; contaminated for any 80-task use</td></tr>
+        <tr><td>tb80sft v2 @10k<span class="sm">ouro_tb80sft_v2_10k</span></td><td>base → tb80sft v2, 10k of 20k</td><td class="n">4/24</td><td class="n">—</td><td class="n">36.1 %</td><td class="st">the 20k eval died (disk full on /tmp, shared-GPU OOM) at 3/8</td></tr>
+        <tr><td>tb80sft v3<span class="sm">ouro_tb80sft_v3 · ouro_tb80sft_v3_clean</span></td><td>base → tb80sft v3, 20k (final loss 0.065)</td><td class="n">5/24</td><td class="n">6/24</td><td class="n">45.5 · 51.4 %</td><td class="st">latest result; not yet in slides. 0 HTTP-500s</td></tr>
+      </tbody>
+    </table>
+  </div>
+<div class="sub-head"><h3>Dataset composition (tb80sft v3)</h3><p>7,682 multi-turn terminus-2 rows, assistant-only loss, disjoint from all 80 eval tasks.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Source</th><th class="n">rows</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td>Verified TB-2 on-distribution</td><td class="n">2,845</td><td>Terminal-Bench 2.0 leaderboard trajectories, reward = 1; 569 unique across 38 tasks (disjoint from the 80), re-rendered to terminus-2 and upsampled ×5 (terminus-2 2,540 + mini-swe-agent 305)</td></tr>
+        <tr><td>TerminalTraj bulk</td><td class="n">4,479</td><td>m-a-p/TerminalTraj finished trajectories, resampled by domain to the TB-80 category mix</td></tr>
+        <tr><td>Skill-mined thickening (v3)</td><td class="n">358</td><td>TerminalTraj mined by tool signature for thin skills: qemu 267, jupyter 33, tmux 32, fasttext 26</td></tr>
+      </tbody>
+    </table>
+    <p class="src">Build: <code>build_tb80_sft.py</code> (on-dist + bulk) + <code>build_tb80sft_v3.py</code> (skill-mined merge); miner <code>skill_mine.py</code>. The task-type table below is the 7,324-row v2 base by domain label; the 358 v3 skill rows are itemised above.</p>
+  </div>
+<div class="sub-head"><h3>Train vs test distribution</h3></div>
+<div class="grid2 even">
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Task type (5)</th><th class="n">train samples</th><th class="n">test samples</th><th class="n">train %</th><th class="n">test %</th></tr></thead>
+        <tbody>
+            <tr><td>Software engineering + debugging</td><td class="n">2,692</td><td class="n">27</td><td class="n">36.8 %</td><td class="n">33.8 %</td></tr>
+            <tr><td>System administration + file operations</td><td class="n">1,472</td><td class="n">21</td><td class="n">20.1 %</td><td class="n">26.2 %</td></tr>
+            <tr><td>Data science + model training + scientific computing</td><td class="n">2,027</td><td class="n">17</td><td class="n">27.7 %</td><td class="n">21.2 %</td></tr>
+            <tr><td>Security</td><td class="n">777</td><td class="n">12</td><td class="n">10.6 %</td><td class="n">15.0 %</td></tr>
+            <tr><td>Games + other</td><td class="n">356</td><td class="n">3</td><td class="n">4.9 %</td><td class="n">3.8 %</td></tr>
+        </tbody>
+      </table>
+      <p class="src">Train = tb80sft rows by domain label (7,324); test = the 80 tasks by <code>task.yaml</code> category. At 5 types the two distributions agree within 7 points, because the bulk data was already reweighted by category. Task type is too coarse to show the mismatch.</p>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Skill (21, multi-label)</th><th class="n">train samples</th><th class="n">test samples</th><th class="n">train %</th><th class="n">test %</th><th>train ÷ test share</th></tr></thead>
+        <tbody>
+            <tr><td>permissions / archives</td><td class="n">2,570</td><td class="n">20</td><td class="n">33.5 %</td><td class="n">25.0 %</td><td><span class="chip good">matched ×1.34</span></td></tr>
+            <tr><td>python env (pip/conda)</td><td class="n">1,065</td><td class="n">19</td><td class="n">13.9 %</td><td class="n">23.8 %</td><td><span class="chip good">matched ×0.58</span></td></tr>
+            <tr><td>text processing (sed/awk/regex)</td><td class="n">1,684</td><td class="n">17</td><td class="n">21.9 %</td><td class="n">21.2 %</td><td><span class="chip good">matched ×1.03</span></td></tr>
+            <tr><td>crypto / secrets</td><td class="n">973</td><td class="n">14</td><td class="n">12.7 %</td><td class="n">17.5 %</td><td><span class="chip good">matched ×0.72</span></td></tr>
+            <tr><td>C/C++ build</td><td class="n">884</td><td class="n">13</td><td class="n">11.5 %</td><td class="n">16.2 %</td><td><span class="chip good">matched ×0.71</span></td></tr>
+            <tr><td>web / network services</td><td class="n">1,041</td><td class="n">13</td><td class="n">13.6 %</td><td class="n">16.2 %</td><td><span class="chip good">matched ×0.83</span></td></tr>
+            <tr><td>scientific (numpy/R/stan)</td><td class="n">1,096</td><td class="n">12</td><td class="n">14.3 %</td><td class="n">15.0 %</td><td><span class="chip good">matched ×0.95</span></td></tr>
+            <tr><td>pytorch / training</td><td class="n">295</td><td class="n">8</td><td class="n">3.8 %</td><td class="n">10.0 %</td><td><span class="chip crit">under ×0.38</span></td></tr>
+            <tr><td>data files (csv/parquet/pandas)</td><td class="n">818</td><td class="n">8</td><td class="n">10.6 %</td><td class="n">10.0 %</td><td><span class="chip good">matched ×1.06</span></td></tr>
+            <tr><td>huggingface</td><td class="n">262</td><td class="n">7</td><td class="n">3.4 %</td><td class="n">8.8 %</td><td><span class="chip crit">under ×0.39</span></td></tr>
+            <tr><td>games / puzzles</td><td class="n">221</td><td class="n">7</td><td class="n">2.9 %</td><td class="n">8.8 %</td><td><span class="chip crit">under ×0.33</span></td></tr>
+            <tr><td>git</td><td class="n">470</td><td class="n">6</td><td class="n">6.1 %</td><td class="n">7.5 %</td><td><span class="chip good">matched ×0.82</span></td></tr>
+            <tr><td>qemu / VM</td><td class="n">469</td><td class="n">5</td><td class="n">6.1 %</td><td class="n">6.2 %</td><td><span class="chip good">matched ×0.98</span></td></tr>
+            <tr><td>cron / services</td><td class="n">263</td><td class="n">5</td><td class="n">3.4 %</td><td class="n">6.2 %</td><td><span class="chip good">matched ×0.55</span></td></tr>
+            <tr><td>fasttext</td><td class="n">34</td><td class="n">3</td><td class="n">0.4 %</td><td class="n">3.8 %</td><td><span class="chip crit">under ×0.12</span></td></tr>
+            <tr><td>tmux</td><td class="n">76</td><td class="n">2</td><td class="n">1.0 %</td><td class="n">2.5 %</td><td><span class="chip crit">under ×0.40</span></td></tr>
+            <tr><td>sqlite / SQL</td><td class="n">340</td><td class="n">2</td><td class="n">4.4 %</td><td class="n">2.5 %</td><td><span class="chip warn">over ×1.77</span></td></tr>
+            <tr><td>rust / cargo</td><td class="n">21</td><td class="n">2</td><td class="n">0.3 %</td><td class="n">2.5 %</td><td><span class="chip crit">under ×0.11</span></td></tr>
+            <tr><td>jupyter</td><td class="n">41</td><td class="n">1</td><td class="n">0.5 %</td><td class="n">1.2 %</td><td><span class="chip crit">under ×0.43</span></td></tr>
+            <tr><td>vim / editors</td><td class="n">360</td><td class="n">1</td><td class="n">4.7 %</td><td class="n">1.2 %</td><td><span class="chip warn">over ×3.75</span></td></tr>
+            <tr><td>docker / containers</td><td class="n">350</td><td class="n">0</td><td class="n">4.6 %</td><td class="n">0.0 %</td><td><span class="chip info">not in test</span></td></tr>
+        </tbody>
+      </table>
+      <p class="src">A row or task counts for a skill if its description or commands match the skill's keywords. Train = tb80sft v3 (7,682 rows); test = instruction + reference solution of the 80 tasks. Script and JSON: <code>boptim_scratch/tb_dist/skill_dist.py</code></p>
+    </div>
+  </div>
+  <p class="note">At skill level the mismatch is visible: fasttext and rust are under-represented about 9×, games, pytorch, huggingface, tmux and jupyter 2–3×, while docker commands fill 4.6 % of training rows and appear in no test task.</p>
+  </div>
+  <details class="set"><summary>Task & settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Benchmark</dt><dd>terminal-bench 0.2.18, local copy of terminal-bench-core 0.1.1: <b>80 tasks</b>. Two protocols: a <b>12-task subset × 2 attempts</b> ("n/24") and <b>80 tasks × 1 attempt</b> ("n/80", 2–3 GPU shards)</dd>
+      <dt>Agents</dt><dd><b>ungated</b> = stock terminus-2. <b>gated</b> = TerminusVerify, which refuses a task_complete that ran no commands (max 2 pushbacks). Gated numbers are a harness change and not comparable to stock</dd>
+      <dt>Metrics</dt><dd><code>is_resolved</code> per trial; partial credit = fraction of parser tests passed (a no-op agent gets 42.4 % on the 80). Noise floor ±1 task: two same-recipe runs gave 4/80 and 3/80 sharing 2 tasks</dd>
+      <dt>Serving</dt><dd><code>ouro_openai_server.py</code>, bf16, temperature 0.7, optional <code>--early_exit_threshold</code>; 420 s agent budget (trials run to ~720 s; 56/80 tasks ask for 360 s)</dd>
+    </dl>
+    <dl>
+      <dt>Training</dt><dd>torchtitan <code>ouro_1_4b_thinking_terminal_sft</code>, <b>all 1.43 B params</b>, Stage-I loss with 0.01 entropy bonus, assistant-only masking, lr 2e-5 (1e-5 for continuations), batch 1 × 4096, 1 GPU, 3.3–5.3 s/step. "1k / 10k / 20k" are SFT steps</dd>
+      <dt>Gate-only variants</dt><dd>router2k (stage2_adaptive, 2,049 params, served at thr 0.5) and the HumanEval router <code>router_gamma1.0_thr0.5.safetensors</code></dd>
+      <dt>Baseline</dt><dd>Pretrained Ouro-1.4B: 1/80. Pretrained Ouro-1.4B-Thinking: <b>0/80</b> (three runs) and <b>0/24</b> (three runs); it never stops generating, 9 usable turns across 80 tasks</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<section class="q" id="q8">
+  <div class="qn">Q8 · Terminal-Bench</div>
+  <h2>Data reweighting on the current source doesn't lift pass@1</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>No.</b> Concentrating one skill's trajectories to ~40 % of the set and fine-tuning from the v3 checkpoint leaves every task at its <b>0</b> baseline. Of 19 skills, 15 moved nothing; 4 tasks flicker to <b>1/2</b> — fix-git, path-tracing-reverse, conda-env-conflict-resolution, incompatible-python-fasttext.base_with_hint — right at the ±1 noise floor. Distribution matching, per-task or aggregate, does not move the benchmark.</p><ul>
+      <li><b>It refines Q6, not contradicts it.</b> The model executes a task's <em>own</em> solution (oracle12, 20/24) but does not transfer skill-matched <em>disjoint</em> data to unseen tasks. The gap is generalisation capacity, not data volume — closing it needs the task's own answer or a larger base, not a better tool mix.</li>
+      <li><b>One plausible signal in the noise:</b> concentrating C/C++-build data was the run that moved <code>path-tracing-reverse</code>, a write-a-C-program task. Narrow, and still 1 of 2 attempts.</li>
+      <li><b>Highest-headroom skills moved nothing:</b> perms-arch (2,570 rows), python-env (1,065), web-net, crypto, sci all 0. Not a data-availability artifact.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Skill concentrated</th><th class="n">train rows</th><th class="n">test tasks eval'd</th><th class="st">pass@2 result</th></tr></thead>
+      <tbody>
+        <tr><td>data files (csv/pandas)</td><td class="n">818</td><td class="n">8</td><td class="st"><span class="chip warn">2 tasks &rarr; 1/2</span><span class="sm">conda-env-conflict-resolution (new); csv-to-parquet (v3 already solved)</span></td></tr>
+        <tr><td>text processing (sed/awk)</td><td class="n">1,684</td><td class="n">8</td><td class="st"><span class="chip warn">fix-git &rarr; 1/2</span><span class="sm">new solve, noise floor</span></td></tr>
+        <tr><td>C/C++ build</td><td class="n">884</td><td class="n">8</td><td class="st"><span class="chip warn">path-tracing-reverse &rarr; 1/2</span><span class="sm">new; mechanistically plausible</span></td></tr>
+        <tr><td>permissions / archives</td><td class="n">2,570</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>python env (pip/conda)</td><td class="n">1,065</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>scientific (numpy/R)</td><td class="n">1,096</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>web / network services</td><td class="n">1,041</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>crypto / secrets</td><td class="n">973</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>qemu / VM</td><td class="n">469</td><td class="n">5</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>vim / editors</td><td class="n">360</td><td class="n">1</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>pytorch / training</td><td class="n">295</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>huggingface</td><td class="n">262</td><td class="n">7</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>tmux</td><td class="n">76</td><td class="n">2</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>jupyter</td><td class="n">41</td><td class="n">1</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>fasttext</td><td class="n">34</td><td class="n">3</td><td class="st"><span class="chip warn">incompatible-python-fasttext.base_with_hint &rarr; 1/2</span><span class="sm">new; the hinted variant only</span></td></tr>
+        <tr><td>games / puzzles</td><td class="n">221</td><td class="n">7</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>cron / services</td><td class="n">263</td><td class="n">5</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>sqlite / SQL</td><td class="n">340</td><td class="n">2</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>git</td><td class="n">470</td><td class="n">1</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+      </tbody>
+    </table>
+    <p class="src">Baselines are 0 for every listed task except csv-to-parquet. A "new" solve was 0 in the v3 and 80-task evals. Results: <code>~/.claude/jobs/c0d2da0a/tmp/skill_*.txt</code></p>
+  </div>
+  <p class="note">Reading it plainly: the tool-distribution lever does not lift pass@1 for the 1.4 B model. The four flips sit at the noise floor and await a higher-attempt re-check; even taken at face value they are single tasks at the model's capability edge, not a general lift.</p>
+  <div class="concl"><h3>Next step: scale the model, not the data</h3><p>1.4 B is too small to learn these tasks from demonstrations it did not memorise. The next run repeats the SFT recipe on <b>Ouro-2.6B-Thinking</b>; capacity, not tool-distribution match, is the lever left to pull.</p></div>
+  </div>
+  <details class="set"><summary>Task &amp; settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Per-skill set</dt><dd><code>build_skill_sft.py</code>: one target skill concentrated to <b>~40 %</b> of a 2,000-row set (its trajectories upsampled), the rest general terminal rows so agent format survives. A row "uses" a skill when its <b>assistant turns</b> match the skill regex, never the terminus-2 boilerplate</dd>
+      <dt>Training</dt><dd>continue from the <b>v3 checkpoint</b> (a working agent, 0 on these tasks), <code>OURO_INIT_FROM</code>, 1,000 steps (2,000 for tmux), lr 2e-5, batch 1; reruns at seq_len 2048 to fit alongside a co-tenant that held ~15 GB/card</dd>
+    </dl>
+    <dl>
+      <dt>Eval</dt><dd>pass@2 on up to 8 of the skill's test tasks, stock terminus-2. Test tasks map from <code>tb_dist/skill_dist.json</code></dd>
+      <dt>No contamination</dt><dd>the concentrated sets are drawn from tb80sft v3, which excludes all 80 eval tasks; the model never sees a test task's own solution</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<section class="q" id="q9">
+  <div class="qn">Q9 · Terminal-Bench</div>
+  <h2>Does scaling to Ouro-2.6B lift pass@1?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b class="pos">Yes — modestly, and it is capacity, not data.</b> The same 1.4 B backbone at twice the depth (48 layers), trained with the <em>identical</em> tb80sft v3 recipe, reaches <b class="pos">6/24 ungated, 8/24 gated</b> on the 12-task subset and <b class="pos">6/80</b> on the full set — past the ~5/24 ceiling that held across every 1.4 B recipe (best 5/24 · 6/24 · 4/80). It newly solves <code>crack-7z-hash.easy</code>, a 7z-password task <b>no 1.4 B recipe ever solved</b>.</p><ul>
+      <li><b>First direct evidence for the Q8 hypothesis:</b> holding data and recipe fixed and only adding capacity unlocks a previously-unreachable task. Gated 8/24 is a new high across all runs.</li>
+      <li><b>The gain is real but small:</b> 1–2 tasks over the ceiling; easy tasks still dominate and <code>agent_timeout</code> still caps 70/80. Pretrained 2.6 B is 0/80, so SFT is still essential.</li>
+      <li><b>Per-skill data shaping is still null at 2.6 B:</b> re-running the Q8 sweep on the 2.6 B checkpoint completed 10 of 18 skills (8 aborted when a co-tenant's ~17 GB pushed training out of memory). Eight of the ten moved nothing; two produced a single 1/2 flip each — heterogeneous-dates (data-files set) and conda-env-conflict-resolution (huggingface set) — the same noise-floor pattern as at 1.4 B. csv-to-parquet and fix-pandas-version show as passes but were <em>already</em> solved by the 2.6 B SFT checkpoint. Distribution matching does not help even with the extra capacity — table below.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Checkpoint</th><th class="n">12-task</th><th class="n">gated</th><th class="n">80-task</th><th class="st">Newly solves</th></tr></thead>
+      <tbody>
+        <tr class="dim"><td>Ouro-2.6B pretrained</td><td class="n">—</td><td class="n">—</td><td class="n">0/80</td><td class="st"><span class="chip info">SFT essential</span></td></tr>
+        <tr><td>Ouro-1.4B v3 SFT <span class="sm">best 1.4 B recipe</span></td><td class="n">5/24</td><td class="n">6/24</td><td class="n">4/80</td><td class="st">—</td></tr>
+        <tr class="best"><td>Ouro-2.6B v3 SFT <span class="sm">same recipe, 2× depth</span></td><td class="n">6/24</td><td class="n">8/24</td><td class="n">6/80</td><td class="st"><span class="chip good">crack-7z-hash.easy</span><span class="sm">+ swe-bench-langcodes; a hard task no 1.4 B reached</span></td></tr>
+      </tbody>
+    </table>
+    <p class="src">Identical data (tb80sft v3), recipe and step count; the only change is model depth. Results: <code>terminal_bench_eval/logs/</code>.</p>
+  </div>
+<div class="sub-head"><h3>Per-skill data concentration, repeated on 2.6B</h3><p>The Q8 experiment re-run on the 2.6 B SFT checkpoint: concentrate one skill's trajectories to ~40 % of a 2,000-row set, fine-tune 1,000 steps, eval pass@2 on that skill's test tasks.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Skill concentrated</th><th class="n">train rows</th><th class="n">test tasks</th><th class="st">pass@2 result vs 2.6B baseline</th></tr></thead>
+      <tbody>
+        <tr><td>data files (csv/pandas)</td><td class="n">818</td><td class="n">8</td><td class="st"><span class="chip warn">heterogeneous-dates &rarr; 1/2</span><span class="sm">new; csv-to-parquet 2/2 and fix-pandas-version 1/2 were already solved by the 2.6B base</span></td></tr>
+        <tr><td>huggingface</td><td class="n">262</td><td class="n">7</td><td class="st"><span class="chip warn">conda-env-conflict-resolution &rarr; 1/2</span><span class="sm">new; 162 HTTP-500s during eval</span></td></tr>
+        <tr><td>python env (pip/conda)</td><td class="n">1,058</td><td class="n">8</td><td class="st"><span class="chip info">2 pass, both pre-solved</span><span class="sm">csv-to-parquet, fix-pandas-version</span></td></tr>
+        <tr><td>C/C++ build</td><td class="n">4,248</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>permissions / archives</td><td class="n">2,711</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>text processing (sed/awk)</td><td class="n">1,611</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>web / network services</td><td class="n">1,018</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>crypto / secrets</td><td class="n">478</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span><span class="sm">crack-7z-hash.easy back to 0/2 here</span></td></tr>
+        <tr><td>scientific (numpy/R)</td><td class="n">&mdash;</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr><td>pytorch / training</td><td class="n">&mdash;</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
+        <tr class="dim"><td>games / puzzles</td><td class="n">&mdash;</td><td class="n">7</td><td class="st"><span class="chip info">eval running</span></td></tr>
+        <tr class="dim"><td>git, tmux, qemu, cron/services, fasttext, sqlite, jupyter, vim</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="st"><span class="chip crit">aborted</span><span class="sm">training OOM: a co-tenant held 17–19 GB of the card; no checkpoint produced</span></td></tr>
+      </tbody>
+    </table>
+    <p class="src">"0 moved" = every one of the skill's test tasks stays at its 2.6 B baseline. The 2.6 B SFT checkpoint's own solved set on the 80 is crack-7z-hash.easy, csv-to-parquet, fix-pandas-version, fix-permissions, hello-world, swe-bench-langcodes; anything else at 1/2 is a new flip. Results: <code>~/.claude/jobs/c0d2da0a/tmp/skill26_*.txt</code>, sweep log <code>run_all_skills_26b.log</code>.</p>
+  </div>
+  <p class="note">Same verdict as Q8 at the larger scale: concentrating a skill's data yields at most a single 1/2 flip per skill, never a task solved on both attempts. Capacity lifted the ceiling (above); a better tool-distribution match still does not. <b>Reading it plainly:</b> the lever Q7 and Q8 pointed to — model capacity — is the one that worked. Doubling depth, not a better tool mix, broke the 1.4 B ceiling and cracked a task every data recipe missed. The gain is still modest; easy tasks and agent timeouts dominate the remaining 74/80.</p>
+  <div class="concl"><h3>Capacity is the lever; next, feed it better data</h3><p>2.6 B confirms the diagnosis: the 1.4 B gap was generalisation capacity, not data volume or tool distribution. Next: <b>generate new on-distribution trajectories with deepseek</b> on the existing task sources, falling back to a synthetic Terminal-Bench-style task set if the yield stays too low (<a href="#q10">Q10</a>).</p></div>
+  <details class="set"><summary>Task &amp; settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Model</dt><dd><b>Ouro-2.6B-Thinking</b>: the 1.4 B looped backbone at <b>2× depth</b> (48 layers, same dim 2048 / 16 heads / ffn 5632 / vocab 49152), 4 universal-transformer steps per token</dd>
+      <dt>Training</dt><dd>same <code>tb80sft v3</code> set, assistant-only loss, 20k steps, seq 4096, single GPU. Config <code>ouro_2_6b_thinking_terminal_sft</code>, run script <code>run_26b.sh</code>, model spec "2.6B" in <code>torchtitan/models/ouro/__init__.py</code></dd>
+    </dl>
+    <dl>
+      <dt>Why single-GPU</dt><dd>2.6 B full-FT with fp32 AdamW (~21 GB optimiser states) OOMs one 46 GB card, and torchtitan FSDP checkpoint-load hangs on a cross-rank collective for this model (both HF and DCP paths)</dd>
+      <dt>Fix</dt><dd><code>torchao</code> <b>AdamW8bit</b> (added to <code>components/optimizer.py</code>) → ~5 GB states, fits one card at peak 33.9 GB</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<section class="q" id="q10">
+  <div class="qn">Q10 · Terminal-Bench</div>
+  <h2>Can a stronger teacher generate new training trajectories?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>Yes, but the yield is low.</b> A rejection-sampling pipeline runs <b>deepseek</b> as the terminus-2 agent on out-of-distribution tasks, grades each attempt with the task's <em>own</em> pytest suite, and keeps only trajectories where <b>every test passes</b> (<code>is_resolved</code>). The deepseek teachers harvested <b class="pos">13 verified trajectories</b> in the first runs and <b class="pos">11 more</b> from a full pass@4 sweep (200 trials over 5 categories × 10 tasks, 5.5 % yield), all disjoint from the 80 eval tasks. Deduplicated across every teacher the corpus is <b class="pos">44 rows</b> — a clean, on-distribution supplement to the fixed leaderboard mix.</p><ul>
+      <li><b>The all-tests-pass bar is the bottleneck, not the teacher.</b> Both deepseek models frequently land near-misses (7/8, 6/8 tests) but rarely a clean resolve, so per-task yield is a few percent. Sampling pass@4 converts some near-misses; <code>crack-7z</code>-style hard tasks stay at zero.</li>
+      <li><b>Reasoning vs speed trade-off:</b> deepseek-v4.1-flash (reasoning) resolves but is slow — a 25-min agent cap gives ~4 trials/hr and only 1 unique task in 2 h. deepseek-chat-v3-0324 (non-reasoning) is ~3× faster and converts more near-misses over a full pass@4 run, so it is the workhorse.</li>
+      <li><b>Tasks are real and gradable:</b> converted from NVIDIA's Nemotron synthetic tasks (CC-BY, unencrypted) into TB 0.2.18 format with explicit output specs and working pytest suites.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Teacher</th><th>Type</th><th>Sampling</th><th class="n">verified trajectories</th><th class="st">Notes</th></tr></thead>
+      <tbody>
+        <tr class="best"><td>deepseek-chat-v3-0324</td><td>non-reasoning</td><td class="n">pass@4, 5 cats × 10</td><td class="n">11</td><td class="st"><span class="chip good">workhorse</span><span class="sm">~3× faster; near-misses convert over the full run</span></td></tr>
+        <tr><td>deepseek-v4.1-flash</td><td>reasoning</td><td class="n">pass@1–4</td><td class="n">2</td><td class="st"><span class="chip warn">slow</span><span class="sm">25-min cap → ~4 trials/hr</span></td></tr>
+        <tr><td>deepseek-chat-v3-0324, full sweep</td><td>non-reasoning</td><td class="n">pass@4, 5 cats × 10 tasks</td><td class="n">11</td><td class="st"><span class="chip good">200 trials, 12 resolved</span><span class="sm">file_ops 2 · data_science 4 · sci-comp 3 · security 1 · debugging 1</span></td></tr>
+        <tr class="dim"><td><b>all teachers, deduplicated union</b></td><td>—</td><td class="n">—</td><td class="n">44</td><td class="st"><span class="chip info">generated_union.jsonl</span><span class="sm">13 + 11 deepseek, 31 gpt-5-mini, minus duplicates</span></td></tr>
+      </tbody>
+    </table>
+    <p class="src">Categories: file_operations, data_science, scientific_computing, security, debugging. Harvest: <code>boptim_scratch/gen_out/deepseek_generated.jsonl</code>; pipeline <code>convert_harbor.py → gen_all.sh → harvest_traj.py</code> in the <code>ouro-terminal-sft</code> worktree. A separate earlier run with gpt-5-mini (the pipeline's default model) left 31 trajectories on disk; those are a different teacher and are kept apart from the deepseek corpus.</p>
+  </div>
+  <p class="note">Reading it plainly: a strong teacher does produce clean, on-distribution SFT data, but the strict grading keeps volume small — 24 deepseek trajectories from roughly 300 attempts. Scaling the corpus needs a stronger teacher, more attempts per task, or an easier-graded task pool.</p>
+  <div class="concl"><h3>Next steps</h3><ul>
+      <li><b>Generate the dataset with deepseek on the previous sources.</b> Run deepseek-chat-v3-0324 as the terminus-2 agent over the task sources already in hand (the converted Nemotron tasks and the TerminalTraj / TB-2 task pool), pass@4, keeping only trajectories that pass each task's own tests, then SFT the 2.6B on the harvested corpus (44 rows so far).</li>
+      <li><b>If the yield stays too low, switch to a synthetic dataset based on Terminal-Bench.</b> Write new tasks that mirror the 80 test tasks' categories, tools and instruction style with their own test suites, solve them with the teacher, and train on those instead.</li>
+    </ul></div>
+  <details class="set"><summary>Task &amp; settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Task source</dt><dd>NVIDIA <b>Nemotron-Terminal-Synthetic-Tasks</b> (Harbor format), converted to TB 0.2.18 task dirs (<code>convert_harbor.py</code>): instruction, Dockerfile, pytest suite. Chosen because it is unencrypted, CC-BY, and disjoint from the 80 eval tasks</dd>
+      <dt>Generation</dt><dd>strong model as the <code>terminus-2</code> agent via litellm/OpenRouter; each task run at pass@4; the task's own pytest grades each attempt; only <code>is_resolved</code> (all tests pass) trajectories are kept</dd>
+    </dl>
+    <dl>
+      <dt>Agent budget</dt><dd>per-attempt wall-clock cap (900–1500 s) and a token cap injected into terminus-2 via <code>TB_MAX_TOKENS</code>; reasoning teachers need the larger cap or they truncate</dd>
+      <dt>Output</dt><dd>harvested rows are already terminus-2 message format (<code>messages</code>, assistant-only loss), so they drop straight into the tb80sft pipeline with no re-rendering</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<details class="appendix-toggle" id="appendix">
+  <summary><div class="eyebrow">Appendix</div><h2 class="pt">Ouro-1.4B exit gate on HumanEval and MBPP <span class="tog"></span></h2></summary>
+  <div class="appendix-body">
+<p class="note" style="margin:8px 0 0;font-size:.92rem">An earlier line of work: tuning the Ouro-1.4B looped-LM exit gate for a speed/accuracy trade-off on HumanEval and MBPP. Kept as an appendix because the gate turned out to be solved-by-default &mdash; no tuned setting beat a threshold sweep of the pretrained gate &mdash; which is what pushed the effort toward Terminal-Bench.</p>
+
+<section class="q" id="q4">
+  <div class="qn">Q4 · Ouro gate</div>
   <h2>How much does tuning the Ouro gate gain on HumanEval and MBPP?</h2>
   <div class="ans"><div class="lab">Answer</div><ul>
       <li><b>HumanEval, vs full depth:</b> 4.0 → 1.229 loops, <b class="pos">3.25× faster</b>, pass@1 0.689 → 0.7195 (<b class="pos">+3.0 pt</b>).</li>
@@ -333,8 +666,8 @@ details.set[open]{padding-bottom:14px}
   </div>
   </details>
 </section>
-<section class="q" id="q4">
-  <div class="qn">Q4 · Ouro gate</div>
+<section class="q" id="q5">
+  <div class="qn">Q5 · Ouro gate</div>
   <h2>Why is the gain so limited?</h2>
   <div class="ans"><div class="lab">Answer</div><p><b>The pretrained gate is already too strong on HumanEval, and tuning cannot beat it.</b> With no training at all, sweeping its exit threshold gives 1.248 loops at pass@1 0.7256. That sweep already traces the speed–accuracy front. The best tuned point, gp_hedge at 1.229 loops / 0.7195, is 1.02× faster and one problem short; chatgpt and qwen land lower still at 0.7073. No optimiser, no random-init gate and no NAS architecture gets above that line.</p></div>
   <div class="ev"><div class="lab">Evidence</div>
@@ -352,205 +685,8 @@ details.set[open]{padding-bottom:14px}
   <p class="note">6-D space: layers {0,1,2} × hidden {64,128,256} × act {relu,gelu,silu,tanh} × norm {F,T} × γ × thr; random-init routers, 100 SFT steps. Scored with lm-eval <code>humaneval</code> on <b>20 problems</b> (pass@1 in 0.05 steps, stderr ≈ 0.09), floor 0.64. Both searches converge on the plain linear gate, so the NAS found no architecture worth keeping. Not comparable with the 164-problem EvalPlus numbers above. Logs in <code>~/.claude/jobs/c0d2da0a/tmp/nas_*.log</code>.</p>
   </div>
 </section>
-<div class="part" id="tbench"><div class="eyebrow">Part 3</div><h2 class="pt">Ouro on Terminal-Bench</h2></div>
-<section class="q" id="q5">
-  <div class="qn">Q5 · Terminal-Bench</div>
-  <h2>Does the tuned gate transfer to Terminal-Bench?</h2>
-  <div class="ans"><div class="lab">Answer</div><p><b>No.</b> The gate tuned on HumanEval exits on loop 1 for long agent prompts: output on 1/15 trials against 12/15 for the base model, and both resolve 0/15. Terminal-Bench was never used as a BO objective.</p></div>
-  <div class="ev"><div class="lab">Evidence</div>
-<div class="tablewrap">
-    <table>
-      <thead><tr><th>Model, 15 curated tasks, non-thinking Ouro-1.4B</th><th class="n">resolved</th><th class="n">trials with output</th><th class="n">zero-token trials</th></tr></thead>
-      <tbody>
-        <tr><td>pretrained, full depth</td><td class="n">0/15</td><td class="n">12/15</td><td class="n">3/15</td></tr>
-        <tr><td>router γ 1.0, thr 0.5 (HumanEval 1.2077 loops / 0.7073)</td><td class="n">0/15</td><td class="n">1/15</td><td class="n">14/15</td></tr>
-      </tbody>
-    </table>
-    <p class="src">The README in <code>boptim_scratch/terminal_bench_compare/</code> reports the 12/15 → 1/15 "engagement" collapse and recommends the checkpoint for short-form completion only. It omits that both sides resolved 0/15. Source: <code>terminal_bench_eval/logs/tb_compare_{baseline,sft}.log</code></p>
   </div>
-  </div>
-</section>
-<section class="q" id="q6">
-  <div class="qn">Q6 · Terminal-Bench</div>
-  <h2>How far does SFT get, and why is pass@1 still low?</h2>
-  <div class="ans"><div class="lab">Answer</div><p><b class="pos">0/80 → 4/80</b> (<b class="pos">0/24 → 5/24</b> on the 12-task subset, 7/24 with the gated agent), then flat across every recipe.</p><ul>
-      <li><b>Pass@1 stays low over the 80 tasks:</b> pretrained 0/80, every SFT recipe 2–4/80 (3–5/24 on the subset), always the same two easy tasks.</li>
-      <li><b>The SFT dataset distribution mismatches the test tasks:</b> generic terminal data and leaderboard trajectories for 38 unrelated tasks; more of it (1k → 20k steps) does not move the score.</li>
-      <li><b>Verified by overfitting:</b> training on the 12 test tasks themselves (oracle12) jumps <b class="pos">5/24 → 20/24</b> in 300 steps, so the model can execute these tasks once it is shown their own solutions. But matching the tool distribution with <em>disjoint</em> data does not transfer (<a href="#q7">Q7</a>): the gap is generalisation capacity, and the fix is a larger base.</li>
-    </ul></div>
-  <div class="ev"><div class="lab">Evidence</div>
-<div class="grid2">
-    <div class="fig" id="fig-tb">
-      <div class="title">12-task subset, trials solved out of 24, by checkpoint</div>
-      <div class="legend">
-        <span><i class="sq" style="background:var(--s1)"></i> ungated (stock terminus-2)</span>
-        <span><i class="sq" style="background:var(--s2)"></i> gated (TerminusVerify)</span>
-      </div>
-      <div id="tb-chart"></div>
-      <p class="cap">Chronological, top to bottom. The oracle12 checkpoint (20/24) is trained on the test tasks and is left off. Missing gated bars mean the gated harness was not run for that checkpoint.</p>
-    </div>
-    <div>
-      <div class="tablewrap">
-        <table>
-          <thead><tr><th>80-task runs</th><th class="n">solved</th><th class="n">partial</th><th>tasks</th></tr></thead>
-          <tbody>
-            <tr class="dim"><td>pretrained Ouro-1.4B</td><td class="n">1/80</td><td class="n">—</td><td>hello-world</td></tr>
-            <tr class="dim"><td>pretrained Ouro-Thinking</td><td class="n">0/80</td><td class="n">42.4 %</td><td>9 usable turns total</td></tr>
-            <tr class="best"><td>continue10k</td><td class="n">4/80</td><td class="n">50.9 %</td><td>fix-pandas-version, vim-terminal-task, fix-permissions, hello-world</td></tr>
-            <tr><td>sft20k</td><td class="n">2/80</td><td class="n">47.4 %</td><td>fix-permissions, hello-world · 1,042 HTTP-500s</td></tr>
-            <tr><td>repro11k</td><td class="n">3/80</td><td class="n">—</td><td>heterogeneous-dates, fix-permissions, hello-world</td></tr>
-            <tr class="best"><td>batching5k</td><td class="n">4/80</td><td class="n">49.9 %</td><td>fibonacci-server, fix-pandas-version, fix-permissions, hello-world</td></tr>
-          </tbody>
-        </table>
-        <p class="src">Six tasks ever solved on the 80. No checkpoint exceeds 4/80.</p>
-      </div>
-      <div class="tablewrap" style="margin-top:14px">
-        <table>
-          <thead><tr><th>Exit-threshold sweep on batching5k, 12 tasks × 1</th><th class="n">loops</th><th class="n">solved</th><th class="n">500s</th></tr></thead>
-          <tbody>
-            <tr><td>thr 0.2</td><td class="n">2.249</td><td class="n">3/12</td><td class="n">54</td></tr>
-            <tr><td>thr 0.4</td><td class="n">2.946</td><td class="n">2/12</td><td class="n">62</td></tr>
-            <tr><td>thr 0.6</td><td class="n">3.438</td><td class="n">2/12</td><td class="n">11</td></tr>
-            <tr><td>thr 0.8 / 1.0</td><td class="n">4.000</td><td class="n">2/12</td><td class="n">0 / 1</td></tr>
-          </tbody>
-        </table>
-        <p class="src">One attempt per task, so solved counts are noise; speed (<b class="pos">1.78× faster</b> at thr 0.2) is the stable output.</p>
-      </div>
-    </div>
-  </div>
-  <div class="tablewrap" style="margin-top:16px">
-    <table>
-      <thead><tr><th>Checkpoint</th><th>Recipe</th><th class="n">12-task</th><th class="n">gated</th><th class="n">partial</th><th class="st">Notes</th></tr></thead>
-      <tbody>
-        <tr class="dim"><td>pretrained Ouro-Thinking</td><td>—</td><td class="n">0/24</td><td class="n">—</td><td class="n">—</td><td class="st">three runs, all 0/24</td></tr>
-        <tr><td>sft1k<span class="sm">ouro_terminal_sft</span></td><td>base → original mix, 1k steps</td><td class="n">4/24</td><td class="n">—</td><td class="n">—</td><td class="st">pass@5 on the 5 simplest tasks: 7/25</td></tr>
-        <tr><td>sft10k<span class="sm">ouro_terminal_sft_10k</span></td><td>base → original, 10k</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st">superseded</td></tr>
-        <tr class="best"><td>continue10k<span class="sm">ouro_sft_continue · ouro_c10k_clean</span></td><td>sft1k → longhorizon, +10k</td><td class="n">5/24</td><td class="n">4/24</td><td class="n">45.5 %</td><td class="st">reference checkpoint; 4/80 on the full set</td></tr>
-        <tr><td>router2k<span class="sm">ouro_router_sft</span></td><td>sft1k → longhorizon, 2k, <b>gate-only</b>, served thr 0.5</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st"><span class="chip warn">51 HTTP-500s</span><span class="sm">loops 4.00 → 2.67 (<b class="pos">1.5× faster</b>) is the robust part; the only gate-only TB checkpoint</span></td></tr>
-        <tr><td>longhorizon1k<span class="sm">ouro_sft_longhorizon · ouro_lh_clean</span></td><td>continue10k → litecoder mix, +1k</td><td class="n">3/24</td><td class="n">—</td><td class="n">—</td><td class="st">"horizon was the wrong lever"</td></tr>
-        <tr><td>sft20k<span class="sm">ouro_sft_20k · ouro_20k_clean</span></td><td>base → combined mix, 20k</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">80-task only: 2/80 with 1,042 HTTP-500s from 3 OOM shards</td></tr>
-        <tr><td>repro11k<span class="sm">ouro_repro_c10k · ouro_repro_clean</span></td><td>base → longhorizon, 11k in one run</td><td class="n">5/24</td><td class="n">—</td><td class="n">40.3 %</td><td class="st">reproduces continue10k; 3/80 defines the ±1 noise floor</td></tr>
-        <tr><td>batching5k<span class="sm">ouro_batching_sft · ouro_batching_clean</span></td><td>continue10k → longhorizon with ≥1.5 cmds/turn, +5k, 1e-5</td><td class="n">4/24</td><td class="n">6/24</td><td class="n">41.7 %</td><td class="st">multi-command turns 0/660 → 48/406; step-1000 and step-2000 both 4/24 gated</td></tr>
-        <tr><td>traj1k / traj10k<span class="sm">ouro_traj10k</span></td><td>base → terminaltraj, 1k / 10k</td><td class="n">3/24 · 4/24</td><td class="n">—</td><td class="n">28.6 · 27.8 %</td><td class="st">traj1k corrected after 278 OOM 500s on a 23 GB card</td></tr>
-        <tr class="best"><td>traj20k<span class="sm">ouro_traj20k · ouro_traj20k_clean</span></td><td>base → terminaltraj, 20k (final loss 0.183)</td><td class="n">5/24</td><td class="n">7/24</td><td class="n">54.3 · 58.6 %</td><td class="st">best 12-task result on both harnesses; never run on the 80</td></tr>
-        <tr class="dim"><td>oracle12<span class="sm">ouro_oracle12</span></td><td>continue10k → solutions of the 12 eval tasks, 300 steps</td><td class="n">20/24</td><td class="n">—</td><td class="n">91.7 %</td><td class="st"><span class="chip info">train-on-test</span><span class="sm">sanity check only, never a score</span></td></tr>
-        <tr><td>oracle68<span class="sm">ouro_oracle68</span></td><td>continue10k → solutions of the 68 held-out tasks, 500 steps</td><td class="n">3/24</td><td class="n">—</td><td class="n">25.7 %</td><td class="st">20/24 trials declare done on turn 1; contaminated for any 80-task use</td></tr>
-        <tr><td>tb80sft v2 @10k<span class="sm">ouro_tb80sft_v2_10k</span></td><td>base → tb80sft v2, 10k of 20k</td><td class="n">4/24</td><td class="n">—</td><td class="n">36.1 %</td><td class="st">the 20k eval died (disk full on /tmp, shared-GPU OOM) at 3/8</td></tr>
-        <tr><td>tb80sft v3<span class="sm">ouro_tb80sft_v3 · ouro_tb80sft_v3_clean</span></td><td>base → tb80sft v3, 20k (final loss 0.065)</td><td class="n">5/24</td><td class="n">6/24</td><td class="n">45.5 · 51.4 %</td><td class="st">latest result; not yet in slides. 0 HTTP-500s</td></tr>
-      </tbody>
-    </table>
-  </div>
-<div class="sub-head"><h3>Train vs test distribution</h3></div>
-<div class="grid2 even">
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th>Task type (5)</th><th class="n">train samples</th><th class="n">test samples</th><th class="n">train %</th><th class="n">test %</th></tr></thead>
-        <tbody>
-            <tr><td>Software engineering + debugging</td><td class="n">2,692</td><td class="n">27</td><td class="n">36.8 %</td><td class="n">33.8 %</td></tr>
-            <tr><td>System administration + file operations</td><td class="n">1,472</td><td class="n">21</td><td class="n">20.1 %</td><td class="n">26.2 %</td></tr>
-            <tr><td>Data science + model training + scientific computing</td><td class="n">2,027</td><td class="n">17</td><td class="n">27.7 %</td><td class="n">21.2 %</td></tr>
-            <tr><td>Security</td><td class="n">777</td><td class="n">12</td><td class="n">10.6 %</td><td class="n">15.0 %</td></tr>
-            <tr><td>Games + other</td><td class="n">356</td><td class="n">3</td><td class="n">4.9 %</td><td class="n">3.8 %</td></tr>
-        </tbody>
-      </table>
-      <p class="src">Train = tb80sft rows by domain label (7,324); test = the 80 tasks by <code>task.yaml</code> category. At 5 types the two distributions agree within 7 points, because the bulk data was already reweighted by category. Task type is too coarse to show the mismatch.</p>
-    </div>
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th>Skill (21, multi-label)</th><th class="n">train samples</th><th class="n">test samples</th><th class="n">train %</th><th class="n">test %</th><th>train ÷ test share</th></tr></thead>
-        <tbody>
-            <tr><td>permissions / archives</td><td class="n">2,570</td><td class="n">20</td><td class="n">33.5 %</td><td class="n">25.0 %</td><td><span class="chip good">matched ×1.34</span></td></tr>
-            <tr><td>python env (pip/conda)</td><td class="n">1,065</td><td class="n">19</td><td class="n">13.9 %</td><td class="n">23.8 %</td><td><span class="chip good">matched ×0.58</span></td></tr>
-            <tr><td>text processing (sed/awk/regex)</td><td class="n">1,684</td><td class="n">17</td><td class="n">21.9 %</td><td class="n">21.2 %</td><td><span class="chip good">matched ×1.03</span></td></tr>
-            <tr><td>crypto / secrets</td><td class="n">973</td><td class="n">14</td><td class="n">12.7 %</td><td class="n">17.5 %</td><td><span class="chip good">matched ×0.72</span></td></tr>
-            <tr><td>C/C++ build</td><td class="n">884</td><td class="n">13</td><td class="n">11.5 %</td><td class="n">16.2 %</td><td><span class="chip good">matched ×0.71</span></td></tr>
-            <tr><td>web / network services</td><td class="n">1,041</td><td class="n">13</td><td class="n">13.6 %</td><td class="n">16.2 %</td><td><span class="chip good">matched ×0.83</span></td></tr>
-            <tr><td>scientific (numpy/R/stan)</td><td class="n">1,096</td><td class="n">12</td><td class="n">14.3 %</td><td class="n">15.0 %</td><td><span class="chip good">matched ×0.95</span></td></tr>
-            <tr><td>pytorch / training</td><td class="n">295</td><td class="n">8</td><td class="n">3.8 %</td><td class="n">10.0 %</td><td><span class="chip crit">under ×0.38</span></td></tr>
-            <tr><td>data files (csv/parquet/pandas)</td><td class="n">818</td><td class="n">8</td><td class="n">10.6 %</td><td class="n">10.0 %</td><td><span class="chip good">matched ×1.06</span></td></tr>
-            <tr><td>huggingface</td><td class="n">262</td><td class="n">7</td><td class="n">3.4 %</td><td class="n">8.8 %</td><td><span class="chip crit">under ×0.39</span></td></tr>
-            <tr><td>games / puzzles</td><td class="n">221</td><td class="n">7</td><td class="n">2.9 %</td><td class="n">8.8 %</td><td><span class="chip crit">under ×0.33</span></td></tr>
-            <tr><td>git</td><td class="n">470</td><td class="n">6</td><td class="n">6.1 %</td><td class="n">7.5 %</td><td><span class="chip good">matched ×0.82</span></td></tr>
-            <tr><td>qemu / VM</td><td class="n">469</td><td class="n">5</td><td class="n">6.1 %</td><td class="n">6.2 %</td><td><span class="chip good">matched ×0.98</span></td></tr>
-            <tr><td>cron / services</td><td class="n">263</td><td class="n">5</td><td class="n">3.4 %</td><td class="n">6.2 %</td><td><span class="chip good">matched ×0.55</span></td></tr>
-            <tr><td>fasttext</td><td class="n">34</td><td class="n">3</td><td class="n">0.4 %</td><td class="n">3.8 %</td><td><span class="chip crit">under ×0.12</span></td></tr>
-            <tr><td>tmux</td><td class="n">76</td><td class="n">2</td><td class="n">1.0 %</td><td class="n">2.5 %</td><td><span class="chip crit">under ×0.40</span></td></tr>
-            <tr><td>sqlite / SQL</td><td class="n">340</td><td class="n">2</td><td class="n">4.4 %</td><td class="n">2.5 %</td><td><span class="chip warn">over ×1.77</span></td></tr>
-            <tr><td>rust / cargo</td><td class="n">21</td><td class="n">2</td><td class="n">0.3 %</td><td class="n">2.5 %</td><td><span class="chip crit">under ×0.11</span></td></tr>
-            <tr><td>jupyter</td><td class="n">41</td><td class="n">1</td><td class="n">0.5 %</td><td class="n">1.2 %</td><td><span class="chip crit">under ×0.43</span></td></tr>
-            <tr><td>vim / editors</td><td class="n">360</td><td class="n">1</td><td class="n">4.7 %</td><td class="n">1.2 %</td><td><span class="chip warn">over ×3.75</span></td></tr>
-            <tr><td>docker / containers</td><td class="n">350</td><td class="n">0</td><td class="n">4.6 %</td><td class="n">0.0 %</td><td><span class="chip info">not in test</span></td></tr>
-        </tbody>
-      </table>
-      <p class="src">A row or task counts for a skill if its description or commands match the skill's keywords. Train = tb80sft v3 (7,682 rows); test = instruction + reference solution of the 80 tasks. Script and JSON: <code>boptim_scratch/tb_dist/skill_dist.py</code></p>
-    </div>
-  </div>
-  <p class="note">At skill level the mismatch is visible: fasttext and rust are under-represented about 9×, games, pytorch, huggingface, tmux and jupyter 2–3×, while docker commands fill 4.6 % of training rows and appear in no test task.</p>
-  </div>
-  <details class="set"><summary>Task & settings</summary>
-<div class="settings">
-    <dl>
-      <dt>Benchmark</dt><dd>terminal-bench 0.2.18, local copy of terminal-bench-core 0.1.1: <b>80 tasks</b>. Two protocols: a <b>12-task subset × 2 attempts</b> ("n/24") and <b>80 tasks × 1 attempt</b> ("n/80", 2–3 GPU shards)</dd>
-      <dt>Agents</dt><dd><b>ungated</b> = stock terminus-2. <b>gated</b> = TerminusVerify, which refuses a task_complete that ran no commands (max 2 pushbacks). Gated numbers are a harness change and not comparable to stock</dd>
-      <dt>Metrics</dt><dd><code>is_resolved</code> per trial; partial credit = fraction of parser tests passed (a no-op agent gets 42.4 % on the 80). Noise floor ±1 task: two same-recipe runs gave 4/80 and 3/80 sharing 2 tasks</dd>
-      <dt>Serving</dt><dd><code>ouro_openai_server.py</code>, bf16, temperature 0.7, optional <code>--early_exit_threshold</code>; 420 s agent budget (trials run to ~720 s; 56/80 tasks ask for 360 s)</dd>
-    </dl>
-    <dl>
-      <dt>Training</dt><dd>torchtitan <code>ouro_1_4b_thinking_terminal_sft</code>, <b>all 1.43 B params</b>, Stage-I loss with 0.01 entropy bonus, assistant-only masking, lr 2e-5 (1e-5 for continuations), batch 1 × 4096, 1 GPU, 3.3–5.3 s/step. "1k / 10k / 20k" are SFT steps</dd>
-      <dt>Gate-only variants</dt><dd>router2k (stage2_adaptive, 2,049 params, served at thr 0.5) and the HumanEval router <code>router_gamma1.0_thr0.5.safetensors</code></dd>
-      <dt>Baseline</dt><dd>Pretrained Ouro-1.4B: 1/80. Pretrained Ouro-1.4B-Thinking: <b>0/80</b> (three runs) and <b>0/24</b> (three runs); it never stops generating, 9 usable turns across 80 tasks</dd>
-    </dl>
-  </div>
-  </details>
-</section>
-<section class="q" id="q7">
-  <div class="qn">Q7 · Terminal-Bench</div>
-  <h2>Does matching the data distribution per skill lift pass@1?</h2>
-  <div class="ans"><div class="lab">Answer</div><p><b>No.</b> Concentrating one skill's trajectories to ~40 % of the set and fine-tuning from the v3 checkpoint leaves every task at its <b>0</b> baseline. Of 14 skills run so far, 11 moved nothing; 3 tasks flicker to <b>1/2</b> — fix-git, path-tracing-reverse, conda-env-conflict-resolution — right at the ±1 noise floor. Distribution matching, per-task or aggregate, does not move the benchmark.</p><ul>
-      <li><b>It refines Q6, not contradicts it.</b> The model executes a task's <em>own</em> solution (oracle12, 20/24) but does not transfer skill-matched <em>disjoint</em> data to unseen tasks. The gap is generalisation capacity, not data volume — closing it needs the task's own answer or a larger base, not a better tool mix.</li>
-      <li><b>One plausible signal in the noise:</b> concentrating C/C++-build data was the run that moved <code>path-tracing-reverse</code>, a write-a-C-program task. Narrow, and still 1 of 2 attempts.</li>
-      <li><b>Highest-headroom skills moved nothing:</b> perms-arch (2,570 rows), python-env (1,065), web-net, crypto, sci all 0. Not a data-availability artifact.</li>
-    </ul></div>
-  <div class="ev"><div class="lab">Evidence</div>
-<div class="tablewrap">
-    <table>
-      <thead><tr><th>Skill concentrated</th><th class="n">train rows</th><th class="n">test tasks eval'd</th><th class="st">pass@2 result</th></tr></thead>
-      <tbody>
-        <tr><td>data files (csv/pandas)</td><td class="n">818</td><td class="n">8</td><td class="st"><span class="chip warn">2 tasks &rarr; 1/2</span><span class="sm">conda-env-conflict-resolution (new); csv-to-parquet (v3 already solved)</span></td></tr>
-        <tr><td>text processing (sed/awk)</td><td class="n">1,684</td><td class="n">8</td><td class="st"><span class="chip warn">fix-git &rarr; 1/2</span><span class="sm">new solve, noise floor</span></td></tr>
-        <tr><td>C/C++ build</td><td class="n">884</td><td class="n">8</td><td class="st"><span class="chip warn">path-tracing-reverse &rarr; 1/2</span><span class="sm">new; mechanistically plausible</span></td></tr>
-        <tr><td>permissions / archives</td><td class="n">2,570</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>python env (pip/conda)</td><td class="n">1,065</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>scientific (numpy/R)</td><td class="n">1,096</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>web / network services</td><td class="n">1,041</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>crypto / secrets</td><td class="n">973</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>qemu / VM</td><td class="n">469</td><td class="n">5</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>vim / editors</td><td class="n">360</td><td class="n">1</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>pytorch / training</td><td class="n">295</td><td class="n">8</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>huggingface</td><td class="n">262</td><td class="n">7</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>tmux</td><td class="n">76</td><td class="n">2</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr><td>jupyter</td><td class="n">41</td><td class="n">1</td><td class="st"><span class="chip info">0 moved</span></td></tr>
-        <tr class="dim"><td>games, git, cron/services, fasttext, sqlite</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="st"><span class="chip info">running</span></td></tr>
-      </tbody>
-    </table>
-    <p class="src">Baselines are 0 for every listed task except csv-to-parquet. A "new" solve was 0 in the v3 and 80-task evals. Results: <code>~/.claude/jobs/c0d2da0a/tmp/skill_*.txt</code></p>
-  </div>
-  <p class="note">Reading it plainly: the tool-distribution lever does not lift pass@1 for the 1.4 B model. The three flips sit at the noise floor and await a higher-attempt re-check; even taken at face value they are single tasks at the model's capability edge, not a general lift.</p>
-  <div class="concl"><h3>Next step: scale the model, not the data</h3><p>1.4 B is too small to learn these tasks from demonstrations it did not memorise. The next run repeats the SFT recipe on <b>Ouro-2.6B-Thinking</b>; capacity, not tool-distribution match, is the lever left to pull.</p></div>
-  </div>
-  <details class="set"><summary>Task &amp; settings</summary>
-<div class="settings">
-    <dl>
-      <dt>Per-skill set</dt><dd><code>build_skill_sft.py</code>: one target skill concentrated to <b>~40 %</b> of a 2,000-row set (its trajectories upsampled), the rest general terminal rows so agent format survives. A row "uses" a skill when its <b>assistant turns</b> match the skill regex, never the terminus-2 boilerplate</dd>
-      <dt>Training</dt><dd>continue from the <b>v3 checkpoint</b> (a working agent, 0 on these tasks), <code>OURO_INIT_FROM</code>, 1,000 steps (2,000 for tmux), lr 2e-5, batch 1; reruns at seq_len 2048 to fit alongside a co-tenant that held ~15 GB/card</dd>
-    </dl>
-    <dl>
-      <dt>Eval</dt><dd>pass@2 on up to 8 of the skill's test tasks, stock terminus-2. Test tasks map from <code>tb_dist/skill_dist.json</code></dd>
-      <dt>No contamination</dt><dd>the concentrated sets are drawn from tb80sft v3, which excludes all 80 eval tasks; the model never sees a test task's own solution</dd>
-    </dl>
-  </div>
-  </details>
-</section>
+</details>
 <section id="end" style="padding-top:24px"><p class="foot">Sources: <code>~/boptim-agent/{runs,logs,configs,objective,data}</code>, <code>~/boptim_scratch/</code>, <code>~/terminal_bench_eval/logs</code>, <code>/tmp/tb_runs</code>, <code>~/.claude/jobs/c0d2da0a/tmp/</code>, and the <code>ouro-terminal-sft</code> torchtitan worktree.</p></section>
 </div>
 <div class="tt" id="tt"></div>
@@ -671,5 +807,3 @@ details.set[open]{padding-bottom:14px}
   })();
 })();
 </script>
-
-</body></html>

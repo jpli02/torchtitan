@@ -168,13 +168,13 @@ details.set[open]{padding-bottom:14px}
 <header>
   <div class="eyebrow">boptim-agent · Bayesian optimisation with GP and LLM optimisers</div>
   <h1>boptim Experiments</h1>
-  <p class="sub">Seven questions about what the optimisers achieved on CIFAR-10, on the Ouro-1.4B exit gate, and on Terminal-Bench. Each section asks one question, answers it first, then shows the evidence.</p>
+  <p class="sub">Eight questions about what the optimisers achieved on CIFAR-10, on the Ouro-1.4B exit gate, and on Terminal-Bench. Each section asks one question, answers it first, then shows the evidence.</p>
 </header>
 <div class="part" id="cifar"><div class="eyebrow">Part 1</div><h2 class="pt">CIFAR-10 hyperparameter search</h2></div>
 <section class="q" id="q1">
   <div class="qn">Q1 · CIFAR-10</div>
   <h2>How much can BO improve CIFAR-10 accuracy?</h2>
-  <div class="ans"><div class="lab">Answer</div><p><b>About 1 point.</b> gp_hedge reaches <b class="pos">0.910 test accuracy</b>; gpt-5-mini and qwen3.5-9b reach 0.897–0.900 under the same 10-evaluation budget.</p></div>
+  <div class="ans"><div class="lab">Answer</div><p><b>About 1 point.</b> gp_hedge reaches <b class="pos">0.910 test accuracy</b>; gpt-5-mini, gpt-5.6-luna and qwen3.5-9b reach 0.897–0.900 under the same 10-evaluation budget.</p></div>
   <div class="ev"><div class="lab">Evidence</div>
 <div class="tablewrap">
     <table>
@@ -183,12 +183,13 @@ details.set[open]{padding-bottom:14px}
         <tr class="best"><td>gp_hedge</td><td>—</td><td class="n">0.910</td><td class="n">0.000</td><td class="n">—</td><td class="st"><span class="chip good">done</span></td></tr>
         <tr><td>qwen3.5-9b</td><td>off</td><td class="n">0.900</td><td class="n">0.0033</td><td class="n">−1.0 pt</td><td class="st"><span class="chip good">done</span></td></tr>
         <tr><td>gpt-5-mini</td><td>on</td><td class="n">0.899</td><td class="n">0.000</td><td class="n">−1.1 pt</td><td class="st"><span class="chip good">done</span></td></tr>
+        <tr><td>gpt-5.6-luna</td><td>on</td><td class="n">0.899</td><td class="n">0.0017</td><td class="n">−1.1 pt</td><td class="st"><span class="chip good">done</span><span class="sm">replicates 0.8977 and 0.9010</span></td></tr>
         <tr><td>gpt-5-mini</td><td>off</td><td class="n">0.898</td><td class="n">0.000</td><td class="n">−1.2 pt</td><td class="st"><span class="chip good">done</span></td></tr>
         <tr><td>qwen3.5-9b</td><td>on</td><td class="n">0.8966</td><td class="n">0.000</td><td class="n">−1.3 pt</td><td class="st"><span class="chip good">done</span></td></tr>
       </tbody>
     </table>
   </div>
-  <p class="note">Setting for every row: n_epochs 10, train_batch_size 128, batch_size 1, max_iter 10, optim_seed 42, objective_seed 42, 2 replicates. Configs: <code>configs/cifar10_{gp_hedge,gpt,gpt_explanation,qwen3.5_9b,qwen3.5_9b_explanation}.yaml</code>.</p>
+  <p class="note">Setting for every row: n_epochs 10, train_batch_size 128, batch_size 1, max_iter 10, optim_seed 42, objective_seed 42, 2 replicates. Configs: <code>configs/cifar10_{gp_hedge,gpt,gpt_explanation,gpt56_luna_explanation,qwen3.5_9b,qwen3.5_9b_explanation}.yaml</code>.</p>
   </div>
   <details class="set"><summary>Task & settings</summary>
 <div class="settings">
@@ -198,8 +199,8 @@ details.set[open]{padding-bottom:14px}
       <dt>Budget</dt><dd><code>max_iter 10</code>, <code>batch_size 1</code>, <code>optim_seed 42</code>, <code>objective_seed 42</code>, 2 replicates.</dd>
     </dl>
     <dl>
-      <dt>Optimisers configured</dt><dd>gp_hedge, gpt (with and without explanation), qwen3-4b, qwen3-8b, qwen3.5-9b · <code>configs/cifar10_*.yaml</code></dd>
-      <dt>Hardware</dt><dd>4× A6000 on the collaborator's branch <code>pw29/cifar_datagen</code>; locally the qwen optimiser needs vllm (not installed) or an API endpoint</dd>
+      <dt>Optimisers configured</dt><dd>gp_hedge, gpt-5-mini (with and without explanation), gpt-5.6-luna (explanation on, via OpenRouter), qwen3-4b, qwen3-8b, qwen3.5-9b · <code>configs/cifar10_*.yaml</code></dd>
+      <dt>Hardware</dt><dd>4× A6000 on the collaborator's branch <code>pw29/cifar_datagen</code>; gpt-5.6-luna on one local A6000 (branch <code>worktree-cifar-save-trajectory</code>); locally the qwen optimiser needs vllm (not installed) or an API endpoint</dd>
     </dl>
   </div>
   </details>
@@ -207,16 +208,82 @@ details.set[open]{padding-bottom:14px}
 <section class="q" id="q2">
   <div class="qn">Q2 · CIFAR-10</div>
   <h2>What is the main reason for the gain?</h2>
-  <div class="ans"><div class="lab">Answer</div><p><b>Search guided by a surrogate model.</b> The GP uses the observed history; the LLMs mostly propose known-good ResNet settings.</p><ul>
+  <div class="ans"><div class="lab">Answer</div><p><b>Search guided by a surrogate model.</b> The GP uses the observed history; the LLMs start from a fixed opening and then exploit it.</p><ul>
       <li><b>gp_hedge 0.910 vs LLMs 0.897–0.900.</b> On a smooth 3-D SGD space with 10 evaluations, the GP surrogate searches better than an LLM reading the history.</li>
-      <li><b>Explanation mode changes nothing:</b> gpt-5-mini 0.898 → 0.899, qwen3.5-9b 0.900 → 0.8966. The written reasoning does not steer the proposals.</li>
-      <li><b>LLMs cluster within 0.4 pt of each other</b> in both modes: prior knowledge of good ResNet settings, not search.</li>
+      <li><b>Neither explanation mode nor a stronger model changes it:</b> gpt-5-mini 0.898 → 0.899 with explanations, qwen3.5-9b 0.900 → 0.8966, gpt-5.6-luna 0.899.</li>
       <li><b>n = 2 seeds, 1-pt effect.</b> Directional only.</li>
     </ul></div>
 </section>
-<div class="part" id="ouro"><div class="eyebrow">Part 2</div><h2 class="pt">Ouro-1.4B exit gate on HumanEval and MBPP</h2></div>
 <section class="q" id="q3">
-  <div class="qn">Q3 · Ouro gate</div>
+  <div class="qn">Q3 · CIFAR-10 · Interpretability</div>
+  <h2>Do the LLM optimisers do what their explanations say?</h2>
+  <div class="ans"><div class="lab">Answer</div><p><b>No.</b> Both GPT models write about exploration and acquisition functions, but scored against a GP fitted to the history they saw, their picks sit near the top of the GP's predicted mean and at the bottom of its uncertainty: they exploit.</p><ul>
+      <li><b>Fixed opening:</b> the exact midpoint of the box first (102 of 102 runs), then a corner (101 of 102). Nothing in the prompt is used as a prior.</li>
+      <li><b>Words and moves disagree:</b> gpt-5-mini cites EI or a surrogate in 62 % of steps and mentions exploration in 91 % of plans, yet 54 % of those "exploring" steps stay within 0.10 of the incumbent.</li>
+      <li><b>Noise-chasing:</b> evaluation noise is σ ≈ 0.0036 accuracy; 86 % of gpt-5-mini's late "improvements" are within 2σ, and 3 % of its explanations mention noise.</li>
+      <li><b>gpt-5.6-luna is honest but degenerate:</b> it says "exploit", pins lr and momentum at the midpoint after eval 2, and line-searches weight decay in noise-sized steps.</li>
+    </ul></div>
+  <div class="ev"><div class="lab">Evidence</div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Probe</th><th class="n">gpt-5-mini<span class="sm">100 trajectories · 15 evals · 1,500 points</span></th><th class="n">gpt-5.6-luna<span class="sm">2 trajectories · 10 evals</span></th></tr></thead>
+      <tbody>
+        <tr><td>First point is the exact midpoint of the box</td><td class="n">100 %</td><td class="n">100 %</td></tr>
+        <tr><td>Second point is a corner of the box <span class="sm">mean accuracy there</span></td><td class="n">99 %<span class="sm">0.171</span></td><td class="n">100 %<span class="sm">0.346</span></td></tr>
+        <tr><td>Median step from the incumbent, evals 2+ <span class="sm">normalised box; a random point averages 0.66</span></td><td class="n">0.082</td><td class="n">0.188</td></tr>
+        <tr><td>Share of the search space covered by evals 2+ <span class="sm">median bounding box</span></td><td class="n">8 %</td><td class="n">16 %</td></tr>
+        <tr><td>Steps whose explanation cites EI / LCB / PI / acquisition</td><td class="n">62 %</td><td class="n">0 %</td></tr>
+        <tr><td>Plans that mention exploration</td><td class="n">91 %</td><td class="n">19 %</td></tr>
+        <tr><td>Explanations that mention evaluation noise</td><td class="n">3 %</td><td class="n">0 %</td></tr>
+        <tr class="best"><td>Percentile of the pick under the GP's <b>predicted mean</b> <span class="sm">100 = the most exploitative of 2,000 random candidates</span></td><td class="n">92</td><td class="n">100</td></tr>
+        <tr class="best"><td>Percentile under the GP's <b>posterior uncertainty</b> <span class="sm">100 = the most exploratory candidate</span></td><td class="n">1.4</td><td class="n">0</td></tr>
+        <tr><td>Percentile under <b>expected improvement</b></td><td class="n">61</td><td class="n">0.4</td></tr>
+        <tr><td>Late "improvements" (eval 3+) smaller than 2σ of evaluation noise</td><td class="n">86 %</td><td class="n">—</td></tr>
+      </tbody>
+    </table>
+    <p class="src">Percentiles are medians over steps 3+. gpt-5-mini data: the collaborator's <code>data/data_chatgpt*.zip</code> (15-eval runs, seeds 0–49, two hardware sets). Scripts: <code>boptim_scratch/gpt56_luna_cifar/{analyze,implied_acq}.py</code></p>
+  </div>
+<div class="sub-head"><h3>gpt-5.6-luna, every evaluation</h3></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th class="n">Eval</th><th class="n">lr</th><th class="n">momentum</th><th class="n">weight decay</th><th class="n">accuracy · seed 42</th><th class="n">lr</th><th class="n">momentum</th><th class="n">weight decay</th><th class="n">accuracy · seed 43</th></tr></thead>
+      <tbody>
+        <tr><td class="n">0</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.005</td><td class="n">0.8870</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.005</td><td class="n">0.8952</td></tr>
+        <tr class="dim"><td class="n">1</td><td class="n">0.001</td><td class="n">0.0</td><td class="n">0.0</td><td class="n">0.3407</td><td class="n">0.001</td><td class="n">0.0</td><td class="n">0.0</td><td class="n">0.3505</td></tr>
+        <tr class="dim"><td class="n">2</td><td class="n">0.375</td><td class="n">0.7425</td><td class="n">0.0075</td><td class="n">0.7463</td><td class="n">0.5</td><td class="n">0.99</td><td class="n">0.01</td><td class="n">0.1000</td></tr>
+        <tr><td class="n">3</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.01</td><td class="n">0.8721</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0075</td><td class="n">0.8929</td></tr>
+        <tr><td class="n">4</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0</td><td class="n">0.8203</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0025</td><td class="n">0.8979</td></tr>
+        <tr><td class="n">5</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0025</td><td class="n"><b>0.8977</b></td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0</td><td class="n">0.8460</td></tr>
+        <tr><td class="n">6</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.00375</td><td class="n">0.8934</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0015</td><td class="n">0.8898</td></tr>
+        <tr><td class="n">7</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.003</td><td class="n">0.8942</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0035</td><td class="n">0.8971</td></tr>
+        <tr><td class="n">8</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0022</td><td class="n">0.8835</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0027</td><td class="n">0.8949</td></tr>
+        <tr><td class="n">9</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0027</td><td class="n">0.8960</td><td class="n">0.25</td><td class="n">0.495</td><td class="n">0.0022</td><td class="n"><b>0.9010</b></td></tr>
+      </tbody>
+    </table>
+    <p class="src">gpt-5.6-luna, explanation on, every evaluation of both replicates; best in bold. Trajectories with the model's prompts and reasoning: <code>boptim_scratch/gpt56_luna_cifar/</code></p>
+  </div>
+  <div class="concl"><h3>Direction: score explanation faithfulness, then intervene</h3><ul>
+      <li><b>Implied acquisition function</b> as the metric: the GP-percentile scores above, per model and across the thinking × explanation grid; the post-trained Qwen agent is scored the same way.</li>
+      <li><b>Counterfactual history edits:</b> change one past value in the saved prompt and check whether the proposal and its stated reason move together. Needs LLM calls only, no CIFAR training.</li>
+      <li><b>Prompt interventions:</b> name the parameters (lr, momentum, weight decay) instead of x0–x2, state the noise level, print bounds with more decimals.</li>
+    </ul></div>
+  </div>
+  <details class="set"><summary>Task &amp; settings</summary>
+<div class="settings">
+    <dl>
+      <dt>Data</dt><dd>Every LLM run now saves its trajectory with the raw prompt, response and parsed "Analysis | Plan" per evaluation (<code>main.py</code> → <code>data/trajectories/runs/</code>, branch <code>worktree-cifar-save-trajectory</code>)</dd>
+      <dt>Implied acquisition</dt><dd>At each step a GP (Matérn 5/2, ARD, white noise, normalised inputs) is fitted to the history the model saw; its pick is ranked among 2,000 uniform candidates under posterior mean, posterior std and EI</dd>
+    </dl>
+    <dl>
+      <dt>Intent labels</dt><dd>Plan text is tagged explore / exploit by keyword counts (explore, space-filling, uncertain, far … vs exploit, refine, local, near the best …)</dd>
+      <dt>Noise</dt><dd>σ estimated from 6,714 pairs of evaluations closer than 0.02 in the normalised box: √(mean Δ² / 2)</dd>
+    </dl>
+  </div>
+  </details>
+</section>
+<div class="part" id="ouro"><div class="eyebrow">Part 2</div><h2 class="pt">Ouro-1.4B exit gate on HumanEval and MBPP</h2></div>
+<section class="q" id="q4">
+  <div class="qn">Q4 · Ouro gate</div>
   <h2>How much does tuning the Ouro gate gain on HumanEval and MBPP?</h2>
   <div class="ans"><div class="lab">Answer</div><ul>
       <li><b>HumanEval, vs full depth:</b> 4.0 → 1.229 loops, <b class="pos">3.25× faster</b>, pass@1 0.689 → 0.7195 (<b class="pos">+3.0 pt</b>).</li>
@@ -332,8 +399,8 @@ details.set[open]{padding-bottom:14px}
   </div>
   </details>
 </section>
-<section class="q" id="q4">
-  <div class="qn">Q4 · Ouro gate</div>
+<section class="q" id="q5">
+  <div class="qn">Q5 · Ouro gate</div>
   <h2>Why is the gain so limited?</h2>
   <div class="ans"><div class="lab">Answer</div><p><b>The pretrained gate is already too strong on HumanEval, and tuning cannot beat it.</b> With no training at all, sweeping its exit threshold gives 1.248 loops at pass@1 0.7256. That sweep already traces the speed–accuracy front. The best tuned point, gp_hedge at 1.229 loops / 0.7195, is 1.02× faster and one problem short; chatgpt and qwen land lower still at 0.7073. No optimiser, no random-init gate and no NAS architecture gets above that line.</p></div>
   <div class="ev"><div class="lab">Evidence</div>
@@ -352,8 +419,8 @@ details.set[open]{padding-bottom:14px}
   </div>
 </section>
 <div class="part" id="tbench"><div class="eyebrow">Part 3</div><h2 class="pt">Ouro on Terminal-Bench</h2></div>
-<section class="q" id="q5">
-  <div class="qn">Q5 · Terminal-Bench</div>
+<section class="q" id="q6">
+  <div class="qn">Q6 · Terminal-Bench</div>
   <h2>Does the tuned gate transfer to Terminal-Bench?</h2>
   <div class="ans"><div class="lab">Answer</div><p><b>No.</b> The gate tuned on HumanEval exits on loop 1 for long agent prompts: output on 1/15 trials against 12/15 for the base model, and both resolve 0/15. Terminal-Bench was never used as a BO objective.</p></div>
   <div class="ev"><div class="lab">Evidence</div>
@@ -369,13 +436,13 @@ details.set[open]{padding-bottom:14px}
   </div>
   </div>
 </section>
-<section class="q" id="q6">
-  <div class="qn">Q6 · Terminal-Bench</div>
+<section class="q" id="q7">
+  <div class="qn">Q7 · Terminal-Bench</div>
   <h2>How far does SFT get, and why is pass@1 still low?</h2>
   <div class="ans"><div class="lab">Answer</div><p><b class="pos">0/80 → 4/80</b> (<b class="pos">0/24 → 5/24</b> on the 12-task subset, 7/24 with the gated agent), then flat across every recipe.</p><ul>
       <li><b>Pass@1 stays low over the 80 tasks:</b> pretrained 0/80, every SFT recipe 2–4/80 (3–5/24 on the subset), always the same two easy tasks.</li>
       <li><b>The SFT dataset distribution mismatches the test tasks:</b> generic terminal data and leaderboard trajectories for 38 unrelated tasks; more of it (1k → 20k steps) does not move the score.</li>
-      <li><b>Verified by overfitting:</b> training on the 12 test tasks themselves (oracle12) jumps <b class="pos">5/24 → 20/24</b> in 300 steps, so the model can execute these tasks once it is shown their own solutions. But matching the tool distribution with <em>disjoint</em> data does not transfer (<a href="#q7">Q7</a>): the gap is generalisation capacity, and the fix is a larger base.</li>
+      <li><b>Verified by overfitting:</b> training on the 12 test tasks themselves (oracle12) jumps <b class="pos">5/24 → 20/24</b> in 300 steps, so the model can execute these tasks once it is shown their own solutions. But matching the tool distribution with <em>disjoint</em> data does not transfer (<a href="#q8">Q8</a>): the gap is generalisation capacity, and the fix is a larger base.</li>
     </ul></div>
   <div class="ev"><div class="lab">Evidence</div>
 <div class="grid2">
@@ -438,6 +505,18 @@ details.set[open]{padding-bottom:14px}
         <tr><td>tb80sft v3<span class="sm">ouro_tb80sft_v3 · ouro_tb80sft_v3_clean</span></td><td>base → tb80sft v3, 20k (final loss 0.065)</td><td class="n">5/24</td><td class="n">6/24</td><td class="n">45.5 · 51.4 %</td><td class="st">latest result; not yet in slides. 0 HTTP-500s</td></tr>
       </tbody>
     </table>
+  </div>
+<div class="sub-head"><h3>Dataset composition (tb80sft v3)</h3><p>7,682 multi-turn terminus-2 rows, assistant-only loss, disjoint from all 80 eval tasks.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Source</th><th class="n">rows</th><th>What</th></tr></thead>
+      <tbody>
+        <tr><td>Verified TB-2 on-distribution</td><td class="n">2,845</td><td>Terminal-Bench 2.0 leaderboard trajectories, reward = 1; 569 unique across 38 tasks (disjoint from the 80), re-rendered to terminus-2 and upsampled ×5 (terminus-2 2,540 + mini-swe-agent 305)</td></tr>
+        <tr><td>TerminalTraj bulk</td><td class="n">4,479</td><td>m-a-p/TerminalTraj finished trajectories, resampled by domain to the TB-80 category mix</td></tr>
+        <tr><td>Skill-mined thickening (v3)</td><td class="n">358</td><td>TerminalTraj mined by tool signature for thin skills: qemu 267, jupyter 33, tmux 32, fasttext 26</td></tr>
+      </tbody>
+    </table>
+    <p class="src">Build: <code>build_tb80_sft.py</code> (on-dist + bulk) + <code>build_tb80sft_v3.py</code> (skill-mined merge); miner <code>skill_mine.py</code>. The task-type table below is the 7,324-row v2 base by domain label; the 358 v3 skill rows are itemised above.</p>
   </div>
 <div class="sub-head"><h3>Train vs test distribution</h3></div>
 <div class="grid2 even">
@@ -502,8 +581,8 @@ details.set[open]{padding-bottom:14px}
   </div>
   </details>
 </section>
-<section class="q" id="q7">
-  <div class="qn">Q7 · Terminal-Bench</div>
+<section class="q" id="q8">
+  <div class="qn">Q8 · Terminal-Bench</div>
   <h2>Does matching the data distribution per skill lift pass@1?</h2>
   <div class="ans"><div class="lab">Answer</div><p><b>No.</b> Concentrating one skill's trajectories to ~40 % of the set and fine-tuning from the v3 checkpoint leaves every task at its <b>0</b> baseline. Of 14 skills run so far, 11 moved nothing; 3 tasks flicker to <b>1/2</b> — fix-git, path-tracing-reverse, conda-env-conflict-resolution — right at the ±1 noise floor. Distribution matching, per-task or aggregate, does not move the benchmark.</p><ul>
       <li><b>It refines Q6, not contradicts it.</b> The model executes a task's <em>own</em> solution (oracle12, 20/24) but does not transfer skill-matched <em>disjoint</em> data to unseen tasks. The gap is generalisation capacity, not data volume — closing it needs the task's own answer or a larger base, not a better tool mix.</li>
