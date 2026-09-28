@@ -178,9 +178,10 @@ is the [boptim Experiments page](https://claude.ai/artifact/RSGyFVwqfHdoFTnoBGNK
 
 | Branch | Contents |
 |---|---|
-| `worktree-ouro-terminal-sft` | Everything below: model, configs, SFT data builders, eval harness drivers, teacher generation. Research scripts sit at the repo root. |
+| `main` | Model, configs, and every research script under [`research/`](research/README.md): `bo_gate/` (exit-gate BO and HumanEval/MBPP evals), `terminal_sft/{data,train,eval,gen}/`, `qwen_bo_agent/`, `pretrain/`, `docs/`. |
+| `worktree-ouro-terminal-sft` | The working branch the experiments were run from; merged into `main`. |
 | `ouro-boptim` | The checkout used by [`boptim-agent`](https://github.com/jpli02/boptim-agent) for the exit-gate Bayesian-optimisation objective. |
-| `ouro-simple` | The original Slurm training wrapper (`run_ouro_train.slurm`); see the end of this section. |
+| `ouro-simple` | The original Slurm training wrapper (`research/pretrain/run_ouro_train.slurm`); see the end of this section. |
 
 Model code: [`torchtitan/models/ouro/`](torchtitan/models/ouro) (`model.py`, `parallelize.py`, `state_dict_adapter.py`,
 `config_registry.py`). HF assets are expected under `./assets/hf/<model>` (`Ouro-1.4B`, `Ouro-1.4B-Thinking`, ...);
@@ -218,7 +219,7 @@ OURO_SFT_LOCAL_JSONL=/path/to/train.jsonl MODULE=ouro CONFIG=ouro_1_4b_thinking_
 ```
 
 The research drivers below call `torchtitan.train` directly (not `run_train.sh`) so that the wrapper's default
-batch-size arguments do not override the config; read `run_v3.sh` for the canonical invocation.
+batch-size arguments do not override the config; read `research/terminal_sft/train/run_v3.sh` for the canonical invocation.
 
 ### Pipelines
 
@@ -230,7 +231,7 @@ steps at a proposed `adaptive_gamma`, exports the gate, and scores loops-per-tok
 | `scripts/evaluate_humaneval_evalplus.py`, `scripts/evaluate_mbpp.py` | benchmark evals with early-exit threshold, KV-cache and prompt-format flags |
 | `scripts/export_dcp_to_hf.py`, `scripts/extract_router.py` | DCP checkpoint to HF serving dir; pull the gate out as a `.safetensors` |
 | `scripts/ouro_openai_server.py` | OpenAI-compatible `/v1/chat/completions` server for a served checkpoint (`--early_exit_threshold`) |
-| `run_nas.sh`, `modeling_ouro_nas.py`, `nas_compare.py` | 6-D router-architecture search driven by boptim-agent |
+| `research/bo_gate/run_nas.sh`, `research/bo_gate/modeling_ouro_nas.py`, `research/bo_gate/nas_compare.py` | 6-D router-architecture search driven by boptim-agent |
 
 The optimisation loop itself (GP `gp_hedge`, `chatgpt`, `qwen`, `claude`, `random`) lives in
 `boptim-agent/objective/ouro_*.py`; point it here with `--torchtitan_dir`.
@@ -239,17 +240,17 @@ The optimisation loop itself (GP `gp_hedge`, `chatgpt`, `qwen`, `claude`, `rando
 
 | Stage | Scripts |
 |---|---|
-| Data | `build_tb80_sft.py` (verified TB-2 leaderboard trajectories + domain-reweighted TerminalTraj), `build_tb80sft_v3.py` + `skill_mine.py` (thicken thin skills), `build_skill_sft.py` (one skill concentrated to ~40 %), `build_oracle12.py` (train-on-test diagnostic), `audit_skill_coverage.py`, `dist_compare.py` |
-| Train | `run_v3.sh` (1.4B, 20k steps), `run_26b.sh` (2.6B), `run_skill.sh` / `run_skill_26b.sh` + `run_all_skills_26b.sh` (per-skill probes continuing from a checkpoint) |
-| Serve + eval | `eval_parallel.sh` (12-task subset sharded over free GPUs), `eval_gated.sh` + `verify_agent.py` (TerminusVerify: refuses a `task_complete` that ran no commands), `eval80_26b.sh` (full 80 tasks, one server per GPU), `tally12.py`, `tally80.py`, `partial_credit.py` |
-| Teacher generation | `convert_harbor.py` (Nemotron synthetic tasks to TB format), `gen_traj.sh` / `gen_all.sh` (a strong API model as the agent, rejection-sampled by each task's own pytest suite), `harvest_traj.py` (keep `is_resolved` trials as SFT rows) |
+| Data | `research/terminal_sft/data/build_tb80_sft.py` (verified TB-2 leaderboard trajectories + domain-reweighted TerminalTraj), `research/terminal_sft/data/build_tb80sft_v3.py` + `research/terminal_sft/data/skill_mine.py` (thicken thin skills), `research/terminal_sft/data/build_skill_sft.py` (one skill concentrated to ~40 %), `research/terminal_sft/data/build_oracle12.py` (train-on-test diagnostic), `research/terminal_sft/data/audit_skill_coverage.py`, `research/terminal_sft/data/dist_compare.py` |
+| Train | `research/terminal_sft/train/run_v3.sh` (1.4B, 20k steps), `research/terminal_sft/train/run_26b.sh` (2.6B), `research/terminal_sft/train/run_skill.sh` / `research/terminal_sft/train/run_skill_26b.sh` + `research/terminal_sft/train/run_all_skills_26b.sh` (per-skill probes continuing from a checkpoint) |
+| Serve + eval | `research/terminal_sft/eval/eval_parallel.sh` (12-task subset sharded over free GPUs), `research/terminal_sft/eval/eval_gated.sh` + `research/terminal_sft/eval/verify_agent.py` (TerminusVerify: refuses a `task_complete` that ran no commands), `research/terminal_sft/eval/eval80_26b.sh` (full 80 tasks, one server per GPU), `research/terminal_sft/eval/tally12.py`, `research/terminal_sft/eval/tally80.py`, `research/terminal_sft/eval/partial_credit.py` |
+| Teacher generation | `research/terminal_sft/gen/convert_harbor.py` (Nemotron synthetic tasks to TB format), `research/terminal_sft/gen/gen_traj.sh` / `research/terminal_sft/gen/gen_all.sh` (a strong API model as the agent, rejection-sampled by each task's own pytest suite), `research/terminal_sft/gen/harvest_traj.py` (keep `is_resolved` trials as SFT rows) |
 
 The benchmark harness (`terminal-bench 0.2.18`, local `tb_tasks/` copy of terminal-bench-core 0.1.1) is a
 separate checkout at `~/terminal_bench_eval`; the drivers assume that layout.
 
-**3. Qwen BO-agent distillation.** `qwen_bo_server.py` (transformers-only OpenAI-compatible server),
-`rationalize.py`, `build_bo_sft.sh`, `run_bo_sft.sh` (config `qwen3_1_7b_bo_sft`), `bo_compare.py`; trajectory
-generation is `gen_bo_traj.py` in boptim-agent.
+**3. Qwen BO-agent distillation.** `research/qwen_bo_agent/qwen_bo_server.py` (transformers-only OpenAI-compatible server),
+`research/qwen_bo_agent/rationalize.py`, `research/qwen_bo_agent/build_bo_sft.sh`, `research/qwen_bo_agent/run_bo_sft.sh` (config `qwen3_1_7b_bo_sft`), `research/qwen_bo_agent/bo_compare.py`; trajectory
+generation is `gen_bo_traj.py` in boptim-agent (a copy lives in `research/qwen_bo_agent/`).
 
 ### Results at a glance
 
@@ -275,13 +276,13 @@ Read: model capacity moved the benchmark, data curation did not. Details, settin
 
 ### Slurm training (`ouro-simple` branch)
 
-`run_ouro_train.slurm` wraps `run_train.sh` for a Slurm cluster. Edit its `#SBATCH` lines (account, partition,
+`research/pretrain/run_ouro_train.slurm` wraps `run_train.sh` for a Slurm cluster. Edit its `#SBATCH` lines (account, partition,
 GPUs, memory, time, log paths) and the `source .venv/bin/activate` line for your site, then:
 
 ```bash
 mkdir -p logs
-sbatch run_ouro_train.slurm
-CONFIG=ouro_debugmodel NGPU=1 sbatch run_ouro_train.slurm --training.steps=100   # overrides pass through
+sbatch research/pretrain/run_ouro_train.slurm
+CONFIG=ouro_debugmodel NGPU=1 sbatch research/pretrain/run_ouro_train.slurm --training.steps=100   # overrides pass through
 ```
 
 Environment variables: `MODULE` (default `ouro`), `CONFIG` (default `ouro_1_4b`), `NGPU` (default `2`). WandB is on

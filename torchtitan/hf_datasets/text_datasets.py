@@ -354,14 +354,14 @@ _TERMINAL_SFT_MIXES: dict[str, list[tuple[str, str | None, str, float]]] = {
         ("m-a-p/TerminalTraj", None, "messages", 1.0),
     ],
     # TRAIN-ON-TEST DIAGNOSTIC. A local JSONL built from the eval tasks' own
-    # oracle solutions (build_oracle12.py). Contaminated by construction; the
+    # oracle solutions (research/terminal_sft/data/build_oracle12.py). Contaminated by construction; the
     # checkpoint answers "can the model execute perfect demonstrations of these
     # exact tasks through the agent loop?" and must never be reported as a
     # score. repo_id "json" routes to OURO_SFT_LOCAL_JSONL in the loader.
     "oracle12": [
         ("json", None, "messages", 1.0),
     ],
-    # TB-80-TARGETED SET (build_tb80_sft.py). Verified multi-turn terminus-2
+    # TB-80-TARGETED SET (research/terminal_sft/data/build_tb80_sft.py). Verified multi-turn terminus-2
     # trajectories on Terminal-Bench 2.0 tasks disjoint from our 80 (scraped
     # leaderboard runs, reward=1, pointer-free, re-rendered to the exact JSON
     # the eval agent parses), upsampled and capped per task, plus TerminalTraj
