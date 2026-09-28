@@ -146,6 +146,29 @@ ignores the searched threshold (see the experiments page).
 The benchmark harness (`terminal-bench 0.2.18`, local `tb_tasks/` copy of terminal-bench-core 0.1.1) is a
 separate checkout at `~/terminal_bench_eval`; the drivers assume that layout.
 
+### Running a Terminal-Bench experiment
+
+One driver does the whole chain: train, export a serving dir, evaluate. Example, the tb80sft v3 recipe
+for Ouro-1.4B-Thinking: 20k SFT steps on one GPU (lr 2e-5, seq 4096, about 3.3 s/step, roughly 18 h),
+then the 12-task subset evaluated twice per task with one Ouro server per free GPU.
+
+```bash
+# from the torchtitan checkout; needs ~/terminal_bench_eval (terminal-bench 0.2.18 + tb_tasks/) and
+# the tb80sft v3 JSONL (research/terminal_sft/data/build_tb80sft_v3.py)
+bash research/terminal_sft/train/run_v3.sh                              # STEPS=... to shorten
+```
+
+Results land in `~/.claude/jobs/c0d2da0a/tmp/tb80sft_v3_chain.txt` (training tail, then per-task
+resolved / unresolved) with per-trial JSON under `/tmp/tb_runs/<run>/`. To evaluate an existing checkpoint
+only, or to use the gated agent, call the eval stage directly:
+
+```bash
+CKPT=/path/to/serving_dir BASENAME=my_ckpt GATE=1 bash research/terminal_sft/eval/eval_parallel.sh
+```
+
+`run_26b.sh` is the same chain for Ouro-2.6B-Thinking, `run_skill.sh` / `run_skill_26b.sh` the per-skill
+probes, and `eval80_26b.sh` the full 80-task protocol.
+
 **3. Qwen BO-agent distillation.** `research/qwen_bo_agent/qwen_bo_server.py` (transformers-only OpenAI-compatible server),
 `research/qwen_bo_agent/rationalize.py`, `research/qwen_bo_agent/build_bo_sft.sh`, `research/qwen_bo_agent/run_bo_sft.sh` (config `qwen3_1_7b_bo_sft`), `research/qwen_bo_agent/bo_compare.py`; trajectory
 generation is `gen_bo_traj.py` in boptim-agent (a copy lives in `research/qwen_bo_agent/`).
