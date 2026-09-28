@@ -1,14 +1,12 @@
 # torchtitan-ouro
 
-A fork of [pytorch/torchtitan](https://github.com/pytorch/torchtitan) for training and tuning the
-[Ouro](https://huggingface.co/ByteDance/Ouro-1.4B) looped Transformer. The upstream trainer, parallelisms
-and docs are unchanged; see the upstream README for those. Everything specific to this fork is described
-below and lives in [`research/`](research/README.md), `torchtitan/models/ouro/` and the Ouro configs.
-
-This fork of [pytorch/torchtitan](https://github.com/pytorch/torchtitan) adds [ByteDance Ouro](https://huggingface.co/ByteDance/Ouro-1.4B), a
-looped ("universal") Transformer that re-applies its layers up to 4 times per token and learns an
-early-exit gate, plus the research scripts built on it. The experiment write-up with every number
-is the [boptim Experiments page](https://claude.ai/artifact/RSGyFVwqfHdoFTnoBGNKib).
+A fork of [pytorch/torchtitan](https://github.com/pytorch/torchtitan) for training and tuning
+[ByteDance Ouro](https://huggingface.co/ByteDance/Ouro-1.4B), a looped ("universal") Transformer that
+re-applies its layers up to 4 times per token and learns an early-exit gate. The upstream trainer,
+parallelisms and docs are unchanged; see the upstream README for those. Everything specific to this fork
+lives in [`research/`](research/README.md), `torchtitan/models/ouro/` and the Ouro configs, and is
+described below. The experiment write-up with every number is the
+[boptim Experiments page](https://claude.ai/artifact/RSGyFVwqfHdoFTnoBGNKib).
 
 ## Where things live
 
