@@ -92,6 +92,47 @@ The optimisation loop itself (GP `gp_hedge`, `chatgpt`, `qwen`, `claude`, `rando
 `research/boptim-agent` (branch `jpli02/cifar`); its `objective/ouro_*.py` call back into this checkout via
 `--torchtitan_dir`. Scripts here find it through `BOPTIM_REPO`, defaulting to the submodule path.
 
+### Running the BO loop
+
+The loop runs from the boptim-agent submodule and calls back into this checkout for every evaluation.
+
+```bash
+# 1. one-time setup: the submodule's own venv (scikit-optimize, openai, ...) and, for the Ouro
+#    objective, this repo's venv with Ouro assets under assets/hf/Ouro-1.4B
+cd research/boptim-agent && uv sync && cd ../..
+set -a; . ~/.boptim_keys.env; set +a          # OPENAI_API_KEY / QWEN_* only for the LLM optimisers
+
+# 2. smoke test of the whole train -> checkpoint -> HumanEval -> score chain (20 SFT steps, 20 problems)
+cd research/boptim-agent
+CUDA_VISIBLE_DEVICES=0 WANDB_MODE=offline ./.venv/bin/python run_experiment.py \
+    --config configs/ouro_humaneval_gp_smoke_local.yaml
+
+# 3. the real search: 10 BO iterations, each = 100-step gate SFT on GPU 0 + full-164 HumanEval
+#    sharded over GPUs 0,1 (~40 min per point, ~7 h total)
+CUDA_VISIBLE_DEVICES=0,1 WANDB_MODE=offline ./.venv/bin/python run_experiment.py \
+    --config configs/ouro_humaneval_gp_full_local.yaml
+
+# 4. same search with an LLM optimiser, resumable across crashes
+CUDA_VISIBLE_DEVICES=0,1 ./.venv/bin/python main.py --optim chatgpt --model gpt-5-mini --no-explanation \
+    --objective ouro --torchtitan_dir "$PWD/../.." --resume \
+    --ouro_train_config ouro_1_4b_sft --ouro_eval_config ouro_1_4b --ouro_steps 100 \
+    --ouro_ngpu 1 --ouro_eval_ngpu 2 --ouro_search_threshold --ouro_baseline_pass1 0.68 \
+    --bounds 0 0.0 1.0 1 0.5 1.0 --max_iter 10 --optimizer-seed 42
+
+# 5. router-architecture NAS (6-D space, gp_hedge / claude / chatgpt / qwen)
+OPTIM=gp_hedge ITERS=25 GPU=0 TAG=nas_gp bash research/bo_gate/run_nas.sh
+```
+
+What the config keys mean: `torchtitan_dir` is this checkout (the YAMLs ship with `/home/jli199/torchtitan`;
+edit it or pass `--torchtitan_dir`); `ouro_train_config` / `ouro_eval_config` are the configs above;
+`ouro_steps` is the gate SFT length; `ouro_ngpu` / `ouro_eval_ngpu` map shard *i* to the *i*-th visible GPU;
+`bounds` is `[lo hi]` per dimension for `adaptive_gamma` and `early_exit_threshold`; `ouro_baseline_pass1`
+is the accuracy floor below which a point scores `ouro_loop_penalty`. Each evaluation leaves a run dir under
+`outputs/boptim/`, the BO state under `research/boptim-agent/runs/state_*.json` (what `--resume` replays),
+and the log under `research/boptim-agent/logs/`. Two cautions from the experiments: set the floor from the
+untuned gate's threshold sweep (0.7256 on HumanEval, not the full-depth 0.68), and the MBPP objective still
+ignores the searched threshold (see the experiments page).
+
 **2. Terminal-Bench SFT.** Build a terminus-2 conversation set, fine-tune, export, serve, evaluate.
 
 | Stage | Scripts |
