@@ -1,12 +1,20 @@
-# torchtitan-ouro
+# Ouro on torchtitan
 
-A fork of [pytorch/torchtitan](https://github.com/pytorch/torchtitan) for training and tuning
+Training, exit-gate tuning and Terminal-Bench agent fine-tuning for
 [ByteDance Ouro](https://huggingface.co/ByteDance/Ouro-1.4B), a looped ("universal") Transformer that
-re-applies its layers up to 4 times per token and learns an early-exit gate. The upstream trainer,
-parallelisms and docs are unchanged; see the upstream README for those. Everything specific to this fork
-lives in [`research/`](research/README.md), `torchtitan/models/ouro/` and the Ouro configs, and is
-described below. The experiment write-up with every number is the
-[boptim Experiments page](https://claude.ai/artifact/RSGyFVwqfHdoFTnoBGNKib).
+re-applies its layers up to 4 times per token and learns an early-exit gate. The trainer underneath is
+[torchtitan](https://github.com/pytorch/torchtitan); this repository adds the Ouro model, its configs, a
+2.6B flavor, an 8-bit optimizer path, and the scripts behind three lines of experiments:
+
+- **Exit-gate search**: Bayesian optimisation of the gate's training margin and exit threshold on HumanEval
+  and MBPP, plus a router-architecture NAS, driven from [`boptim-agent`](https://github.com/jpli02/boptim-agent).
+- **Terminal-Bench SFT**: fine-tuning Ouro-1.4B-Thinking and Ouro-2.6B-Thinking as a terminus-2 terminal
+  agent, with data builders, per-skill probes, a gated evaluation harness and teacher trajectory generation.
+- **Qwen BO-agent distillation**: turning a GP optimiser's trajectories into an SFT set for Qwen3-1.7B.
+
+Every number, setting and conclusion is on the
+[boptim Experiments page](https://claude.ai/artifact/RSGyFVwqfHdoFTnoBGNKib). The research scripts are
+indexed in [`research/README.md`](research/README.md).
 
 ## Where things live
 
