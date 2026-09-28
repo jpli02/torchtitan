@@ -4,7 +4,7 @@ Everything here was written for one fork-specific research programme: tune and t
 [ByteDance Ouro](https://huggingface.co/ByteDance/Ouro-1.4B) (a looped Transformer with an early-exit gate)
 and measure it on HumanEval, MBPP and Terminal-Bench. The write-up with every number is the
 [boptim Experiments page](https://claude.ai/artifact/RSGyFVwqfHdoFTnoBGNKib); the top-level
-[README](../README.md#ouro-fork-looped-transformer-training-exit-gate-search-terminal-bench-sft) explains
+[README](../README.md) explains
 the model flavors, configs and pipelines.
 
 Conventions: shell drivers set `WT=<repo root>` and `cd "$WT"` before calling `torchtitan.train`, so run them
