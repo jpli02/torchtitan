@@ -59,7 +59,7 @@ def main():
     ap.add_argument("--model", default="qwen3-8b")
     ap.add_argument("--seeds", default=None, help="a-b inclusive filter on trajectory seed")
     ap.add_argument("--max_tokens", type=int, default=600)
-    ap.add_argument("--repo", default=os.environ.get("BOPTIM_REPO", "/home/jli199/boptim-agent"))
+    ap.add_argument("--repo", default=os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boptim-agent")))
     a = ap.parse_args()
     import openai
     client = openai.OpenAI(api_key="local", base_url=a.base_url)

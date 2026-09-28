@@ -6,7 +6,7 @@ import os
 import sys
 import urllib.request
 
-sys.path.insert(0, "/home/jli199/boptim-agent")
+sys.path.insert(0, os.environ.get("BOPTIM_REPO", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boptim-agent")))
 from gen_bo_traj import _load_keys  # noqa: E402
 
 _load_keys()

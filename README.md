@@ -88,7 +88,9 @@ for i in range(start_iter, max_iter):
 | `research/bo_gate/run_nas.sh`, `research/bo_gate/modeling_ouro_nas.py`, `research/bo_gate/nas_compare.py` | 6-D router-architecture search driven by boptim-agent |
 
 The optimisation loop itself (GP `gp_hedge`, `chatgpt`, `qwen`, `claude`, `random`) lives in
-`boptim-agent/objective/ouro_*.py`; point it here with `--torchtitan_dir`.
+[`boptim-agent`](https://github.com/research4pan/boptim-agent), vendored as the git submodule
+`research/boptim-agent` (branch `jpli02/cifar`); its `objective/ouro_*.py` call back into this checkout via
+`--torchtitan_dir`. Scripts here find it through `BOPTIM_REPO`, defaulting to the submodule path.
 
 **2. Terminal-Bench SFT.** Build a terminus-2 conversation set, fine-tune, export, serve, evaluate.
 
@@ -145,8 +147,9 @@ by default in the Slurm script.
 ## Installation
 
 ```bash
-git clone git@github.com:jpli02/torchtitan.git && cd torchtitan
+git clone --recurse-submodules git@github.com:jpli02/torchtitan.git && cd torchtitan
 pip install -r requirements.txt      # a recent PyTorch nightly, plus torchao for AdamW8bit
+# already cloned without submodules?  git submodule update --init
 ```
 
 ## License

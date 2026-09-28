@@ -18,7 +18,8 @@
 #
 # Env: OPTIM (gp_hedge|claude|chatgpt|qwen), ITERS, GPU, TAG, MODEL
 set -u
-BO=/home/jli199/boptim-agent
+WT=${WT:-$(cd "$(dirname "$0")/../.." && pwd)}
+BO=${BOPTIM_REPO:-$WT/research/boptim-agent}   # boptim-agent submodule (override with BOPTIM_REPO)
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
 : "${GPU:?GPU must be set explicitly}"
 : "${OPTIM:?OPTIM must be set}"
