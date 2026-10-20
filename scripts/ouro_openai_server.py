@@ -34,7 +34,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import functools
+import json
+import os
 import sys
+import urllib.request as _urlreq
 import time
 import uuid
 from pathlib import Path
@@ -77,6 +80,71 @@ def _repeated_ngram_block(new_ids: list[int], n: int) -> set[int]:
     return blocked
 
 
+# The looped (universal-transformer) model applies its physical layer stack 4x
+# per token, so the KV cache is effectively ~4x as deep as the layer count
+# (2.6B: 48 layers -> ~192 deep, ~1.5MB/token). A real terminus-2 conversation
+# grows to 33k+ prompt tokens, whose KV alone (~50GB) cannot fit a 48GB card and
+# OOMs mid-generation (observed: 351 server OOMs -> unknown_agent_error). Cap the
+# prompt the server will hold: keep the head (system + first user = the task
+# spec) and the most recent turns (current terminal state), drop the stale
+# middle. Bounds KV so prompt(<=SEQ_CAP) + max_new fits with margin on 48GB.
+SEQ_CAP = int(os.environ.get("OURO_SEQ_CAP", "16000"))
+
+
+def _fit_messages(messages, hf_tok, cap):
+    """Return messages truncated to <= cap prompt tokens, preserving the first
+    two messages (system + task) and the most recent turns. No-op if it fits."""
+    def ntok(msgs):
+        s = hf_tok.apply_chat_template(
+            msgs, add_generation_prompt=True, tokenize=False, enable_thinking=False)
+        return len(hf_tok(s, add_special_tokens=False).input_ids)
+    if len(messages) <= 4 or ntok(messages) <= cap:
+        return messages
+    head = messages[:2]
+    tail = messages[2:]
+    # drop oldest middle turns until it fits, always keeping the last 2 messages
+    while len(tail) > 2 and ntok(head + tail) > cap:
+        tail = tail[1:]
+    kept = head + tail
+    print(f"[ouro-server] CONTEXT CAP: {len(messages)} msgs -> {len(kept)} "
+          f"(dropped {len(messages) - len(kept)} stale middle turns to fit {cap} tok)",
+          flush=True)
+    return kept
+
+
+def _extract_action_json(text: str):
+    """Return (content, complete). The thinking model reasons in plain text,
+    then emits the terminus-2 action JSON. terminus-2's parser often chokes on
+    the leading reasoning or on a truncated tail. Pull out the LAST balanced
+    top-level {...} object that carries the action schema; return it as the
+    content so the harness parses cleanly. complete=True means a full, valid
+    action object was found (so the caller can report finish_reason=stop even
+    if decoding ran out of budget AFTER a complete action)."""
+    best = None
+    for s in (i for i, c in enumerate(text) if c == "{"):
+        depth = 0; instr = False; esc = False
+        for j in range(s, len(text)):
+            c = text[j]
+            if instr:
+                if esc: esc = False
+                elif c == "\\": esc = True
+                elif c == '"': instr = False
+            elif c == '"': instr = True
+            elif c == "{": depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    cand = text[s:j + 1]
+                    try:
+                        o = json.loads(cand)
+                        if isinstance(o, dict) and ("commands" in o or "task_complete" in o):
+                            best = cand
+                    except Exception:
+                        pass
+                    break
+    return (best, True) if best is not None else (text, False)
+
+
 @torch.no_grad()
 def generate_chat(hf_model, hf_tok, eos_ids, messages, max_new, exit_threshold=None,
                    no_repeat_ngram_size=3, session=None, temperature=0.0, top_p=1.0):
@@ -104,6 +172,7 @@ def generate_chat(hf_model, hf_tok, eos_ids, messages, max_new, exit_threshold=N
     # reconstruction was compared against turn 1's cached generation prompt.
     # Disabling it makes both tokenizations agree so the cache can actually
     # be reused across turns.
+    messages = _fit_messages(messages, hf_tok, SEQ_CAP)
     prompt_str = hf_tok.apply_chat_template(
         messages, add_generation_prompt=True, tokenize=False, enable_thinking=False)
     print(f"[ouro-server] DEBUG prompt tail: {prompt_str[-80:]!r}", flush=True)
@@ -113,7 +182,11 @@ def generate_chat(hf_model, hf_tok, eos_ids, messages, max_new, exit_threshold=N
     n_prompt = len(full_ids)
 
     prev_ids = session.get("ids") if session else None
-    if prev_ids and len(prev_ids) < n_prompt and full_ids[:len(prev_ids)] == prev_ids:
+    # Require a LIVE cache too: after an OOM the handler nulls the cache but the
+    # ids survive, and reusing a None cache with a nonzero cache_position would
+    # prefill only the suffix with no prior context. Fall to a fresh prefill.
+    if (prev_ids and len(prev_ids) < n_prompt and full_ids[:len(prev_ids)] == prev_ids
+            and session.get("cache") is not None):
         cache = session["cache"]
         start = len(prev_ids)
         cur = torch.tensor([full_ids[start:]], device=dev)
@@ -126,12 +199,19 @@ def generate_chat(hf_model, hf_tok, eos_ids, messages, max_new, exit_threshold=N
         cur = enc.input_ids.to(dev)
         L = n_prompt
         cache_position = torch.arange(L, device=dev)
+        # div = first index where the cached ids and the new prompt differ, or
+        # None if the cached ids are a clean prefix of the new prompt (that
+        # happens when len<n_prompt and the prefix matches but we still missed --
+        # e.g. the cache was dropped after an OOM, so the HIT path was skipped
+        # even though the tokens line up). next() WITHOUT a default raised
+        # StopIteration here, which asyncio re-raises as a RuntimeError 500.
+        div = next((i for i in range(min(len(prev_ids or []), n_prompt))
+                    if prev_ids[i] != full_ids[i]), None)
         miss_reason = ("no session" if not prev_ids else
                         "prompt shorter than cache" if len(prev_ids) >= n_prompt else
-                        "prefix mismatch")
-        if miss_reason == "prefix mismatch":
-            div = next(i for i in range(min(len(prev_ids), n_prompt))
-                       if prev_ids[i] != full_ids[i])
+                        "prefix mismatch" if div is not None else
+                        "clean prefix, no live cache")
+        if div is not None:
             print(f"[ouro-server] MISMATCH at token {div}/{len(prev_ids)}: "
                   f"cached={prev_ids[max(0,div-3):div+3]!r} "
                   f"new={full_ids[max(0,div-3):div+3]!r} "
@@ -147,9 +227,22 @@ def generate_chat(hf_model, hf_tok, eos_ids, messages, max_new, exit_threshold=N
     thr = (float(exit_threshold)
            if (exit_threshold is not None and float(exit_threshold) < 1.0) else None)
     for step in range(max_new):
-        base_out, hidden_list, gate_list = hf_model.model(
-            input_ids=cur, past_key_values=cache, use_cache=True,
-            cache_position=cache_position)
+        try:
+            base_out, hidden_list, gate_list = hf_model.model(
+                input_ids=cur, past_key_values=cache, use_cache=True,
+                cache_position=cache_position)
+        except torch.cuda.OutOfMemoryError:
+            # Safety net: if KV still outgrows the card despite the context cap,
+            # stop decoding gracefully with whatever was produced instead of
+            # 500-ing (which the harness logs as unknown_agent_error). Drop the
+            # oversized cache so the next request starts clean.
+            print(f"[ouro-server] OOM at step {step} (n_prompt={n_prompt}); "
+                  f"stopping turn gracefully", flush=True)
+            del cache
+            cache = None
+            session and session.clear()
+            torch.cuda.empty_cache()
+            break
         cache = base_out.past_key_values
         R = len(gate_list)
         if thr is not None:
@@ -210,6 +303,16 @@ def generate_chat(hf_model, hf_tok, eos_ids, messages, max_new, exit_threshold=N
         new_ids.append(nt)
         cur = torch.tensor([[nt]], device=dev)
         cache_position = torch.tensor([L + step], device=dev)
+        # Early stop: once a COMPLETE terminus-2 action JSON has been emitted
+        # (after the model's plain-text reasoning), stop decoding. This bounds
+        # both KV memory and per-turn latency and guarantees the action is
+        # captured intact -- directly fixing the parse_error (truncated JSON)
+        # and agent_timeout (slow turns) that dominate this model's failures.
+        if len(new_ids) % 96 == 0:
+            _, _done = _extract_action_json(hf_tok.decode(new_ids, skip_special_tokens=True))
+            if _done:
+                hit_eos = True
+                break
     text = hf_tok.decode(new_ids, skip_special_tokens=True)
     avg_loops = (loop_sum / loop_count) if loop_count else 0.0
     if session is not None:
@@ -253,6 +356,42 @@ class ChatCompletionRequest(BaseModel):
     stream: bool | None = False
 
 
+def _load_boptim_keys():
+    """Load ~/.boptim_keys.env into the env (the server is launched before
+    eval_gated.sh sources the keys, so the teacher proxy must load them itself).
+    Never prints values."""
+    p = os.path.expanduser("~/.boptim_keys.env")
+    if not os.path.exists(p):
+        return
+    for line in open(p):
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[7:]
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+def _teacher_complete(messages, model, base, temperature):
+    """MOPD/MiMo-style teacher-continuation: forward the student's conversation to
+    a teacher chat endpoint (OpenRouter) and return its action text. Used only
+    when --teacher_after_n is set and the student has already taken >= N turns,
+    so the teacher FINISHES the trajectory from the student's own on-policy
+    states. Text-level (cross-tokenizer safe), not token-level distillation."""
+    key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("QWEN_API_KEY")
+    body = json.dumps({
+        "model": model, "messages": messages,
+        "temperature": temperature, "max_tokens": 8192,
+    }).encode()
+    req = _urlreq.Request(
+        base.rstrip("/") + "/chat/completions", data=body,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    with _urlreq.urlopen(req, timeout=300) as r:
+        d = json.loads(r.read().decode())
+    return d["choices"][0]["message"]["content"]
+
+
 app = FastAPI()
 _state: dict[str, Any] = {}
 
@@ -263,14 +402,36 @@ async def chat_completions(req: ChatCompletionRequest):
         raise HTTPException(400, "streaming is not supported by this server")
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
     max_new = int(req.max_tokens or 8192)
-
     loop = asyncio.get_running_loop()
+
+    # Teacher-continuation (MiMo/MOPD-style, guarded by --teacher_after_n): the
+    # student (Ouro) takes the first N turns from its own states; once it has
+    # taken >= N assistant turns, the teacher finishes the trajectory. Harvesting
+    # keeps only solved runs, so the kept data is "student on-policy opening +
+    # teacher completion". Inactive (N<=0) => identical to the plain server.
+    n_after = _state.get("teacher_after_n", 0)
+    if n_after and sum(1 for m in messages if m["role"] == "assistant") >= n_after:
+        try:
+            ttext = await loop.run_in_executor(None, functools.partial(
+                _teacher_complete, messages, _state["teacher_model"],
+                _state["teacher_base"], (req.temperature if req.temperature is not None else 0.7)))
+            tcontent, _ = _extract_action_json(ttext)
+            print(f"[ouro-server] TEACHER turn (student had >= {n_after})", flush=True)
+            return {"id": f"chatcmpl-{uuid.uuid4().hex[:24]}", "object": "chat.completion",
+                    "created": int(time.time()), "model": req.model,
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": tcontent},
+                                 "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}
+        except Exception as e:
+            print(f"[ouro-server] teacher call failed ({e}); falling back to student", flush=True)
+
     async with _state["lock"]:
         # Single global session: this server is single-request-at-a-time (the
         # lock above), so at most one conversation is ever "in flight" -- the
         # next request either continues it (cache hit, handled in
         # generate_chat) or starts a new one (cache miss -> safe fresh prefill).
         session = _state.setdefault("session", {})
+        _t0 = time.time()
         text, n_prompt, n_completion, avg_loops, hit_eos = await loop.run_in_executor(
             None,
             functools.partial(
@@ -288,6 +449,11 @@ async def chat_completions(req: ChatCompletionRequest):
                 (req.top_p if req.top_p is not None else 1.0),
             ),
         )
+        _dt = time.time() - _t0
+        print(f"[ouro-server] TURN prompt={n_prompt} new={n_completion} "
+              f"avg_loops={avg_loops:.2f} secs={_dt:.1f} "
+              f"tok/s={(n_completion / _dt) if _dt > 0 else 0:.2f} eos={hit_eos}",
+              flush=True)
         # A multi-turn agent harness sends a growing conversation each call, so
         # peak KV-cache size grows across a session. PyTorch's caching allocator
         # doesn't release blocks back to the driver on its own once reserved for
@@ -297,6 +463,10 @@ async def chat_completions(req: ChatCompletionRequest):
         # memory bounded for an 80-task run instead of trending toward OOM.
         await loop.run_in_executor(None, torch.cuda.empty_cache)
 
+    # Strip the model's plain-text reasoning down to the action JSON so the
+    # harness parses cleanly; if a complete action object is present, accept it
+    # even when decoding ran out of budget afterwards (avoids spurious "length").
+    content, complete = _extract_action_json(text)
     now = int(time.time())
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
@@ -305,14 +475,14 @@ async def chat_completions(req: ChatCompletionRequest):
         "model": req.model,
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": text},
+            "message": {"role": "assistant", "content": content},
             # "length" (not "stop") when the loop ran out of max_new budget
             # without hitting EOS -- LiteLLM/terminus-2 raise
             # OutputLengthExceededError on "length" and can recover (e.g.
             # retry/salvage), but silently treating a mid-thought cutoff as a
             # normal "stop" hands the harness a response it can never parse
             # as a valid action with no signal that anything went wrong.
-            "finish_reason": "stop" if hit_eos else "length",
+            "finish_reason": "stop" if (hit_eos or complete) else "length",
         }],
         "usage": {
             "prompt_tokens": n_prompt,
@@ -369,7 +539,23 @@ def main():
         "this (e.g. 0.7) to make repeated attempts genuinely independent "
         "samples. Left unset, the per-request temperature is used.",
     )
+    ap.add_argument(
+        "--teacher_after_n", type=int, default=0,
+        help="MiMo/MOPD-style teacher-continuation: student (Ouro) takes the "
+        "first N assistant turns, then the teacher finishes the trajectory. "
+        "0 disables (plain server).",
+    )
+    ap.add_argument("--teacher_model", default="deepseek/deepseek-v4.1-flash")
+    ap.add_argument("--teacher_base", default="https://openrouter.ai/api/v1")
     args = ap.parse_args()
+
+    if args.teacher_after_n:
+        _load_boptim_keys()
+        _state["teacher_after_n"] = args.teacher_after_n
+        _state["teacher_model"] = args.teacher_model
+        _state["teacher_base"] = args.teacher_base
+        print(f"[ouro-server] teacher-continuation ENABLED: student first "
+              f"{args.teacher_after_n} turns, then {args.teacher_model}", flush=True)
 
     _dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float32
     model, tok, eos_ids = _load_hf_generate_model(
@@ -379,6 +565,16 @@ def main():
     _state["eos_ids"] = eos_ids
     _state["model_name"] = args.model_name
     _state["exit_threshold"] = args.early_exit_threshold
+    # Wire the threshold into the model's decode-time TRUE early exit when the
+    # loaded modeling file supports it (the ouro_v3_earlyexit serving dir).
+    # Stock dirs lack the attribute and keep the selection-only behaviour, and
+    # with no threshold this is a no-op, so existing runs are unaffected.
+    _thr = args.early_exit_threshold
+    if (_thr is not None and float(_thr) < 1.0
+            and hasattr(model.model, "decode_early_exit_threshold")):
+        model.model.decode_early_exit_threshold = float(_thr)
+        print(f"[ouro-server] decode TRUE early exit ENABLED at threshold {_thr}",
+              flush=True)
     _state["no_repeat_ngram_size"] = args.no_repeat_ngram_size
     _state["force_temperature"] = args.force_temperature
     _state["lock"] = asyncio.Lock()

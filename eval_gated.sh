@@ -47,8 +47,8 @@ echo "[$NAME] gpu=$GPU free=${free}MiB port=$PORT attempts=$ATT thr=${THR:-none}
   | tee -a "$OUT"
 
 slog=$LOGDIR/${NAME}_server.log
-CUDA_VISIBLE_DEVICES=$GPU setsid nohup /home/jli199/torchtitan/.venv/bin/python \
-  /home/jli199/torchtitan/scripts/ouro_openai_server.py \
+CUDA_VISIBLE_DEVICES=$GPU PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True setsid nohup /home/jli199/torchtitan/.venv/bin/python \
+  /home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft/scripts/ouro_openai_server.py \
   --hf_dir "$CKPT" --port $PORT --model_name $NAME \
   --no_repeat_ngram_size 0 --dtype bfloat16 --attn_impl sdpa \
   $THRARG --force_temperature 0.7 > "$slog" 2>&1 &
@@ -82,7 +82,7 @@ PYTHONPATH="$WT" timeout 43200 .venv/bin/tb run \
   --model "openai/$NAME" \
   --agent-kwarg api_base="http://127.0.0.1:$PORT/v1" \
   $TARGS \
-  --n-attempts $ATT --n-concurrent 1 --global-agent-timeout-sec 420 \
+  --n-attempts $ATT --n-concurrent 1 --global-agent-timeout-sec 1800 \
   --output-path /tmp/tb_runs --run-id "$NAME" --no-livestream \
   >> "$LOGDIR/${NAME}.tb.log" 2>&1
 
