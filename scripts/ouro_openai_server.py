@@ -372,6 +372,33 @@ def _load_boptim_keys():
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
+def _teacher_takes_turn(idx, spec):
+    """Decide if turn `idx` (0-based: assistant msgs so far) is the teacher's,
+    per a pattern spec. Enables teacher/student take-turns with varied patterns:
+      after:N  teacher once idx>=N (continuation)   every:K  teacher when idx%K==0
+      odd      teacher on odd idx    even  teacher on even idx
+      prob:p   teacher with probability p per turn   none  never (student only)
+    """
+    import random as _r
+    try:
+        if not spec or spec == "none":
+            return False
+        kind, _, arg = spec.partition(":")
+        if kind == "after":
+            return idx >= int(arg)
+        if kind == "every":
+            return int(arg) > 0 and (idx % int(arg) == 0)
+        if kind == "odd":
+            return idx % 2 == 1
+        if kind == "even":
+            return idx % 2 == 0
+        if kind == "prob":
+            return _r.random() < float(arg)
+    except Exception:
+        return False
+    return False
+
+
 def _teacher_complete(messages, model, base, temperature):
     """MOPD/MiMo-style teacher-continuation: forward the student's conversation to
     a teacher chat endpoint (OpenRouter) and return its action text. Used only
@@ -389,7 +416,12 @@ def _teacher_complete(messages, model, base, temperature):
     )
     with _urlreq.urlopen(req, timeout=300) as r:
         d = json.loads(r.read().decode())
-    return d["choices"][0]["message"]["content"]
+    msg = d["choices"][0]["message"]
+    # deepseek-v4.1-flash is a reasoning model: the action JSON is in `content`,
+    # reasoning in `reasoning`. If content is empty (budget cut mid-reasoning),
+    # fall back to reasoning so _extract_action_json can still find any JSON;
+    # empty string => caller's extractor returns no action => student fallback.
+    return msg.get("content") or msg.get("reasoning") or ""
 
 
 app = FastAPI()
@@ -404,19 +436,24 @@ async def chat_completions(req: ChatCompletionRequest):
     max_new = int(req.max_tokens or 8192)
     loop = asyncio.get_running_loop()
 
-    # Teacher-continuation (MiMo/MOPD-style, guarded by --teacher_after_n): the
-    # student (Ouro) takes the first N turns from its own states; once it has
-    # taken >= N assistant turns, the teacher finishes the trajectory. Harvesting
-    # keeps only solved runs, so the kept data is "student on-policy opening +
-    # teacher completion". Inactive (N<=0) => identical to the plain server.
-    n_after = _state.get("teacher_after_n", 0)
-    if n_after and sum(1 for m in messages if m["role"] == "assistant") >= n_after:
+    # Teacher/student TAKE-TURNS (MiMo/MOPD-style distillation). A per-turn
+    # pattern (--teacher_turns) decides, at the current turn index (= assistant
+    # msgs so far), whether this turn is the Ouro student (on-policy, GPU) or the
+    # deepseek teacher (correction, API). Varying the pattern across the dataset
+    # gives teacher corrections at DIFFERENT turns, so the kept (solved)
+    # trajectories carry the student's own states throughout, not just an opening.
+    # Patterns: "after:N" (teacher once idx>=N = continuation), "every:K" (teacher
+    # when idx%K==0), "odd"/"even", "prob:p" (random per turn), "none". Inactive
+    # (no spec / "none") => identical to the plain server.
+    spec = _state.get("teacher_spec")
+    turn_idx = sum(1 for m in messages if m["role"] == "assistant")
+    if spec and _teacher_takes_turn(turn_idx, spec):
         try:
             ttext = await loop.run_in_executor(None, functools.partial(
                 _teacher_complete, messages, _state["teacher_model"],
                 _state["teacher_base"], (req.temperature if req.temperature is not None else 0.7)))
             tcontent, _ = _extract_action_json(ttext)
-            print(f"[ouro-server] TEACHER turn (student had >= {n_after})", flush=True)
+            print(f"[ouro-server] TEACHER turn idx={turn_idx} spec={spec}", flush=True)
             return {"id": f"chatcmpl-{uuid.uuid4().hex[:24]}", "object": "chat.completion",
                     "created": int(time.time()), "model": req.model,
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": tcontent},
@@ -541,21 +578,26 @@ def main():
     )
     ap.add_argument(
         "--teacher_after_n", type=int, default=0,
-        help="MiMo/MOPD-style teacher-continuation: student (Ouro) takes the "
-        "first N assistant turns, then the teacher finishes the trajectory. "
-        "0 disables (plain server).",
+        help="Shorthand for --teacher_turns after:N (teacher-continuation).",
+    )
+    ap.add_argument(
+        "--teacher_turns", default=None,
+        help="Teacher/student take-turns pattern: after:N | every:K | odd | even "
+        "| prob:p | none. Decides per turn whether the teacher acts. Off by "
+        "default (plain server).",
     )
     ap.add_argument("--teacher_model", default="deepseek/deepseek-v4.1-flash")
     ap.add_argument("--teacher_base", default="https://openrouter.ai/api/v1")
     args = ap.parse_args()
 
-    if args.teacher_after_n:
+    spec = args.teacher_turns or (f"after:{args.teacher_after_n}" if args.teacher_after_n else None)
+    if spec and spec != "none":
         _load_boptim_keys()
-        _state["teacher_after_n"] = args.teacher_after_n
+        _state["teacher_spec"] = spec
         _state["teacher_model"] = args.teacher_model
         _state["teacher_base"] = args.teacher_base
-        print(f"[ouro-server] teacher-continuation ENABLED: student first "
-              f"{args.teacher_after_n} turns, then {args.teacher_model}", flush=True)
+        print(f"[ouro-server] teacher take-turns ENABLED: pattern={spec} "
+              f"teacher={args.teacher_model}", flush=True)
 
     _dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float32
     model, tok, eos_ids = _load_hf_generate_model(
