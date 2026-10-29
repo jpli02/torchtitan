@@ -26,11 +26,13 @@ wait_task_done() {  # wait_task_done <task> : K=1 RESULT present and no eval of 
 (
   wait_task_done math || echo "lcb: math never finished; starting anyway $(date '+%m-%d %H:%M')"
   echo "lcb sweep start $(date '+%m-%d %H:%M')"
-  cp "$WT/lcb_grade.py" "$TMP/lcb_grade.py"
+  S=/tmp/lcb_grade_stage; mkdir -p "$S"   # docker cannot mount the job dir; stage through /tmp
   for K in 4 2 1 6; do
     TASK=lcb DATA=$TMP/lcb_em120.jsonl N=120 STEPS="$K" BATCH=4 MAXNEW=3072 GPU=5 bash depth_sweep.sh
-    docker run --rm --network none --memory 4g --cpus 4 -v "$TMP":/w python:3.12-slim \
+    cp "$WT/lcb_grade.py" "$TMP/lcb_em120.jsonl" "$TMP/depth_lcb_k${K}.jsonl" "$S"/
+    docker run --rm --network none --memory 4g --cpus 4 -v "$S":/w python:3.12-slim \
       python /w/lcb_grade.py /w/lcb_em120.jsonl "/w/depth_lcb_k${K}.jsonl" "/w/depth_lcb_k${K}.graded.json" 2>&1 | grep -E '^GRADED' | sed "s/^/K=$K /" | tee -a "$TMP/depth_lcb.txt"
+    cp "$S/depth_lcb_k${K}.graded.json" "$TMP/" 2>/dev/null
   done
   echo "lcb sweep done $(date '+%m-%d %H:%M')"
 ) > "$TMP/coding_gpu5.log" 2>&1 &
