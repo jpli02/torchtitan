@@ -217,7 +217,10 @@ for i, r in enumerate(rows):
         rec.update({"question_id": r.get("question_id"), "difficulty": r.get("difficulty")})
     recs.append(rec)
 acc = n_ok / len(rows)
+loops_dec = getattr(model, "_exit_loops_decode_sum", None)
+mean_loops = (loops_dec / model._exit_loops_decode_n) if loops_dec is not None and getattr(model, "_exit_loops_decode_n", 0) else float(args.steps)
 summary = {"ckpt": args.ckpt, "task": args.task, "steps": args.steps, "threshold": args.threshold, "cfg": CFG, "n": len(rows), "acc": acc,
+           "mean_loops": mean_loops,
            "parse_rate": n_parse / len(rows), "trunc_rate": n_trunc / len(rows), "mean_tokens": total_tok / len(rows),
            "wall_s": dt, "tok_s": total_tok / dt, "max_new": args.max_new}
 print("RESULT " + json.dumps(summary), flush=True)

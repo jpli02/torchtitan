@@ -203,6 +203,22 @@ rep("                if bool(dee_cumulative >= float(dee)):\n"
     "                                kc[dst] = torch.cat([kc[dst], kc[src][:, :, -1:, :]], dim=2)\n"
     "                                vc[dst] = torch.cat([vc[dst], vc[src][:, :, -1:, :]], dim=2)\n")
 
+# record the gather-mode exit steps so batched evals can report mean loops under a threshold
+rep("                    if last_step_idx >= 0:\n"
+    "                        never_exceeded = ~threshold_mask.any(dim=2)\n"
+    "                        exit_steps[never_exceeded] = last_step_idx\n",
+    "                    if last_step_idx >= 0:\n"
+    "                        never_exceeded = ~threshold_mask.any(dim=2)\n"
+    "                        exit_steps[never_exceeded] = last_step_idx\n"
+    "                    _es = exit_steps[:, -1].float() + 1.0  # loops used for the newest position\n"
+    "                    if exit_steps.shape[1] == 1:\n"
+    "                        self._exit_loops_decode_sum = getattr(self, \"_exit_loops_decode_sum\", 0.0) + float(_es.sum())\n"
+    "                        self._exit_loops_decode_n = getattr(self, \"_exit_loops_decode_n\", 0) + int(_es.numel())\n"
+    "                    else:\n"
+    "                        _all = exit_steps.float() + 1.0\n"
+    "                        self._exit_loops_prefill_sum = getattr(self, \"_exit_loops_prefill_sum\", 0.0) + float(_all.sum())\n"
+    "                        self._exit_loops_prefill_n = getattr(self, \"_exit_loops_prefill_n\", 0) + int(_all.numel())\n")
+
 for out, weights in OUT.items():
     os.makedirs(out, exist_ok=True)
     open(f"{out}/modeling_ouro.py", "w", encoding="utf-8").write(src)

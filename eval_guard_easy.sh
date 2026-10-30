@@ -9,13 +9,16 @@ PY=/home/jli199/torchtitan/.venv/bin/python
 EASY12="hello-world fix-permissions csv-to-parquet processing-pipeline count-dataset-tokens create-bucket extract-safely git-workflow-hack grid-pattern-transform modernize-fortran-build security-vulhub-minio simple-web-scraper"
 REP=$TMP/eval_guard_easy.txt; : > "$REP"
 cd "$WT" || exit 1
-# do not race the KV-share accuracy check for the same free card
-while ! grep -q 'KVSHARE ACC done' "$TMP/kvshare_acc.txt" 2>/dev/null; do sleep 120; done
-gpu=""; END=$(( $(date +%s) + 172800 ))
-while [ "$(date +%s)" -lt "$END" ]; do
-  gpu=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | tr -d ' ' | awk -F, '$1!=5 && $2+0>=40000 {print $2+0, $1}' | sort -rn | head -1 | awk '{print $2}')
-  [ -n "$gpu" ] && break; sleep 120
-done
+# GPU=<idx> pins a card; otherwise wait for the KV-share accuracy check, then poll for a free card
+gpu=${GPU:-}
+if [ -z "$gpu" ]; then
+  while ! grep -q 'KVSHARE ACC done' "$TMP/kvshare_acc.txt" 2>/dev/null; do sleep 120; done
+  END=$(( $(date +%s) + 172800 ))
+  while [ "$(date +%s)" -lt "$END" ]; do
+    gpu=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | tr -d ' ' | awk -F, '$1!=5 && $2+0>=40000 {print $2+0, $1}' | sort -rn | head -1 | awk '{print $2}')
+    [ -n "$gpu" ] && break; sleep 120
+  done
+fi
 [ -n "$gpu" ] || { echo "ABORT no GPU" | tee -a "$REP"; exit 1; }
 echo "=== GUARD EVAL (TB-easy 12 x2, early-exit thr 0.2, v3) gpu $gpu $(date '+%m-%d %H:%M') ===" | tee -a "$REP"
 export OURO_SEQ_CAP=12000
