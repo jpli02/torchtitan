@@ -27,7 +27,9 @@ ap.add_argument("--n", type=int, default=10**9)
 ap.add_argument("--max_len", type=int, default=4096)
 ap.add_argument("--thr", default="0.9,0.7,0.5,0.3,0.2,0.1")
 ap.add_argument("--out", default=None)
+ap.add_argument("--dump", default=None, help="save per-token features (agreement per step, gate lambdas, hidden-state deltas) to this .pt")
 args = ap.parse_args()
+dump = {"agree": [], "lam": [], "hdiff": [], "gen_id": []} if args.dump else None
 THRS = [float(x) for x in args.thr.split(",")]
 SUFFIX = "\nPlease reason step by step, and put your final answer within \\boxed{}."
 
@@ -103,6 +105,13 @@ with torch.inference_mode():
             oracle_hist[s] += int((oracle == s).sum())
         oracle_sum += int((oracle + 1).sum())
         tot_tokens += n
+        if dump is not None:
+            hs = torch.stack([h[0, pos].float() for h in hs_list], dim=0)  # [T, n, d]
+            hd = (hs[1:] - hs[:-1]).norm(dim=-1) / hs[1:].norm(dim=-1).clamp_min(1e-6)  # [T-1, n]
+            dump["agree"].append(agree.t().cpu())
+            dump["lam"].append(lam.t().half().cpu())
+            dump["hdiff"].append(hd.t().half().cpu())
+            dump["gen_id"].append(torch.full((n,), g["i"], dtype=torch.int32))
         if (gi + 1) % 25 == 0:
             print(f"  {gi+1}/{len(gens)} gens, {tot_tokens} tokens, {time.time()-t0:.0f}s", flush=True)
 
@@ -124,3 +133,6 @@ for q in THRS:
     print(f"{q:>5} {gq['mean_loops']:6.2f} {gq['flip_rate']:6.3f} {gq['under_think']:6.3f} {gq['over_think']:6.3f}")
 if args.out:
     json.dump(res, open(args.out, "w"), indent=1)
+if dump is not None:
+    torch.save({k: torch.cat(v, dim=0) for k, v in dump.items()}, args.dump)
+    print(f"dumped per-token features for {tot_tokens} tokens -> {args.dump}")
