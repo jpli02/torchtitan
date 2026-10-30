@@ -203,6 +203,24 @@ rep("                if bool(dee_cumulative >= float(dee)):\n"
     "                                kc[dst] = torch.cat([kc[dst], kc[src][:, :, -1:, :]], dim=2)\n"
     "                                vc[dst] = torch.cat([vc[dst], vc[src][:, :, -1:, :]], dim=2)\n")
 
+# per-step thresholds: early_exit_threshold may be a list [q1, q2, q3, 1.0] (gather mode) and
+# decode_early_exit_threshold a list (true decode-time exit)
+rep("                    threshold_value = exit_threshold\n"
+    "                    if isinstance(threshold_value, torch.Tensor):\n"
+    "                        threshold_value = threshold_value.to(cumulative_probs.device)\n",
+    "                    threshold_value = exit_threshold\n"
+    "                    if isinstance(threshold_value, (list, tuple)):\n"
+    "                        threshold_value = torch.tensor(list(threshold_value), dtype=cumulative_probs.dtype)\n"
+    "                    if isinstance(threshold_value, torch.Tensor):\n"
+    "                        threshold_value = threshold_value.to(cumulative_probs.device)\n")
+rep("        do_dee = (\n"
+    "            dee is not None and float(dee) < 1.0 and bool(use_cache)\n",
+    "        dee_list = list(dee) if isinstance(dee, (list, tuple)) else None\n"
+    "        do_dee = (\n"
+    "            dee is not None and (min(dee_list) < 1.0 if dee_list else float(dee) < 1.0) and bool(use_cache)\n")
+rep("                if bool(dee_cumulative >= float(dee)):\n",
+    "                if bool(dee_cumulative >= (dee_list[current_ut] if dee_list else float(dee))):\n")
+
 # record the gather-mode exit steps so batched evals can report mean loops under a threshold
 rep("                    if last_step_idx >= 0:\n"
     "                        never_exceeded = ~threshold_mask.any(dim=2)\n"

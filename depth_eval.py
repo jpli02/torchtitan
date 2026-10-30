@@ -20,6 +20,7 @@ ap.add_argument("data")
 ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
+ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
 ap.add_argument("--n", type=int, default=10**9)
 ap.add_argument("--batch", type=int, default=32)
 ap.add_argument("--max_new", type=int, default=1024)
@@ -173,6 +174,10 @@ if tok.pad_token is None:
 kw = {"total_ut_steps": args.steps}
 if args.threshold is not None:
     kw["early_exit_threshold"] = args.threshold
+if args.threshold_steps:
+    qs = [float(x) for x in args.threshold_steps.split(",")]
+    kw["early_exit_threshold"] = (qs + [1.0] * args.steps)[: args.steps]
+    args.threshold = kw["early_exit_threshold"]
 kw.update(CFG)
 config = AutoConfig.from_pretrained(args.ckpt, trust_remote_code=True)
 for _k, _v in kw.items():
