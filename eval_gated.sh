@@ -69,7 +69,9 @@ set -a; . ~/.boptim_keys.env 2>/dev/null || true; set +a
 # GATE=0 runs stock terminus-2, which is what every 12-task baseline used
 # (continue10k 5/24, batching5k 4/24). Use it whenever the number has to be
 # comparable to those; the gate is a separate, additive intervention.
-if [ "${GATE:-1}" = "0" ]; then
+if [ -n "${AGENT_IMPORT:-}" ]; then
+  AGENT_ARGS="--agent-import-path $AGENT_IMPORT"   # e.g. guard_agent:TerminusGuard
+elif [ "${GATE:-1}" = "0" ]; then
   AGENT_ARGS="--agent terminus-2"
 else
   AGENT_ARGS="--agent-import-path verify_agent:TerminusVerify"

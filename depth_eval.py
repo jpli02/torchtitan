@@ -12,7 +12,7 @@ import re
 import time
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
@@ -25,7 +25,23 @@ ap.add_argument("--batch", type=int, default=32)
 ap.add_argument("--max_new", type=int, default=1024)
 ap.add_argument("--out", default=None)
 ap.add_argument("--seed_offset", type=int, default=0, help="skip this many rows first")
+ap.add_argument("--cfg", action="append", default=[], help="config override key=value (bool/int/float parsed), e.g. kv_share_decode=true")
 args = ap.parse_args()
+
+
+def _parse_val(v):
+    if v.lower() in ("true", "false"):
+        return v.lower() == "true"
+    try:
+        return int(v)
+    except ValueError:
+        try:
+            return float(v)
+        except ValueError:
+            return v
+
+
+CFG = {k: _parse_val(v) for k, v in (s.split("=", 1) for s in args.cfg)}
 
 SUFFIX = "\nPlease reason step by step, and put your final answer within \\boxed{}."
 
@@ -157,8 +173,12 @@ if tok.pad_token is None:
 kw = {"total_ut_steps": args.steps}
 if args.threshold is not None:
     kw["early_exit_threshold"] = args.threshold
-model = AutoModelForCausalLM.from_pretrained(args.ckpt, trust_remote_code=True, torch_dtype=torch.bfloat16, **kw).cuda().eval()
-print(f"loaded {args.ckpt} steps={model.config.total_ut_steps} thr={getattr(model.config, 'early_exit_threshold', None)} rows={len(rows)}", flush=True)
+kw.update(CFG)
+config = AutoConfig.from_pretrained(args.ckpt, trust_remote_code=True)
+for _k, _v in kw.items():
+    setattr(config, _k, _v)
+model = AutoModelForCausalLM.from_pretrained(args.ckpt, config=config, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda().eval()
+print(f"loaded {args.ckpt} steps={model.config.total_ut_steps} thr={getattr(model.config, 'early_exit_threshold', None)} cfg={CFG} rows={len(rows)}", flush=True)
 
 texts = [tok.apply_chat_template([{"role": "user", "content": build_prompt(r)}], tokenize=False, add_generation_prompt=True) for r in rows]
 order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
@@ -197,7 +217,7 @@ for i, r in enumerate(rows):
         rec.update({"question_id": r.get("question_id"), "difficulty": r.get("difficulty")})
     recs.append(rec)
 acc = n_ok / len(rows)
-summary = {"ckpt": args.ckpt, "task": args.task, "steps": args.steps, "threshold": args.threshold, "n": len(rows), "acc": acc,
+summary = {"ckpt": args.ckpt, "task": args.task, "steps": args.steps, "threshold": args.threshold, "cfg": CFG, "n": len(rows), "acc": acc,
            "parse_rate": n_parse / len(rows), "trunc_rate": n_trunc / len(rows), "mean_tokens": total_tok / len(rows),
            "wall_s": dt, "tok_s": total_tok / dt, "max_new": args.max_new}
 print("RESULT " + json.dumps(summary), flush=True)
