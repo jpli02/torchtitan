@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -109,9 +109,17 @@ def last_code_block(s):
     return s[i + 9:].strip("\n") if i >= 0 else None
 
 
+def mc_prompt(r):
+    opts = "\n".join(f"{'ABCDEFGHIJ'[i]}. {o}" for i, o in enumerate(r["options"]))
+    return (f"Answer the following multiple choice question.\n\n{r['question']}\n\n{opts}\n\n"
+            "Think step by step, then give only the letter of the correct option within \\boxed{}.")
+
+
 def build_prompt(r):
     if args.task in ("gsm8k", "math"):
         return r["question"] + SUFFIX
+    if args.task == "mc":
+        return mc_prompt(r)
     if args.task == "crux":
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
@@ -152,6 +160,11 @@ def crux_equal(pred, gold):
 def correct(pred, gold):
     if args.task == "lcb":
         return False  # graded separately by lcb_grade.py in a sandbox
+    if args.task == "mc":
+        if pred is None:
+            return False
+        m = re.findall(r"\b([A-J])\b", pred.strip().upper().replace("\\TEXT{", "").replace("}", " "))
+        return bool(m) and m[-1] == str(gold).strip().upper()
     if args.task == "crux":
         return pred is not None and crux_equal(pred, gold)
     if args.task == "gsm8k":

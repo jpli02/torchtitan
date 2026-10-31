@@ -28,6 +28,7 @@ ap.add_argument("--max_len", type=int, default=4096)
 ap.add_argument("--thr", default="0.9,0.7,0.5,0.3,0.2,0.1")
 ap.add_argument("--out", default=None)
 ap.add_argument("--dump", default=None, help="save per-token features (agreement per step, gate lambdas, hidden-state deltas) to this .pt")
+ap.add_argument("--data", default=None, help="benchmark JSONL (default: the known path for --task)")
 args = ap.parse_args()
 dump = {"agree": [], "lam": [], "hdiff": [], "gen_id": []} if args.dump else None
 THRS = [float(x) for x in args.thr.split(",")]
@@ -37,6 +38,10 @@ SUFFIX = "\nPlease reason step by step, and put your final answer within \\boxed
 def build_prompt(r, task):
     if task in ("gsm8k", "math"):
         return r["question"] + SUFFIX
+    if task == "mc":
+        opts = "\n".join(f"{'ABCDEFGHIJ'[i]}. {o}" for i, o in enumerate(r["options"]))
+        return (f"Answer the following multiple choice question.\n\n{r['question']}\n\n{opts}\n\n"
+                "Think step by step, then give only the letter of the correct option within \\boxed{}.")
     if task == "crux":
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
@@ -47,8 +52,8 @@ def build_prompt(r, task):
 gens = [json.loads(l) for l in open(args.gen) if l.strip()]
 summary0 = gens[0].get("summary", {})
 gens = [g for g in gens if "gen" in g][:args.n]
-data_path = {"crux": "/home/jli199/.claude/jobs/c0d2da0a/tmp/cruxeval.jsonl", "gsm8k": "/home/jli199/.claude/jobs/c0d2da0a/tmp/gsm8k_test.jsonl",
-             "math": "/home/jli199/.claude/jobs/c0d2da0a/tmp/math500.jsonl"}[args.task]
+data_path = args.data or {"crux": "/home/jli199/.claude/jobs/c0d2da0a/tmp/cruxeval.jsonl", "gsm8k": "/home/jli199/.claude/jobs/c0d2da0a/tmp/gsm8k_test.jsonl",
+                          "math": "/home/jli199/.claude/jobs/c0d2da0a/tmp/math500.jsonl"}[args.task]
 rows = [json.loads(l) for l in open(data_path) if l.strip()]
 
 tok = AutoTokenizer.from_pretrained(args.ckpt, trust_remote_code=True)
