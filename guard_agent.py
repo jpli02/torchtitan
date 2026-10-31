@@ -41,8 +41,12 @@ GUARD_BUSY_WAIT_SEC = float(os.environ.get("TB_GUARD_BUSY_WAIT_SEC", "20"))
 GUARD_REPEAT_N = int(os.environ.get("TB_GUARD_REPEAT_N", "3"))
 GUARD_MAX_PER_EPISODE = int(os.environ.get("TB_GUARD_MAX_PER_EPISODE", "2"))
 
-PROMPT_RE = re.compile(r"(^|\s)[\w.@\-]+@[\w.\-]+:[^\n]*[#$] ?$|(^|\n)[#$] ?$")
+# A shell prompt ends the line with # or $ (the prompt may be glued to the previous command's
+# output when that output had no trailing newline, e.g. 'archive/root@abc:/app#').
+PROMPT_RE = re.compile(r"[#$] ?$")
 PS2_RE = re.compile(r"(^|\n)(>|quote>|dquote>|heredoc>|bquote>|cmdsubst>|pipe>|cmdand>|cmdor>) ?$")
+# Programs asking for input: the terminal is waiting for the agent, not busy.
+INPUT_RE = re.compile(r"(\[y/n\]|\[yes/no\]|\(y/n\)|password|passphrase|\?\s*$|:\s*$|continue\??\s*$|press enter|more\]?--)", re.I)
 
 
 def last_line(screen: str) -> str:
@@ -56,6 +60,11 @@ def at_prompt(screen: str) -> bool:
 
 def at_continuation(screen: str) -> bool:
     return bool(PS2_RE.search(last_line(screen)))
+
+
+def awaiting_input(screen: str) -> bool:
+    """A program is asking the user something ([Y/n], password:, ...): not busy, type away."""
+    return bool(INPUT_RE.search(last_line(screen)))
 
 
 def strip_heredocs(text: str) -> str:
@@ -115,13 +124,21 @@ class TerminusGuard(TerminusVerify):
         except Exception:
             return ""
 
-    def _wait_prompt(self, session, max_sec: float) -> bool:
+    def _wait_prompt(self, session, max_sec: float):
+        """Wait for the prompt. Returns (prompt_back, still_changing): if the screen keeps
+        changing the command is still producing output; a static screen without a prompt is
+        a program waiting for input, which the agent must be allowed to answer."""
         t0 = time.time()
+        first = self._screen(session)
+        last = first
         while time.time() - t0 < max_sec:
-            if at_prompt(self._screen(session)):
-                return True
+            if at_prompt(last) or awaiting_input(last):
+                return True, False
             time.sleep(2.0)
-        return at_prompt(self._screen(session))
+            last = self._screen(session)
+        if at_prompt(last) or awaiting_input(last):
+            return True, False
+        return False, last != first
 
     def _execute_commands(self, commands, session):
         if not GUARD or not commands:
@@ -146,16 +163,21 @@ class TerminusGuard(TerminusVerify):
                 session.send_keys(["C-c", "Enter"], block=False, min_timeout_sec=1.0)
                 notes.append("[guard] bash was waiting at a continuation prompt (an earlier command had an unbalanced quote or "
                              "unterminated heredoc); sent Ctrl-C to reset it. Commands typed since then were NOT executed.")
-            elif not at_prompt(screen):
-                if self._wait_prompt(session, GUARD_BUSY_WAIT_SEC):
+            elif not at_prompt(screen) and not awaiting_input(screen):
+                ready, changing = self._wait_prompt(session, GUARD_BUSY_WAIT_SEC)
+                if ready:
                     self._stats["busy_waited"] += 1
-                elif refusals < GUARD_MAX_PER_EPISODE:
+                elif changing and refusals < GUARD_MAX_PER_EPISODE:
+                    # still printing output after the wait: genuinely busy
                     refusals += 1
                     self._stats["busy_refused"] += 1
                     out = self._limit_output_length(session.get_incremental_output())
-                    notes.append("[guard] the previous command is STILL RUNNING (no shell prompt). Your new commands were NOT sent. "
-                                 "Either wait for it (send an empty keystrokes command with a duration) or interrupt it with C-c.")
+                    notes.append("[guard] the previous command is STILL RUNNING (output is still arriving, no shell prompt). Your new "
+                                 "commands were NOT sent. Either wait for it (send an empty keystrokes command with a duration) or interrupt it with C-c.")
                     return False, "\n".join(notes) + "\n\n" + out
+                else:
+                    # static screen without a prompt: a program is waiting for input, let the agent answer
+                    self._stats["busy_static_passed"] = self._stats.get("busy_static_passed", 0) + 1
         # repeat detector
         for cmd in to_run:
             self._recent.append(cmd.keystrokes.strip())
