@@ -7,7 +7,9 @@ WT=/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
 PY=/home/jli199/torchtitan/.venv/bin/python
 EASY12="hello-world fix-permissions csv-to-parquet processing-pipeline count-dataset-tokens create-bucket extract-safely git-workflow-hack grid-pattern-transform modernize-fortran-build security-vulhub-minio simple-web-scraper"
-REP=$TMP/eval_guard_easy.txt; : > "$REP"
+RUNTAG=${RUNTAG:-}   # optional suffix so re-runs do not overwrite earlier run dirs/reports
+SFX=${RUNTAG:+_$RUNTAG}
+REP=$TMP/eval_guard_easy${SFX}.txt; : > "$REP"
 cd "$WT" || exit 1
 # GPU=<idx> pins a card; otherwise wait for the KV-share accuracy check, then poll for a free card
 gpu=${GPU:-}
@@ -41,8 +43,8 @@ print("failure_modes:", dict(fm))
 if guard: print("guard interventions:", dict(guard))
 PYEOF
 }
-GPU=$gpu GATE=0 THR=0.2 CKPT=/home/jli199/boptim_scratch/ouro_v3_earlyexit NAME=easy12_stock PORT=8151 ATT=2 MINFREE=40000 TASKS="$EASY12" bash eval_gated.sh > "$TMP/easy12_stock.log" 2>&1
-agg easy12_stock
-GPU=$gpu AGENT_IMPORT=guard_agent:TerminusGuard THR=0.2 CKPT=/home/jli199/boptim_scratch/ouro_v3_earlyexit NAME=easy12_guard PORT=8151 ATT=2 MINFREE=40000 TASKS="$EASY12" bash eval_gated.sh > "$TMP/easy12_guard.log" 2>&1
-agg easy12_guard
+GPU=$gpu GATE=0 THR=0.2 CKPT=/home/jli199/boptim_scratch/ouro_v3_earlyexit NAME=easy12_stock$SFX PORT=8151 ATT=2 MINFREE=40000 TASKS="$EASY12" bash eval_gated.sh > "$TMP/easy12_stock$SFX.log" 2>&1
+agg easy12_stock$SFX
+GPU=$gpu AGENT_IMPORT=guard_agent:TerminusGuard THR=0.2 CKPT=/home/jli199/boptim_scratch/ouro_v3_earlyexit NAME=easy12_guard$SFX PORT=8151 ATT=2 MINFREE=40000 TASKS="$EASY12" bash eval_gated.sh > "$TMP/easy12_guard$SFX.log" 2>&1
+agg easy12_guard$SFX
 echo "=== GUARD EVAL done $(date '+%m-%d %H:%M') ===" | tee -a "$REP"
