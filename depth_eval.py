@@ -31,6 +31,8 @@ args = ap.parse_args()
 
 
 def _parse_val(v):
+    if v.startswith("["):
+        return json.loads(v)  # list, e.g. decode_early_exit_threshold=[0.1,0.5,0.5,1.0]
     if v.lower() in ("true", "false"):
         return v.lower() == "true"
     try:
