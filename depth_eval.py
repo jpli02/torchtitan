@@ -27,6 +27,8 @@ ap.add_argument("--max_new", type=int, default=1024)
 ap.add_argument("--out", default=None)
 ap.add_argument("--seed_offset", type=int, default=0, help="skip this many rows first")
 ap.add_argument("--cfg", action="append", default=[], help="config override key=value (bool/int/float parsed), e.g. kv_share_decode=true")
+ap.add_argument("--prompt_suffix", default="", help="text appended to every prompt (e.g. 'Respond with only the code block, no explanation.')")
+ap.add_argument("--assistant_prefix", default="", help="text the assistant turn starts with (forced), e.g. '```python\\n' to skip the reasoning preamble")
 args = ap.parse_args()
 
 
@@ -203,7 +205,9 @@ for _k, _v in kw.items():
 model = AutoModelForCausalLM.from_pretrained(args.ckpt, config=config, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda().eval()
 print(f"loaded {args.ckpt} steps={model.config.total_ut_steps} thr={getattr(model.config, 'early_exit_threshold', None)} cfg={CFG} rows={len(rows)}", flush=True)
 
-texts = [tok.apply_chat_template([{"role": "user", "content": build_prompt(r)}], tokenize=False, add_generation_prompt=True) for r in rows]
+SFX = ("\n\n" + args.prompt_suffix.strip()) if args.prompt_suffix.strip() else ""
+APFX = args.assistant_prefix.encode().decode("unicode_escape") if args.assistant_prefix else ""
+texts = [tok.apply_chat_template([{"role": "user", "content": build_prompt(r) + SFX}], tokenize=False, add_generation_prompt=True) + APFX for r in rows]
 order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
 gens = [None] * len(texts)
 ntoks = [0] * len(texts)
@@ -220,7 +224,7 @@ with torch.inference_mode():
             n = int((g != tok.pad_token_id).sum().item())
             ntoks[i] = n
             total_tok += n
-            gens[i] = tok.decode(g, skip_special_tokens=True)
+            gens[i] = APFX + tok.decode(g, skip_special_tokens=True)
         done = b + len(idx)
         print(f"  {done}/{len(order)} rows, {time.time()-t0:.0f}s, {total_tok/(time.time()-t0):.1f} tok/s", flush=True)
 dt = time.time() - t0
