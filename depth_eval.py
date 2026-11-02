@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -122,6 +122,9 @@ def build_prompt(r):
         return r["question"] + SUFFIX
     if args.task == "mc":
         return mc_prompt(r)
+    if args.task == "bcb":
+        return (r["instruct_prompt"].rstrip() + "\n\nWrite the complete, self-contained Python code (imports and the full "
+                "function) inside a single ```python code block.")
     if args.task == "crux":
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
@@ -139,7 +142,7 @@ def build_prompt(r):
 
 
 def extract(gen):
-    return last_code_block(gen) if args.task == "lcb" else last_boxed(gen)
+    return last_code_block(gen) if args.task in ("lcb", "bcb") else last_boxed(gen)
 
 
 def crux_equal(pred, gold):
@@ -160,8 +163,8 @@ def crux_equal(pred, gold):
 
 
 def correct(pred, gold):
-    if args.task == "lcb":
-        return False  # graded separately by lcb_grade.py in a sandbox
+    if args.task in ("lcb", "bcb"):
+        return False  # graded separately in a sandbox (lcb_grade.py / bcb_grade.py)
     if args.task == "mc":
         if pred is None:
             return False
@@ -235,6 +238,8 @@ for i, r in enumerate(rows):
     rec = {"i": args.seed_offset + i, "gold": gold, "pred": pred, "correct": ok, "truncated": trunc, "ntok": ntoks[i], "gen": gens[i]}
     if args.task == "lcb":
         rec.update({"question_id": r.get("question_id"), "difficulty": r.get("difficulty")})
+    if args.task == "bcb":
+        rec.update({"task_id": r.get("task_id")})
     recs.append(rec)
 acc = n_ok / len(rows)
 loops_dec = getattr(model, "_exit_loops_decode_sum", None)

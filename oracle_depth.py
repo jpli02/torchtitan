@@ -42,6 +42,9 @@ def build_prompt(r, task):
         opts = "\n".join(f"{'ABCDEFGHIJ'[i]}. {o}" for i, o in enumerate(r["options"]))
         return (f"Answer the following multiple choice question.\n\n{r['question']}\n\n{opts}\n\n"
                 "Think step by step, then give only the letter of the correct option within \\boxed{}.")
+    if task == "bcb":
+        return (r["instruct_prompt"].rstrip() + "\n\nWrite the complete, self-contained Python code (imports and the full "
+                "function) inside a single ```python code block.")
     if task == "crux":
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"

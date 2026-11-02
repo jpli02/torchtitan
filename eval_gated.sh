@@ -63,7 +63,10 @@ if ! curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
 fi
 echo "server up $(date '+%m-%d %H:%M')" | tee -a "$OUT"
 
-rm -rf /tmp/tb_runs/$NAME
+OUTROOT=${OUTROOT:-/tmp/tb_runs}          # run dirs; use /home/jli199/boptim_scratch/tb_runs to spare the 8 GB /tmp
+DATASET=${DATASET:-/home/jli199/terminal_bench_eval/tb_tasks}   # e.g. the 139-task variant pool for train-task evals
+AGENT_TIMEOUT=${AGENT_TIMEOUT:-1800}
+mkdir -p "$OUTROOT"; rm -rf "$OUTROOT/$NAME"
 cd /home/jli199/terminal_bench_eval || exit 1
 set -a; . ~/.boptim_keys.env 2>/dev/null || true; set +a
 # GATE=0 runs stock terminus-2, which is what every 12-task baseline used
@@ -79,18 +82,18 @@ fi
 echo "agent: $AGENT_ARGS" | tee -a "$OUT"
 
 PYTHONPATH="$WT" timeout 43200 .venv/bin/tb run \
-  --dataset-path /home/jli199/terminal_bench_eval/tb_tasks \
+  --dataset-path "$DATASET" \
   $AGENT_ARGS \
   --model "openai/$NAME" \
   --agent-kwarg api_base="http://127.0.0.1:$PORT/v1" \
   $TARGS \
-  --n-attempts $ATT --n-concurrent 1 --global-agent-timeout-sec 1800 \
-  --output-path /tmp/tb_runs --run-id "$NAME" --no-livestream \
+  --n-attempts $ATT --n-concurrent 1 --global-agent-timeout-sec "$AGENT_TIMEOUT" \
+  --output-path "$OUTROOT" --run-id "$NAME" --no-livestream \
   >> "$LOGDIR/${NAME}.tb.log" 2>&1
 
 err=$(grep -c "500 Internal Server Error" "$slog" 2>/dev/null)
 ok=$(grep -c '"POST /v1/chat/completions HTTP/1.1" 200' "$slog" 2>/dev/null)
-tr=$(ls /tmp/tb_runs/$NAME/*/*/results.json 2>/dev/null | wc -l)
+tr=$(ls "$OUTROOT/$NAME"/*/*/results.json 2>/dev/null | wc -l)
 kill -9 $spid 2>/dev/null
 echo "$NAME: trials=$tr http200=$ok http500=$err" | tee -a "$OUT"
 echo "--- done $(date '+%m-%d %H:%M') ---" | tee -a "$OUT"
