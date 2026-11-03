@@ -163,7 +163,34 @@ def wc_rows(pts, full_label):
 
 wc_pts = [("full", "full depth, 4 loops"), ("gate0.7", "released gate, q = 0.7"), ("gate0.5", "released gate, q = 0.5"), ("gate0.3", "released gate, q = 0.3")]
 wc_pts2 = [("full_o120", "full depth, 4 loops"), ("gate0.7_o120", "released gate, q = 0.7"), ("gate0.5_o120", "released gate, q = 0.5"), ("gate0.3_o120", "released gate, q = 0.3")]
-wrows = wc_rows(wc_pts, "full") + ['<tr class="dim"><td colspan="7"><b>problems 120 to 239, true exit (n = 120)</b></td></tr>'] + wc_rows(wc_pts2, "full_o120")
+wc_pts3 = [("full_o240", "full depth, 4 loops"), ("gate0.7_o240", "released gate, q = 0.7"), ("gate0.5_o240", "released gate, q = 0.5"), ("gate0.3_o240", "released gate, q = 0.3")]
+wc_pts3 = [p for p in wc_pts3 if wc_graded(p[0]) or p[0] in ("full_o240", "gate0.7_o240")]  # list the slice-3 gate 0.5 / 0.3 rows only once they exist
+wrows = (wc_rows(wc_pts, "full") + ['<tr class="dim"><td colspan="7"><b>problems 120 to 239, true exit (n = 120)</b></td></tr>'] + wc_rows(wc_pts2, "full_o120")
+         + ['<tr class="dim"><td colspan="7"><b>problems 240 to 341, true exit (n = 102)</b></td></tr>'] + wc_rows(wc_pts3, "full_o240"))
+
+
+def wc_pooled(labels):
+    """Pooled pass@1 and mean tokens/s over the slices that exist for a router label family, e.g. ['full', 'full_o120', 'full_o240']."""
+    ok = n = 0
+    ts = []
+    for lab in labels:
+        g, r = wc_graded(lab), wc_result(lab)
+        if g and r:
+            ok += round(g["pass@1"] * g["n"])
+            n += g["n"]
+            ts.append(r["tok_s"])
+    return (ok, n, sum(ts) / len(ts)) if n else None
+
+
+pooled_txt = ""
+pf = wc_pooled(["full", "full_o120", "full_o240"])
+if pf and pf[1] > 120:
+    parts = [f"full depth {100 * pf[0] / pf[1]:.1f} % (n = {pf[1]})"]
+    for fam, disp in [("gate0.7", "gate q = 0.7"), ("gate0.5", "gate q = 0.5"), ("gate0.3", "gate q = 0.3")]:
+        p = wc_pooled([fam, f"{fam}_o120", f"{fam}_o240"])
+        if p:
+            parts.append(f"{disp} {100 * p[0] / p[1]:.1f} % at {p[2] / pf[2]:.2f}× (n = {p[1]})")
+    pooled_txt = " Pooled over the slices run so far: " + "; ".join(parts) + "."
 lcb_wc_block = f'''<div class="sub-head"><h3>LiveCodeBench under real execution, batch 1, first 120 problems</h3><p>Decode-time early exit as in the BigCodeBench and CRUXEval tables; direct mode, 1,024-token budget, graded against the official tests. This slice is harder than the full set (27 easy, 30 medium, 63 hard), so compare routers against each other.</p></div>
 <div class="tablewrap">
     <table>
@@ -172,7 +199,7 @@ lcb_wc_block = f'''<div class="sub-head"><h3>LiveCodeBench under real execution,
         {chr(10).join("        " + r for r in wrows).strip()}
       </tbody>
     </table>
-    <p class="src">Standard error about 3.8 points at n = 120. Answers average about 420 tokens, between BigCodeBench's 250 and CRUXEval's 900, so the cost of the skipped-loop cache approximation should sit between the two.</p>
+    <p class="src">Standard error about 3.8 points at n = 120. Answers average about 420 tokens, between BigCodeBench's 250 and CRUXEval's 900, so the cost of the skipped-loop cache approximation should sit between the two.{pooled_txt}</p>
   </div>
 '''
 
