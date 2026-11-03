@@ -124,6 +124,52 @@ bcb_block = '''<div class="sub-head"><h3>BigCodeBench under real execution, batc
   </div>
 '''
 
+# ---------------------------------------------------------------- LiveCodeBench true-exit (wall-clock) table
+def wc_result(label):
+    p = f"{TMP}/wallclock_lcb.txt"
+    if not os.path.exists(p):
+        return None
+    for line in open(p):
+        if line.startswith(f"RESULT {label} "):
+            return json.loads(line[len(f"RESULT {label} "):])
+    return None
+
+
+def wc_graded(label):
+    p = f"{TMP}/wcl_{label}.graded.json"
+    return json.load(open(p)) if os.path.exists(p) else None
+
+
+wc_pts = [("full", "full depth, 4 loops"), ("gate0.7", "released gate, q = 0.7"), ("gate0.5", "released gate, q = 0.5"), ("gate0.3", "released gate, q = 0.3")]
+wfull, gfull = wc_result("full"), wc_graded("full")
+wrows = []
+for label, disp in wc_pts:
+    r, g = wc_result(label), wc_graded(label)
+    cls = ' class="dim"' if label == "full" else ""
+    if r is None or g is None:
+        wrows.append(f'<tr{cls}><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
+        continue
+    bd = g["by_difficulty"]
+    sp = f'{r["tok_s"] / wfull["tok_s"]:.2f}×' if wfull else "—"
+    if label == "full" or gfull is None:
+        reading = "baseline" if label == "full" else ""
+    else:
+        d = 100 * (g["pass@1"] - gfull["pass@1"])
+        reading = chip("good", "no loss" if d >= 0 else f"{d:+.1f} pt, within noise") if d > -3.8 else chip("crit" if d < -7 else "warn", f"{d:+.1f} pt")
+    wrows.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(g["pass@1"])} %</td><td class="n">{bd.get("easy", "—")} / {bd.get("medium", "—")} / {bd.get("hard", "—")}</td>'
+                 f'<td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{pct(r["trunc_rate"], 0)} %</td><td class="st">{reading}</td></tr>')
+lcb_wc_block = f'''<div class="sub-head"><h3>LiveCodeBench under real execution, batch 1, first 120 problems</h3><p>Decode-time early exit as in the BigCodeBench and CRUXEval tables; direct mode, 1,024-token budget, graded against the official tests. This slice is harder than the full set (27 easy, 30 medium, 63 hard), so compare routers against each other.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Router</th><th class="n">pass@1 (120)</th><th class="n">easy / medium / hard</th><th class="n">tokens / s</th><th class="n">speed-up</th><th class="n">truncated</th><th class="st">Reading</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in wrows).strip()}
+      </tbody>
+    </table>
+    <p class="src">Standard error about 3.8 points at n = 120. Answers average about 420 tokens, between BigCodeBench's 250 and CRUXEval's 900, so the cost of the skipped-loop cache approximation should sit between the two.</p>
+  </div>
+'''
+
 # ---------------------------------------------------------------- citation table
 cites = {}
 cp = f"{TMP}/cites.tsv"
@@ -216,7 +262,7 @@ rep('<tr class="dim"><td>LiveCodeBench easy+medium (120)</td><td class="n">—</
 rep('Real-execution points (full depth, gate 0.5, gate 0.3 on 150 tasks) are running; short outputs should make the skipped-loop cache approximation cheaper than on CRUXEval.',
     'Under real decode-time early exit (next table) the gate at q = 0.5 keeps this accuracy at 1.37× real speed.')
 rep('<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>',
-    bcb_block + lcb_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
+    bcb_block + lcb_block + lcb_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
 rep('Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>',
     'Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>\n' + cite_block.rstrip("\n"))
 rep('Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, LiveCodeBench', 'Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, BigCodeBench, LiveCodeBench')
@@ -226,6 +272,58 @@ rep('<dt>Pending</dt><dd>held-out CRUXEval (items 200 to 499) and GSM8K (items 3
     '<dt>Pending</dt><dd>LiveCodeBench depth 2, gate and per-step points plus the oracle bound; GSM-Symbolic p1 and main through the headroom pipeline; a LiveCodeBench real-execution run once the gather points are in; the masked skipped-slot cache rule as the next router design axis</dd>')
 rep('before it is trusted as the inner loop.</li>',
     'before it is trusted as the inner loop.</li>\n      <li><b>Real exit is cheap when answers are short.</b> On BigCodeBench, where the direct answer is about 250 tokens of code, the released gate at q = 0.5 keeps full-depth accuracy at 1.37× real speed (40.0 vs 40.7 % on 150 tasks) and q = 0.3 costs 3 points at 1.81×; CRUXEval, with 900-token chains of thought, needed q = 0.7 for no loss at 1.12×. The price of the skipped-loop cache approximation grows with the length of the generation that attends to it, which makes short-answer coding benchmarks the friendliest ground for a searched router.</li>')
+
+# ---------------------------------------------------------------- Q11: training-task pass@1 (fit check on the tasks the checkpoints trained on)
+import glob as _glob
+
+
+def tb_counts(name):
+    n = ok = to = 0
+    for f in _glob.glob(f"/srv/scratch/jli199/tb_runs/{name}/*/*/results.json"):
+        try:
+            d = json.load(open(f))
+        except Exception:
+            continue
+        n += 1
+        ok += bool(d.get("is_resolved"))
+        to += d.get("failure_mode") == "agent_timeout"
+    return ok, n, to
+
+
+def tt_row(name, disp, saw, budget, reading, cls=""):
+    ok, n, to = tb_counts(name)
+    cell = f"{ok}/{n}" + (f" ({100 * ok / n:.0f} %)" if n else "")
+    return f'<tr{cls}><td>{disp}</td><td>{saw}</td><td class="n">{cell if n else "running"}</td><td class="n">{to if n else "—"}</td><td class="n">{budget}</td><td class="st">{reading}</td></tr>'
+
+
+r22 = tb_counts("train22_r1_1800")
+r22_reading = (chip("info", "running") + sm("1,800-second budget on the 22 tasks ep4 solved")) if r22[1] < 22 else (
+    chip("good", f"{100 * r22[0] / r22[1]:.0f} % at the full budget") + sm("given the time, r1 executes its training tasks too"))
+if r22[1] and r22[1] < 22:
+    r22_reading = chip("info", f"{r22[0]}/{r22[1]} so far") + sm("1,800-second budget on the 22 tasks ep4 solved; still running")
+tt_rows = [
+    tt_row("train75_v3", "v3", "never", "900 s", "baseline" + sm("solves 27 % of tasks it never trained on"), ' class="dim"'),
+    tt_row("train75_ep4", "ep4, 4 true epochs on their trajectories", "yes, memorised (99 % token accuracy)", "900 s",
+           chip("good", "executes what it memorised") + sm("while its test pass@1 fell 9/22 → 5/21: over-fitting, not under-fitting")),
+    tt_row("train75_r1", "take-turns r1, 1.67 epochs (best test checkpoint)", "yes", "900 s",
+           chip("crit", "turns 2× longer") + sm("64 s per turn vs 30 s for v3 at the same 5.5 tokens per second: the take-turns data made the student verbose, and 900 s is not enough")),
+    tt_row("train22_r1_1800", "take-turns r1 on the 22 tasks ep4 solved", "yes", "1,800 s", r22_reading),
+]
+tt_block = f'''
+<div class="sub-head"><h3>Training-task pass@1: do the checkpoints solve the tasks they trained on?</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns trajectories trained r1 and ep4; stock terminus-2 with the serving fixes, one server per card. The 12-hour run cap stopped the 900-second arms at 48 to 53 tasks.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Checkpoint</th><th>Trained on these tasks?</th><th class="n">solved</th><th class="n">timeouts</th><th class="n">budget</th><th class="st">Reading</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in tt_rows).strip()}
+      </tbody>
+    </table>
+    <p class="src">Memorising the trajectories lifts the training-task pass rate from 27 to 42 % and lowers the test score, which settles the under-fitting question the other way round. The r1 row at 900 s measures verbosity, not fit: the checkpoint writes about twice the tokens per turn, so its fit is read from the 1,800-second row. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_r1_1800</code>; counter <code>tb_progress.py</code>.</p>
+  </div>'''
+_i = html.find('<p class="src">Reading it: the model can absorb the generated trajectories completely')
+assert _i > 0
+_j = html.find('</p>\n  </div>', _i) + len('</p>\n  </div>')
+html = html[:_j] + tt_block + html[_j:]
 
 open(OUT, "w").write(html)
 shutil.copy(OUT, SRC)
