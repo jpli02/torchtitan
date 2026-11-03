@@ -118,11 +118,53 @@ bcb_block = '''<div class="sub-head"><h3>BigCodeBench under real execution, batc
         <tr class="dim"><td>full depth, 4 loops</td><td class="n">40.7 %</td><td class="n">6.43</td><td class="n">1.00×</td><td class="n">278</td><td class="st">baseline</td></tr>
         <tr class="best"><td>released gate, q = 0.5</td><td class="n">40.0 %</td><td class="n">8.79</td><td class="n">1.37×</td><td class="n">255</td><td class="st"><span class="chip good">no loss</span><span class="sm">−0.7 pt, inside the 4-point standard error</span></td></tr>
         <tr><td>released gate, q = 0.3</td><td class="n">37.3 %</td><td class="n">11.65</td><td class="n">1.81×</td><td class="n">245</td><td class="st"><span class="chip warn">−3.3 pt</span></td></tr>
+        {BCB2_ROWS}
       </tbody>
     </table>
-    <p class="src">Standard error about 4 points at n = 150. Code-only answers of about 250 tokens make the skipped-loop cache approximation almost free: the gate at q = 0.5 keeps full-depth accuracy at 1.37× real speed, where CRUXEval needed q = 0.7 for no loss at 1.12×. The loop counter under true exit does not report the executed count (it reads 3.85 and 3.14 here against 2.82 and 2.09 for the same thresholds in gather mode), so speed is the measured tokens per second.</p>
+    <p class="src">Standard error about 4 points at n = 150. Code-only answers of about 250 tokens make the skipped-loop cache approximation almost free: the gate at q = 0.5 keeps full-depth accuracy at 1.37× real speed, where CRUXEval needed q = 0.7 for no loss at 1.12×. The loop counter under true exit does not report the executed count (it reads 3.85 and 3.14 here against 2.82 and 2.09 for the same thresholds in gather mode), so speed is the measured tokens per second.{BCB2_POOL}</p>
   </div>
 '''
+
+
+def wb_result(label):
+    p = f"{TMP}/wallclock_bcb.txt"
+    if os.path.exists(p):
+        for line in open(p):
+            if line.startswith(f"RESULT {label} "):
+                return json.loads(line[len(f"RESULT {label} "):])
+    g = wb_graded(label)
+    return g.get("summary") if g else None
+
+
+def wb_graded(label):
+    p = f"{TMP}/wcb_{label}.graded.json"
+    return json.load(open(p)) if os.path.exists(p) else None
+
+
+bcb2_rows, bcb2_pool = [], ""
+if os.path.exists(f"{TMP}/wcb_full_o150.log"):
+    bcb2_rows.append('<tr class="dim"><td colspan="6"><b>tasks 150 to 299, true exit (n = 150)</b></td></tr>')
+    f2, g2 = wb_result("full_o150"), wb_graded("full_o150")
+    for label, disp in [("full_o150", "full depth, 4 loops"), ("gate0.5_o150", "released gate, q = 0.5"), ("gate0.3_o150", "released gate, q = 0.3")]:
+        r, g = wb_result(label), wb_graded(label)
+        if r is None or g is None:
+            if label != "gate0.3_o150":
+                bcb2_rows.append(f'<tr><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
+            continue
+        sp = f'{r["tok_s"] / f2["tok_s"]:.2f}×' if f2 else "—"
+        if label == "full_o150" or g2 is None:
+            reading = "baseline"
+        else:
+            d = 100 * (g["pass@1"] - g2["pass@1"])
+            reading = chip("good", "no loss" if d >= 0 else f"{d:+.1f} pt, within noise") if d > -4 else chip("warn", f"{d:+.1f} pt")
+        cls = ' class="dim"' if label == "full_o150" else ""
+        bcb2_rows.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(g["pass@1"])} %</td><td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{r["mean_tokens"]:.0f}</td><td class="st">{reading}</td></tr>')
+    if g2 and wb_graded("gate0.5_o150"):
+        gf, gg = wb_graded("full"), wb_graded("gate0.5")
+        n_f = 150 * gf["pass@1"] + 150 * g2["pass@1"]
+        n_g = 150 * gg["pass@1"] + 150 * wb_graded("gate0.5_o150")["pass@1"]
+        bcb2_pool = f" Pooled over 300 tasks: full depth {n_f / 3:.1f} %, gate q = 0.5 {n_g / 3:.1f} %."
+bcb_block = bcb_block.replace("{BCB2_ROWS}", "\n        ".join(bcb2_rows)).replace("{BCB2_POOL}", bcb2_pool)
 
 # ---------------------------------------------------------------- LiveCodeBench true-exit (wall-clock) table
 def wc_result(label):
