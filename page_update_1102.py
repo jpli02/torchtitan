@@ -35,7 +35,8 @@ def result_line(name, label):
     for line in open(p):
         if line.startswith(f"RESULT {label} "):
             return json.loads(line[len(f"RESULT {label} "):])
-    return None
+    g = graded(name, label)  # the generation summary also sits in the graded file (used when the RESULT line was lost)
+    return g.get("summary") if g else None
 
 
 def pct(x, d=1):

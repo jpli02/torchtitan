@@ -32,7 +32,7 @@ def get(url, tries=8):
 rows = []
 for label, arx, dom, note in PAPERS:
     r = get(f"https://api.semanticscholar.org/graph/v1/paper/ARXIV:{arx}?fields=title,year,venue,citationCount")
-    time.sleep(4.0)
+    time.sleep(float(os.environ.get("SLEEP", "4.0")))
     if r is None:
         rows.append((label, arx, dom, note, None, None, "", ""))
     else:
