@@ -258,24 +258,36 @@ def wg_result(label):
 
 
 gsm_wc_block = ""
-if os.path.exists(f"{TMP}/wallclock_gsm.txt"):
-    gfull = wg_result("gsmmain_full")
-    grows = []
-    for label, disp in [("gsmmain_full", "full depth, 4 loops"), ("gsmmain_gate0.7", "released gate, q = 0.7"), ("gsmmain_gate0.5", "released gate, q = 0.5"),
-                        ("gsmmain_gate0.3", "released gate, q = 0.3"), ("gsmmain_gate0.2", "released gate, q = 0.2"), ("gsmmain_steps0.3-0.5-0.5", "per-step (0.3, 0.5, 0.5)")]:
+
+
+def gsm_rows(points, full_label, always):
+    gfull = wg_result(full_label)
+    rows = []
+    for label, disp in points:
         r = wg_result(label)
-        cls = ' class="dim"' if label == "gsmmain_full" else ""
+        cls = ' class="dim"' if label == full_label else ""
         if r is None:
-            if label in ("gsmmain_full", "gsmmain_gate0.5", "gsmmain_gate0.3"):
-                grows.append(f'<tr{cls}><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
+            if label in always:
+                rows.append(f'<tr{cls}><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
             continue
         sp = f'{r["tok_s"] / gfull["tok_s"]:.2f}×' if gfull else "—"
-        if label == "gsmmain_full" or gfull is None:
-            reading = "baseline" if label == "gsmmain_full" else ""
+        if label == full_label or gfull is None:
+            reading = "baseline" if label == full_label else ""
         else:
             d = 100 * (r["acc"] - gfull["acc"])
             reading = chip("good", "no loss" if d >= 0 else f"{d:+.1f} pt, within noise") if d > -4 else chip("crit" if d < -8 else "warn", f"{d:+.1f} pt")
-        grows.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(r["acc"])} %</td><td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{pct(r["trunc_rate"], 0)} %</td><td class="st">{reading}</td></tr>')
+        rows.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(r["acc"])} %</td><td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{pct(r["trunc_rate"], 0)} %</td><td class="st">{reading}</td></tr>')
+    return rows
+
+
+if os.path.exists(f"{TMP}/wallclock_gsm.txt"):
+    grows = gsm_rows([("gsmmain_full", "full depth, 4 loops"), ("gsmmain_gate0.7", "released gate, q = 0.7"), ("gsmmain_gate0.5", "released gate, q = 0.5"),
+                      ("gsmmain_gate0.3", "released gate, q = 0.3"), ("gsmmain_gate0.2", "released gate, q = 0.2"), ("gsmmain_steps0.3-0.5-0.5", "per-step (0.3, 0.5, 0.5)")],
+                     "gsmmain_full", ("gsmmain_full", "gsmmain_gate0.5", "gsmmain_gate0.3"))
+    if os.path.exists(f"{TMP}/wcg_gsmmain_full_o100.log"):
+        grows += ['<tr class="dim"><td colspan="6"><b>items 100 to 199, true exit (n = 100)</b></td></tr>']
+        grows += gsm_rows([("gsmmain_full_o100", "full depth, 4 loops"), ("gsmmain_gate0.5_o100", "released gate, q = 0.5"), ("gsmmain_gate0.3_o100", "released gate, q = 0.3"),
+                           ("gsmmain_gate0.7_o100", "released gate, q = 0.7")], "gsmmain_full_o100", ("gsmmain_full_o100", "gsmmain_gate0.5_o100"))
     gsm_wc_block = f'''<div class="sub-head"><h3>GSM-Symbolic main under real execution, batch 1, first 100 items</h3><p>The long chain-of-thought regime (about 1,000 tokens per answer, 2,048-token budget), the counterpart of CRUXEval among the 2025-venue benchmarks; same decode-time early exit, accuracy by exact match of the boxed answer.</p></div>
 <div class="tablewrap">
     <table>
