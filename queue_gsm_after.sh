@@ -5,12 +5,13 @@ set -u
 : "${MARK:?}"; : "${GPU:?}"; : "${POINTS:?}"
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
 WT=/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft
+REPORT=${REPORT:-$TMP/wallclock_lcb.txt}   # the report file to watch for MARK
 END=$(( $(date +%s) + 36000 ))
 while [ "$(date +%s)" -lt "$END" ]; do
-  grep -q "^$MARK" "$TMP/wallclock_lcb.txt" 2>/dev/null && break
+  grep -q "^$MARK" "$REPORT" 2>/dev/null && break
   sleep 120
 done
-grep -q "^$MARK" "$TMP/wallclock_lcb.txt" 2>/dev/null || { echo "$MARK never appeared; not starting $(date '+%m-%d %H:%M')"; exit 1; }
+grep -q "^$MARK" "$REPORT" 2>/dev/null || { echo "$MARK never appeared; not starting $(date '+%m-%d %H:%M')"; exit 1; }
 sleep 30
 cd "$WT" || exit 1
 GPU=$GPU POINTS="$POINTS" bash wallclock_gsm.sh
