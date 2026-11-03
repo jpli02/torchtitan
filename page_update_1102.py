@@ -205,6 +205,47 @@ lcb_wc_block = f'''<div class="sub-head"><h3>LiveCodeBench under real execution,
   </div>
 '''
 
+# ---------------------------------------------------------------- GSM-Symbolic true-exit (wall-clock) table, long chain-of-thought regime
+def wg_result(label):
+    p = f"{TMP}/wallclock_gsm.txt"
+    if os.path.exists(p):
+        for line in open(p):
+            if line.startswith(f"RESULT {label} "):
+                return json.loads(line[len(f"RESULT {label} "):])
+    return None
+
+
+gsm_wc_block = ""
+if os.path.exists(f"{TMP}/wallclock_gsm.txt"):
+    gfull = wg_result("gsmmain_full")
+    grows = []
+    for label, disp in [("gsmmain_full", "full depth, 4 loops"), ("gsmmain_gate0.7", "released gate, q = 0.7"), ("gsmmain_gate0.5", "released gate, q = 0.5"),
+                        ("gsmmain_gate0.3", "released gate, q = 0.3"), ("gsmmain_gate0.2", "released gate, q = 0.2"), ("gsmmain_steps0.3-0.5-0.5", "per-step (0.3, 0.5, 0.5)")]:
+        r = wg_result(label)
+        cls = ' class="dim"' if label == "gsmmain_full" else ""
+        if r is None:
+            if label in ("gsmmain_full", "gsmmain_gate0.5", "gsmmain_gate0.3"):
+                grows.append(f'<tr{cls}><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
+            continue
+        sp = f'{r["tok_s"] / gfull["tok_s"]:.2f}×' if gfull else "—"
+        if label == "gsmmain_full" or gfull is None:
+            reading = "baseline" if label == "gsmmain_full" else ""
+        else:
+            d = 100 * (r["acc"] - gfull["acc"])
+            reading = chip("good", "no loss" if d >= 0 else f"{d:+.1f} pt, within noise") if d > -4 else chip("crit" if d < -8 else "warn", f"{d:+.1f} pt")
+        grows.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(r["acc"])} %</td><td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{pct(r["trunc_rate"], 0)} %</td><td class="st">{reading}</td></tr>')
+    gsm_wc_block = f'''<div class="sub-head"><h3>GSM-Symbolic main under real execution, batch 1, first 100 items</h3><p>The long chain-of-thought regime (about 1,000 tokens per answer, 2,048-token budget), the counterpart of CRUXEval among the 2025-venue benchmarks; same decode-time early exit, accuracy by exact match of the boxed answer.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Router</th><th class="n">accuracy (100)</th><th class="n">tokens / s</th><th class="n">speed-up</th><th class="n">truncated</th><th class="st">Reading</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in grows).strip()}
+      </tbody>
+    </table>
+    <p class="src">Standard error about 4 points at n = 100. If the long-answer regime behaves as on CRUXEval, the gate should need q = 0.7 for no loss and lose a few points at q = 0.5.</p>
+  </div>
+'''
+
 # ---------------------------------------------------------------- citation table
 cites = {}
 cp = f"{TMP}/cites.tsv"
@@ -297,7 +338,7 @@ rep('<tr class="dim"><td>LiveCodeBench easy+medium (120)</td><td class="n">—</
 rep('Real-execution points (full depth, gate 0.5, gate 0.3 on 150 tasks) are running; short outputs should make the skipped-loop cache approximation cheaper than on CRUXEval.',
     'Under real decode-time early exit (next table) the gate at q = 0.5 keeps this accuracy at 1.37× real speed.')
 rep('<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>',
-    bcb_block + lcb_block + lcb_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
+    bcb_block + lcb_block + lcb_wc_block + gsm_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
 rep('Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>',
     'Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>\n' + cite_block.rstrip("\n"))
 rep('Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, LiveCodeBench', 'Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, BigCodeBench, LiveCodeBench')
