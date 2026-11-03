@@ -161,7 +161,9 @@ def wc_rows(pts, full_label):
     return rows
 
 
-wc_pts = [("full", "full depth, 4 loops"), ("gate0.7", "released gate, q = 0.7"), ("gate0.5", "released gate, q = 0.5"), ("gate0.3", "released gate, q = 0.3")]
+wc_pts = [("full", "full depth, 4 loops"), ("gate0.7", "released gate, q = 0.7"), ("gate0.5", "released gate, q = 0.5"), ("gate0.3", "released gate, q = 0.3"),
+          ("gate0.2", "released gate, q = 0.2"), ("gate0.1", "released gate, q = 0.1"), ("steps0.3-0.5-0.5", "per-step (0.3, 0.5, 0.5)")]
+wc_pts = [p for p in wc_pts if wc_graded(p[0]) or wc_result(p[0]) or p[0] in ("full", "gate0.7", "gate0.5", "gate0.3")]  # extra points appear once run
 wc_pts2 = [("full_o120", "full depth, 4 loops"), ("gate0.7_o120", "released gate, q = 0.7"), ("gate0.5_o120", "released gate, q = 0.5"), ("gate0.3_o120", "released gate, q = 0.3")]
 wc_pts3 = [("full_o240", "full depth, 4 loops"), ("gate0.7_o240", "released gate, q = 0.7"), ("gate0.5_o240", "released gate, q = 0.5"), ("gate0.3_o240", "released gate, q = 0.3")]
 wc_pts3 = [p for p in wc_pts3 if wc_graded(p[0]) or p[0] in ("full_o240", "gate0.7_o240")]  # list the slice-3 gate 0.5 / 0.3 rows only once they exist
