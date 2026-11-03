@@ -300,9 +300,19 @@ if os.path.exists(f"{TMP}/wallclock_gsm.txt"):
         {chr(10).join("        " + r for r in grows).strip()}
       </tbody>
     </table>
-    <p class="src">Standard error about 4 points at n = 100. If the long-answer regime behaves as on CRUXEval, the gate should need q = 0.7 for no loss and lose a few points at q = 0.5.</p>
+    <p class="src">Standard error about 4 points at n = 100. The CRUXEval pattern (q = 0.7 needed for no loss, a few points lost at q = 0.5) does not repeat here: the gate holds full-depth accuracy down to q = 0.3 on long math reasoning, so the CRUXEval loss is specific to exact output prediction rather than to long answers.{{GSM_POOL}}</p>
   </div>
 '''
+    gsm_pool = ""
+    gf1, gf2 = wg_result("gsmmain_full"), wg_result("gsmmain_full_o100")
+    if gf1 and gf2:
+        parts = [f"full depth {50 * (gf1['acc'] + gf2['acc']):.1f} %"]
+        for fam, disp in [("gate0.7", "gate q = 0.7"), ("gate0.5", "gate q = 0.5"), ("gate0.3", "gate q = 0.3")]:
+            a, b = wg_result(f"gsmmain_{fam}"), wg_result(f"gsmmain_{fam}_o100")
+            if a and b:
+                parts.append(f"{disp} {50 * (a['acc'] + b['acc']):.1f} % at {(a['tok_s'] + b['tok_s']) / (gf1['tok_s'] + gf2['tok_s']):.2f}×")
+        gsm_pool = " Pooled over items 0 to 199: " + "; ".join(parts) + "."
+    gsm_wc_block = gsm_wc_block.replace("{GSM_POOL}", gsm_pool)
 
 # ---------------------------------------------------------------- citation table
 cites = {}
