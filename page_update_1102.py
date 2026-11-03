@@ -127,12 +127,12 @@ bcb_block = '''<div class="sub-head"><h3>BigCodeBench under real execution, batc
 # ---------------------------------------------------------------- LiveCodeBench true-exit (wall-clock) table
 def wc_result(label):
     p = f"{TMP}/wallclock_lcb.txt"
-    if not os.path.exists(p):
-        return None
-    for line in open(p):
-        if line.startswith(f"RESULT {label} "):
-            return json.loads(line[len(f"RESULT {label} "):])
-    return None
+    if os.path.exists(p):
+        for line in open(p):
+            if line.startswith(f"RESULT {label} "):
+                return json.loads(line[len(f"RESULT {label} "):])
+    g = wc_graded(label)  # the RESULT line is lost when two chains shared a log; the graded file keeps the summary
+    return g.get("summary") if g else None
 
 
 def wc_graded(label):
