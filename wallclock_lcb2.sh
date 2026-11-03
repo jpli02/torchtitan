@@ -10,16 +10,17 @@ CKPT=/home/jli199/boptim_scratch/ouro_base_kvshare
 DATA=$TMP/lcb_all.jsonl
 GPU=${GPU:-5}; N=${N:-120}; MAXNEW=${MAXNEW:-1024}
 POINTS=${POINTS:-"full gate0.5 gate0.3 gate0.7"}
+OFFSET=${OFFSET:-0}; SUF=""; [ "$OFFSET" != 0 ] && SUF="_o${OFFSET}"   # OFFSET=120 -> problems 120..120+N-1, labels *_o120
 S=/srv/scratch/jli199/lcb_grade_stage; mkdir -p "$S"; chmod 777 "$S"
 REP=$TMP/wallclock_lcb.txt
 cd "$WT" || exit 1
 [ -f "$S/$(basename "$DATA")" ] || cp "$DATA" "$S"/
 cmp -s "$WT/lcb_grade.py" "$S/lcb_grade.py" || cp "$WT/lcb_grade.py" "$S"/
 run() {  # run <label> <extra args...>
-  local label=$1; shift
-  echo "--- $label start $(date '+%m-%d %H:%M') (gpu $GPU)" | tee -a "$REP"
+  local label=${1}${SUF}; shift
+  echo "--- $label start $(date '+%m-%d %H:%M') (gpu $GPU, offset $OFFSET)" | tee -a "$REP"
   CUDA_VISIBLE_DEVICES=$GPU PYTORCH_ALLOC_CONF=expandable_segments:True "$PY" depth_eval.py "$CKPT" "$DATA" --task lcb --steps 4 \
-    --n "$N" --batch 1 --max_new "$MAXNEW" --assistant_prefix '```python\n' "$@" --out "$TMP/wcl_${label}.jsonl" > "$TMP/wcl_${label}.log" 2>&1
+    --n "$N" --batch 1 --max_new "$MAXNEW" --seed_offset "$OFFSET" --assistant_prefix '```python\n' "$@" --out "$TMP/wcl_${label}.jsonl" > "$TMP/wcl_${label}.log" 2>&1
   grep '^RESULT' "$TMP/wcl_${label}.log" | sed "s/^RESULT /RESULT $label /" | tee -a "$REP"
   grep -q '^RESULT' "$TMP/wcl_${label}.log" || { echo "$label FAILED: $(grep -E 'Error' "$TMP/wcl_${label}.log" | tail -1 | cut -c1-160)" | tee -a "$REP"; return 1; }
   cp "$TMP/wcl_${label}.jsonl" "$S"/

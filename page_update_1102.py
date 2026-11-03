@@ -140,24 +140,30 @@ def wc_graded(label):
     return json.load(open(p)) if os.path.exists(p) else None
 
 
+def wc_rows(pts, full_label):
+    wfull, gfull = wc_result(full_label), wc_graded(full_label)
+    rows = []
+    for label, disp in pts:
+        r, g = wc_result(label), wc_graded(label)
+        cls = ' class="dim"' if label == full_label else ""
+        if r is None or g is None:
+            rows.append(f'<tr{cls}><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
+            continue
+        bd = g["by_difficulty"]
+        sp = f'{r["tok_s"] / wfull["tok_s"]:.2f}×' if wfull else "—"
+        if label == full_label or gfull is None:
+            reading = "baseline" if label == full_label else ""
+        else:
+            d = 100 * (g["pass@1"] - gfull["pass@1"])
+            reading = chip("good", "no loss" if d >= 0 else f"{d:+.1f} pt, within noise") if d > -3.8 else chip("crit" if d < -7 else "warn", f"{d:+.1f} pt")
+        rows.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(g["pass@1"])} %</td><td class="n">{bd.get("easy", "—")} / {bd.get("medium", "—")} / {bd.get("hard", "—")}</td>'
+                    f'<td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{pct(r["trunc_rate"], 0)} %</td><td class="st">{reading}</td></tr>')
+    return rows
+
+
 wc_pts = [("full", "full depth, 4 loops"), ("gate0.7", "released gate, q = 0.7"), ("gate0.5", "released gate, q = 0.5"), ("gate0.3", "released gate, q = 0.3")]
-wfull, gfull = wc_result("full"), wc_graded("full")
-wrows = []
-for label, disp in wc_pts:
-    r, g = wc_result(label), wc_graded(label)
-    cls = ' class="dim"' if label == "full" else ""
-    if r is None or g is None:
-        wrows.append(f'<tr{cls}><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
-        continue
-    bd = g["by_difficulty"]
-    sp = f'{r["tok_s"] / wfull["tok_s"]:.2f}×' if wfull else "—"
-    if label == "full" or gfull is None:
-        reading = "baseline" if label == "full" else ""
-    else:
-        d = 100 * (g["pass@1"] - gfull["pass@1"])
-        reading = chip("good", "no loss" if d >= 0 else f"{d:+.1f} pt, within noise") if d > -3.8 else chip("crit" if d < -7 else "warn", f"{d:+.1f} pt")
-    wrows.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(g["pass@1"])} %</td><td class="n">{bd.get("easy", "—")} / {bd.get("medium", "—")} / {bd.get("hard", "—")}</td>'
-                 f'<td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{pct(r["trunc_rate"], 0)} %</td><td class="st">{reading}</td></tr>')
+wc_pts2 = [("full_o120", "full depth, 4 loops"), ("gate0.7_o120", "released gate, q = 0.7"), ("gate0.5_o120", "released gate, q = 0.5")]
+wrows = wc_rows(wc_pts, "full") + ['<tr class="dim"><td colspan="7"><b>problems 120 to 239, true exit (n = 120)</b></td></tr>'] + wc_rows(wc_pts2, "full_o120")
 lcb_wc_block = f'''<div class="sub-head"><h3>LiveCodeBench under real execution, batch 1, first 120 problems</h3><p>Decode-time early exit as in the BigCodeBench and CRUXEval tables; direct mode, 1,024-token budget, graded against the official tests. This slice is harder than the full set (27 easy, 30 medium, 63 hard), so compare routers against each other.</p></div>
 <div class="tablewrap">
     <table>
