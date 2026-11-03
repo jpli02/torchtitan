@@ -163,7 +163,11 @@ if os.path.exists(f"{TMP}/wcb_full_o150.log"):
         gf, gg = wb_graded("full"), wb_graded("gate0.5")
         n_f = 150 * gf["pass@1"] + 150 * g2["pass@1"]
         n_g = 150 * gg["pass@1"] + 150 * wb_graded("gate0.5_o150")["pass@1"]
-        bcb2_pool = f" Pooled over 300 tasks: full depth {n_f / 3:.1f} %, gate q = 0.5 {n_g / 3:.1f} %."
+        bcb2_pool = f" Pooled over 300 tasks: full depth {n_f / 3:.1f} %, gate q = 0.5 {n_g / 3:.1f} % at about 1.4×"
+        if wb_graded("gate0.3_o150"):
+            n_3 = 150 * wb_graded("gate0.3")["pass@1"] + 150 * wb_graded("gate0.3_o150")["pass@1"]
+            bcb2_pool += f", gate q = 0.3 {n_3 / 3:.1f} % at about 1.8×"
+        bcb2_pool += "."
 bcb_block = bcb_block.replace("{BCB2_ROWS}", "\n        ".join(bcb2_rows)).replace("{BCB2_POOL}", bcb2_pool)
 
 # ---------------------------------------------------------------- LiveCodeBench true-exit (wall-clock) table
