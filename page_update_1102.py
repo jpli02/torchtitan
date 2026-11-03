@@ -130,6 +130,13 @@ if os.path.exists(cp):
     for line in list(open(cp))[1:]:
         f = line.rstrip("\n").split("\t")
         cites[f[0]] = f[4]
+s2 = {}  # Semantic Scholar counts (Google-Scholar scale) where the public API answered
+import glob
+for p in sorted(glob.glob(f"{TMP}/cites_s2*.tsv")):
+    for line in list(open(p))[1:]:
+        f = line.rstrip("\n").split("\t")
+        if f[4] not in ("None", ""):
+            s2[f[0]] = f[4]
 sel = [
     ("LiveCodeBench", "LiveCodeBench", "ICLR 2025", "coding", chip("good", "adopted") + sm("direct mode; table above")),
     ("BigCodeBench", "BigCodeBench", "ICLR 2025", "coding", chip("good", "adopted") + sm("direct mode; Hard split is depth-insensitive")),
@@ -149,16 +156,22 @@ sel = [
 crow = []
 for key, disp, venue, dom, status in sel:
     c = cites.get(key, "—")
-    crow.append(f'<tr><td>{disp}</td><td>{venue}</td><td>{dom}</td><td class="n">{c}</td><td class="st">{status}</td></tr>')
-cite_block = f'''<div class="sub-head"><h3>Benchmark selection: 2025 venues ranked by citations</h3><p>Criterion for the paper's headline benchmark: a 2025 venue, highly cited, preferably coding, and takeable by a 2.6B model in greedy mode within a few hours per router point. Counts are OpenAlex citations on 2 November 2026 (about a tenth of Google Scholar's, same ordering); the 2024-venue benchmarks already in use rank above all of these (MMLU-Pro {cites.get("MMLU-Pro", "—")}, GSM8K {cites.get("GSM8K", "—")}, CRUXEval {cites.get("CRUXEval", "—")}).</p></div>
+    crow.append(f'<tr><td>{disp}</td><td>{venue}</td><td>{dom}</td><td class="n">{s2.get(key, "—")}</td><td class="n">{c}</td><td class="st">{status}</td></tr>')
+
+
+def both(key):
+    return f"{s2[key]} / {cites.get(key, '—')}" if key in s2 else f"— / {cites.get(key, '—')}"
+
+
+cite_block = f'''<div class="sub-head"><h3>Benchmark selection: 2025 venues ranked by citations</h3><p>Criterion for the paper's headline benchmark: a 2025 venue, highly cited, preferably coding, and takeable by a 2.6B model in greedy mode within a few hours per router point. Two counts on 3 November 2026: Semantic Scholar (Google-Scholar scale; its public API answered for some papers only) and OpenAlex (about a tenth of that, same ordering). For reference the 2024-venue benchmarks already in use: MMLU-Pro {both("MMLU-Pro")}, GSM8K {both("GSM8K")}, CRUXEval {both("CRUXEval")}, HumanEval {both("HumanEval (Codex)")}.</p></div>
 <div class="tablewrap">
     <table>
-      <thead><tr><th>Benchmark</th><th>Venue</th><th>Domain</th><th class="n">citations</th><th class="st">Status for Ouro-2.6B</th></tr></thead>
+      <thead><tr><th>Benchmark</th><th>Venue</th><th>Domain</th><th class="n">Semantic Scholar</th><th class="n">OpenAlex</th><th class="st">Status for Ouro-2.6B</th></tr></thead>
       <tbody>
         {chr(10).join("        " + r for r in crow).strip()}
       </tbody>
     </table>
-    <p class="src">LiveCodeBench and BigCodeBench are the two most-cited 2025-venue coding benchmarks and both run end to end here in direct mode; GSM-Symbolic is the most-cited 2025-venue benchmark outside coding that the model can take. Scripts: <code>bench_cites.py</code> (OpenAlex), <code>lcb_pipeline.sh</code>, <code>bcb_pipeline.sh</code>, <code>prep_gsm_symbolic.py</code>.</p>
+    <p class="src">LiveCodeBench is by far the most-cited 2025-venue coding benchmark ({s2.get("LiveCodeBench", "—")} on Semantic Scholar) and BigCodeBench the second; both run end to end here in direct mode. GSM-Symbolic ({s2.get("GSM-Symbolic", "—")}) is the most-cited 2025-venue benchmark outside coding that the model can take; KernelBench ({s2.get("KernelBench", "—")}) is well cited but out of reach for a 2.6B model. Scripts: <code>bench_cites.py</code> (OpenAlex), <code>bench_cites_s2.py</code> (Semantic Scholar), <code>lcb_pipeline.sh</code>, <code>bcb_pipeline.sh</code>, <code>prep_gsm_symbolic.py</code>.</p>
   </div>
 '''
 

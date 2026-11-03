@@ -11,6 +11,9 @@ src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_cites
 ns = {}
 exec(src.split("def get(")[0], ns)  # noqa: S102 - our own file; only the constants section (PAPERS list)
 PAPERS = ns["PAPERS"]
+ONLY = set(sys.argv[2:])  # optional: restrict to these arXiv ids (retry the ones that were rate-limited)
+if ONLY:
+    PAPERS = [p for p in PAPERS if p[1] in ONLY]
 
 
 def get(url, tries=8):
@@ -29,7 +32,7 @@ def get(url, tries=8):
 rows = []
 for label, arx, dom, note in PAPERS:
     r = get(f"https://api.semanticscholar.org/graph/v1/paper/ARXIV:{arx}?fields=title,year,venue,citationCount")
-    time.sleep(1.5)
+    time.sleep(4.0)
     if r is None:
         rows.append((label, arx, dom, note, None, None, "", ""))
     else:
