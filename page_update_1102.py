@@ -162,7 +162,7 @@ def wc_rows(pts, full_label):
 
 
 wc_pts = [("full", "full depth, 4 loops"), ("gate0.7", "released gate, q = 0.7"), ("gate0.5", "released gate, q = 0.5"), ("gate0.3", "released gate, q = 0.3")]
-wc_pts2 = [("full_o120", "full depth, 4 loops"), ("gate0.7_o120", "released gate, q = 0.7"), ("gate0.5_o120", "released gate, q = 0.5")]
+wc_pts2 = [("full_o120", "full depth, 4 loops"), ("gate0.7_o120", "released gate, q = 0.7"), ("gate0.5_o120", "released gate, q = 0.5"), ("gate0.3_o120", "released gate, q = 0.3")]
 wrows = wc_rows(wc_pts, "full") + ['<tr class="dim"><td colspan="7"><b>problems 120 to 239, true exit (n = 120)</b></td></tr>'] + wc_rows(wc_pts2, "full_o120")
 lcb_wc_block = f'''<div class="sub-head"><h3>LiveCodeBench under real execution, batch 1, first 120 problems</h3><p>Decode-time early exit as in the BigCodeBench and CRUXEval tables; direct mode, 1,024-token budget, graded against the official tests. This slice is harder than the full set (27 easy, 30 medium, 63 hard), so compare routers against each other.</p></div>
 <div class="tablewrap">
