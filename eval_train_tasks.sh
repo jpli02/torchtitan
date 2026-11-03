@@ -8,7 +8,10 @@ WT=/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
 PY=/home/jli199/torchtitan/.venv/bin/python
 POOL=/home/jli199/boptim_scratch/tb_variants/pool
-OUT=/home/jli199/boptim_scratch/tb_runs
+# must be a LOCAL filesystem: the harness bind-mounts each trial's log dir into the container, and
+# docker's root cannot write to the NFS home (that is why the first attempt produced 0 trials)
+OUT=/srv/scratch/jli199/tb_runs
+mkdir -p "$OUT"
 TASKS=$(cat "$TMP/train_tasks_r1.txt")
 REP=$TMP/eval_train_tasks.txt; : > "$REP"
 cd "$WT" || exit 1

@@ -49,6 +49,16 @@ def build_prompt(r, task):
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
+    if task == "lcb":  # LiveCodeBench, official prompt shape (same as depth_eval.py)
+        q = "### Question:\n" + r["question_content"] + "\n\n"
+        if r.get("starter_code", "").strip():
+            q += ("### Format: You will use the following starter code to write the solution to the problem and enclose your code "
+                  f"within delimiters.\n```python\n{r['starter_code']}\n```\n\n")
+        else:
+            q += ("### Format: Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test on the "
+                  "sample inputs). Enclose your code within delimiters as follows. Ensure that when the python program runs, it reads "
+                  "the inputs, runs the algorithm and writes output to STDOUT.\n```python\n# YOUR CODE HERE\n```\n\n")
+        return q + "### Answer: (use the provided format with backticks)\n\n"
     raise SystemExit("task not supported here")
 
 
