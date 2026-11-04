@@ -49,6 +49,8 @@ def build_prompt(r, task):
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
+    if task == "lbr":
+        return r["question"].rstrip() + "\n\nAfter your reasoning, also give the final answer within \\boxed{}."
     if task == "zebra":  # same text as depth_eval.py
         attrs = ", ".join(r["header"])
         return (f"{r['puzzle'].rstrip()}\n\nSolve the puzzle. Reason step by step, then give the final solution as a JSON object inside a "

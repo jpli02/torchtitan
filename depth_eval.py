@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -131,6 +131,8 @@ def build_prompt(r):
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
+    if args.task == "lbr":  # LiveBench reasoning: the official prompt asks for the answer in **bold**; we also accept \boxed{}
+        return r["question"].rstrip() + "\n\nAfter your reasoning, also give the final answer within \\boxed{}."
     if args.task == "zebra":  # ZebraLogic grid mode (ICML 2025)
         attrs = ", ".join(r["header"])
         return (f"{r['puzzle'].rstrip()}\n\nSolve the puzzle. Reason step by step, then give the final solution as a JSON object inside a "
@@ -204,7 +206,24 @@ def extract(gen):
         return last_code_block(gen)
     if args.task == "zebra":
         return last_json_block(gen)
+    if args.task == "lbr":  # official format is <solution>...</solution>; also accept \boxed{} and the last **bold** span
+        sol = re.findall(r"<solution>(.*?)</solution>", gen, re.S)
+        if sol:
+            return sol[-1].strip()
+        b = last_boxed(gen)
+        if b is not None and "\\boxed" in gen:
+            return b
+        bold = re.findall(r"\*\*(.+?)\*\*", gen, re.S)
+        return bold[-1].strip() if bold else None
     return last_boxed(gen)
+
+
+def lbr_norm(s):
+    s = str(s).lower().strip().strip(".").replace("**", "")
+    s = re.sub(r"\\text\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"[\s]+", " ", s)
+    s = re.sub(r"\s*,\s*", ", ", s)
+    return s.strip()
 
 
 def crux_equal(pred, gold):
@@ -230,6 +249,8 @@ def correct(pred, gold):
     if args.task == "zebra":
         ok, total = zebra_cells(pred, gold)
         return total > 0 and ok == total
+    if args.task == "lbr":
+        return pred is not None and lbr_norm(pred) == lbr_norm(gold)
     if args.task == "mc":
         if pred is None:
             return False
@@ -312,6 +333,8 @@ for i, r in enumerate(rows):
     if args.task == "zebra":
         c_ok, c_tot = zebra_cells(pred, gold)
         rec.update({"id": r.get("id"), "size": r.get("size"), "cell_acc": c_ok / max(c_tot, 1)})
+    if args.task == "lbr":
+        rec.update({"question_id": r.get("question_id"), "subtask": r.get("task")})
     recs.append(rec)
 acc = n_ok / len(rows)
 loops_dec = getattr(model, "_exit_loops_decode_sum", None)
@@ -328,6 +351,13 @@ if args.task == "zebra":
         d[0] += rec["correct"]
         d[1] += 1
     summary["by_size"] = {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_size.items())}
+if args.task == "lbr":
+    by_t = {}
+    for rec in recs:
+        d = by_t.setdefault(rec["subtask"], [0, 0])
+        d[0] += rec["correct"]
+        d[1] += 1
+    summary["by_subtask"] = {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_t.items())}
 print("RESULT " + json.dumps(summary), flush=True)
 if args.out:
     with open(args.out, "w") as f:
