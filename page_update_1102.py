@@ -251,6 +251,56 @@ lcb_wc_block = f'''<div class="sub-head"><h3>LiveCodeBench under real execution,
   </div>
 '''
 
+# ---------------------------------------------------------------- codepro true-exit (wall-clock) table
+def wp_result(label):
+    p = f"{TMP}/wallclock_codepro.txt"
+    if os.path.exists(p):
+        for line in open(p):
+            if line.startswith(f"RESULT {label} "):
+                return json.loads(line[len(f"RESULT {label} "):])
+    g = wp_graded(label)
+    return g.get("summary") if g else None
+
+
+def wp_graded(label):
+    p = f"{TMP}/wcp_{label}.graded.json"
+    return json.load(open(p)) if os.path.exists(p) else None
+
+
+codepro_wc_block = ""
+if os.path.exists(f"{TMP}/wallclock_codepro.txt"):
+    prow = []
+    for suf, title in [("", "problems 0 to 149 (HumanEval Pro)"), ("_o150", "problems 150 to 299 (14 HumanEval Pro, 136 MBPP Pro)")]:
+        full_r, full_g = wp_result("full" + suf), wp_graded("full" + suf)
+        if suf and not os.path.exists(f"{TMP}/wcp_full_o150.log"):
+            continue
+        prow.append(f'<tr class="dim"><td colspan="6"><b>{title}, true exit (n = 150)</b></td></tr>')
+        for label, disp in [("full", "full depth, 4 loops"), ("gate0.5", "released gate, q = 0.5"), ("gate0.3", "released gate, q = 0.3"), ("gate0.7", "released gate, q = 0.7")]:
+            r, g = wp_result(label + suf), wp_graded(label + suf)
+            if r is None or g is None:
+                if label != "gate0.7":
+                    prow.append(f'<tr><td>{disp}</td><td class="n">running</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st">{chip("info", "running")}</td></tr>')
+                continue
+            sp = f'{r["tok_s"] / full_r["tok_s"]:.2f}×' if full_r else "—"
+            if label == "full" or full_g is None:
+                reading = "baseline"
+            else:
+                d = 100 * (g["pass@1"] - full_g["pass@1"])
+                reading = chip("good", "no loss" if d >= 0 else f"{d:+.1f} pt, within noise") if d > -4 else chip("warn", f"{d:+.1f} pt")
+            cls = ' class="dim"' if label == "full" else ""
+            prow.append(f'<tr{cls}><td>{disp}</td><td class="n">{pct(g["pass@1"])} %</td><td class="n">{r["tok_s"]:.2f}</td><td class="n">{sp}</td><td class="n">{r["mean_tokens"]:.0f}</td><td class="st">{reading}</td></tr>')
+    codepro_wc_block = f'''<div class="sub-head"><h3>HumanEval Pro + MBPP Pro under real execution, batch 1</h3><p>The fourth real-execution benchmark: self-invoking code generation (2025), direct mode, 1,024-token budget, assert tests in a sandbox; code-only answers of about 330 tokens like BigCodeBench.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Router</th><th class="n">pass@1</th><th class="n">tokens / s</th><th class="n">speed-up</th><th class="n">mean tokens</th><th class="st">Reading</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in prow).strip()}
+      </tbody>
+    </table>
+    <p class="src">Standard error about 4 points at n = 150.</p>
+  </div>
+'''
+
 # ---------------------------------------------------------------- GSM-Symbolic true-exit (wall-clock) table, long chain-of-thought regime
 def wg_result(label):
     p = f"{TMP}/wallclock_gsm.txt"
@@ -470,7 +520,7 @@ rep('<tr class="dim"><td>LiveCodeBench easy+medium (120)</td><td class="n">—</
 rep('Real-execution points (full depth, gate 0.5, gate 0.3 on 150 tasks) are running; short outputs should make the skipped-loop cache approximation cheaper than on CRUXEval.',
     'Under real decode-time early exit (next table) the gate at q = 0.5 keeps this accuracy at 1.37× real speed.')
 rep('<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>',
-    bcb_block + lcb_block + lcb_wc_block + gsm_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
+    bcb_block + lcb_block + lcb_wc_block + gsm_wc_block + codepro_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
 rep('Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>',
     'Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>\n' + cite_block.rstrip("\n") + ("\n" + more_block.rstrip("\n") if more_block else ""))
 rep('Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, LiveCodeBench', 'Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, BigCodeBench, LiveCodeBench')
@@ -516,6 +566,8 @@ tt_rows = [
     tt_row("train75_r1", "take-turns r1, 1.67 epochs (best test checkpoint)", "yes", "900 s",
            chip("crit", "serving cascade, invalid") + sm("a few 8k-token runaway generations (up to 1,479 s each) blocked the single-queue server, so 29 consecutive trials ended after one unanswered turn; r1's normal turns are 182 tokens, the same as v3's 180")),
     tt_row("train22_r1_1800", "take-turns r1 on the 22 tasks ep4 solved", "yes", "1,800 s", r22_reading),
+    tt_row("train22_r1_greedy", "the same, greedy decoding (temperature 0, 2,048-token turn cap)", "yes", "1,800 s",
+           chip("warn", "no better than sampling") + sm("replays the first demonstrated command in 10 of 22 trials and repeats itself 3.1 times per trial (1.2 when sampling): sampling is not the lever either")),
 ]
 tt_block = f'''
 <div class="sub-head"><h3>Training-task pass@1: do the checkpoints solve the tasks they trained on?</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns trajectories trained r1 and ep4; stock terminus-2 with the serving fixes, one server per card. The 12-hour run cap stopped the 900-second arms at 48 to 53 tasks.</p></div>
@@ -526,7 +578,7 @@ tt_block = f'''
         {chr(10).join("        " + r for r in tt_rows).strip()}
       </tbody>
     </table>
-    <p class="src">Memorising the trajectories lifts the training-task pass rate from 27 to 42 % and lowers the test score, which settles the under-fitting question the other way round. The r1 row at 900 s is a serving failure, not a model result; its fit is read from the 1,800-second row. Why r1 misses half of its own training tasks: its teacher-forced token accuracy on the rows of the tasks it fails (0.95 to 0.96) equals that on the tasks it solves (0.96), so no task is under-fit; but at temperature 0.7 it reproduces the demonstrated first command in only 5 of 11 solved and 4 of 11 unsolved trials (command recall 0.36 vs 0.14), and the fully memorised ep4 in 14 of 22, so the policy leaves the one or two demonstrated paths within a turn or two and has to generalise from there, while the maze tasks need 90 to 100 turns. Context length is not the cause either: training packs 4,096-token windows but a full-context pass over the 12k-token rows scores 0.955 at positions 4k to 8k and 0.950 beyond 8k, above the windowed view's 0.938 and 0.934. A greedy re-run of the same 22 tasks (temperature 0, 2,048-token turn cap) tests the sampling reading directly. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_r1_1800</code>; scripts <code>underfit_pertask.py</code>, <code>traj_divergence.py</code>, <code>server_timeline.py</code>.</p>
+    <p class="src">Memorising the trajectories lifts the training-task pass rate from 27 to 42 % and lowers the test score, which settles the under-fitting question the other way round. The r1 row at 900 s is a serving failure, not a model result; its fit is read from the 1,800-second row. Why r1 misses half of its own training tasks: its teacher-forced token accuracy on the rows of the tasks it fails (0.95 to 0.96) equals that on the tasks it solves (0.96), so no task is under-fit; but at temperature 0.7 it reproduces the demonstrated first command in only 5 of 11 solved and 4 of 11 unsolved trials (command recall 0.36 vs 0.14), and the fully memorised ep4 in 14 of 22, so the policy leaves the one or two demonstrated paths within a turn or two and has to generalise from there, while the maze tasks need 90 to 100 turns. Context length is not the cause either: training packs 4,096-token windows but a full-context pass over the 12k-token rows scores 0.955 at positions 4k to 8k and 0.950 beyond 8k, above the windowed view's 0.938 and 0.934. A greedy re-run of the same 22 tasks (temperature 0, 2,048-token turn cap) scores 8 of 22, so sampling is not the lever either. The arithmetic says why: at 96 % token accuracy a 30-token command is reproduced with probability near 0.96<sup>30</sup>, about 30 to 45 %, which is the observed first-turn match rate, and a seven-turn demonstration with well under 1 %; ep4 at 99 % reproduces a command about three times in four. Replaying demonstrations needs a fit near 99.5 %, which is exactly the regime that lost test accuracy, and the data holds one or two trajectories per task with no recovery from a deviation, which is what a policy that has left the demonstrated path needs. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_r1_1800</code>; scripts <code>underfit_pertask.py</code>, <code>traj_divergence.py</code>, <code>server_timeline.py</code>.</p>
   </div>'''
 _i = html.find('<p class="src">Reading it: the model can absorb the generated trajectories completely')
 assert _i > 0
