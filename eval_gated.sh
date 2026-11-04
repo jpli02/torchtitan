@@ -51,7 +51,7 @@ CUDA_VISIBLE_DEVICES=$GPU PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True setsi
   /home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft/scripts/ouro_openai_server.py \
   --hf_dir "$CKPT" --port $PORT --model_name $NAME \
   --no_repeat_ngram_size 0 --dtype bfloat16 --attn_impl sdpa \
-  $THRARG --force_temperature 0.7 > "$slog" 2>&1 &
+  $THRARG --force_temperature "${TEMP:-0.7}" ${MAXTOK:+--max_tokens_cap "$MAXTOK"} > "$slog" 2>&1 &
 spid=$!
 for _ in $(seq 1 90); do
   curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break

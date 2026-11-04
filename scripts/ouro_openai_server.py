@@ -433,7 +433,11 @@ async def chat_completions(req: ChatCompletionRequest):
     if req.stream:
         raise HTTPException(400, "streaming is not supported by this server")
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
+    # --max_tokens_cap bounds a single turn: one runaway generation (8k tokens at ~5 tok/s = 25 min) blocks this
+    # single-queue server long enough to time out every trial queued behind it (observed 2026-11-03).
     max_new = int(req.max_tokens or 8192)
+    if _state.get("max_tokens_cap"):
+        max_new = min(max_new, int(_state["max_tokens_cap"]))
     loop = asyncio.get_running_loop()
 
     # Teacher/student TAKE-TURNS (MiMo/MOPD-style distillation). A per-turn
@@ -569,6 +573,12 @@ def main():
         "non-batched, single-request decode loop.",
     )
     ap.add_argument(
+        "--max_tokens_cap", type=int, default=None,
+        help="Upper bound on generated tokens per request regardless of what the caller asks (terminus-2 never "
+        "sends max_tokens, so the 8192 default applies). A cap of ~2048 keeps one runaway turn from stalling the "
+        "whole evaluation queue.",
+    )
+    ap.add_argument(
         "--force_temperature", type=float, default=None,
         help="Override the temperature every request asks for. Decoding is "
         "greedy at 0, which makes any pass@k evaluation degenerate: k attempts "
@@ -619,6 +629,7 @@ def main():
               flush=True)
     _state["no_repeat_ngram_size"] = args.no_repeat_ngram_size
     _state["force_temperature"] = args.force_temperature
+    _state["max_tokens_cap"] = args.max_tokens_cap
     _state["lock"] = asyncio.Lock()
 
     print(f"[ouro-server] ready: model={args.model_name} "
