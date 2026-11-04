@@ -331,9 +331,12 @@ for p in sorted(glob.glob(f"{TMP}/cites_s2*.tsv")):
 sel = [
     ("LiveCodeBench", "LiveCodeBench", "ICLR 2025", "coding", chip("good", "adopted") + sm("direct mode; table above")),
     ("BigCodeBench", "BigCodeBench", "ICLR 2025", "coding", chip("good", "adopted") + sm("direct mode; Hard split is depth-insensitive")),
-    ("GSM-Symbolic", "GSM-Symbolic", "ICLR 2025", "math", chip("info", "running") + sm("p1 and main subsets, 300 items each, GSM8K pipeline")),
-    ("LiveBench", "LiveBench", "ICLR 2025", "mixed", chip("info", "not run") + sm("six categories, heavy graders; coding part derives from LiveCodeBench")),
-    ("CRUXEval-X", "CRUXEval-X", "ACL 2025", "coding", chip("info", "not run") + sm("multilingual CRUXEval; the Python original is the headline here")),
+    ("GSM-Symbolic", "GSM-Symbolic", "ICLR 2025", "math", chip("good", "adopted") + sm("p1 and main subsets, 300 items each; real-exit table below")),
+    ("LiveBench", "LiveBench (reasoning)", "ICLR 2025", "reasoning", chip("info", "running") + sm("100 of 200 reasoning questions, exact match on the official answer tag; table below")),
+    ("ZebraLogic", "ZebraLogic", "ICML 2025", "logic", chip("info", "running") + sm("150 grid puzzles over 25 sizes, puzzle- and cell-level exact match; table below")),
+    ("HumanEval Pro / MBPP Pro", "HumanEval Pro + MBPP Pro", "2025", "coding", chip("info", "running") + sm("542 self-invoking problems, direct mode, assert tests; table below")),
+    ("CodeMMLU", "CodeMMLU", "ICLR 2025", "coding, MC", chip("info", "running") + sm("300 items over 9 configs; table below")),
+    ("CRUXEval-X", "CRUXEval-X", "ACL 2025", "coding", chip("info", "not reachable") + sm("the Hub dataset is not accessible; the Python original is the headline here")),
     ("Humanity's Last Exam", "Humanity's Last Exam", "Nature 2026 (arXiv 2025)", "expert QA", chip("crit", "too hard") + sm("frontier models score under 30 %")),
     ("SuperGPQA", "SuperGPQA", "2025", "knowledge", chip("crit", "dropped") + sm("19 % with 59 % of answers truncated")),
     ("KernelBench", "KernelBench", "ICML 2025", "coding", chip("crit", "too hard") + sm("CUDA kernels; small models near zero")),
@@ -341,8 +344,6 @@ sel = [
     ("LiveCodeBench Pro", "LiveCodeBench Pro", "NeurIPS 2025", "coding", chip("crit", "too hard") + sm("olympiad level")),
     ("SWE-bench", "SWE-bench Verified / Pro", "ICLR 2024 / 2025", "agentic", chip("crit", "out of reach") + sm("count is the original SWE-bench paper; repository agents at 2.6B score about zero")),
     ("Terminal-Bench", "Terminal-Bench", "2025 (paper 2026)", "agentic", chip("info", "Part 2") + sm("pass@1 of 4 to 9 of 22 trials; the coarse, slow metric that motivated this section")),
-    ("CodeMMLU", "CodeMMLU", "ICLR 2025", "coding, MC", chip("info", "low citation") + sm("skipped")),
-    ("HumanEval Pro / MBPP Pro", "HumanEval Pro / MBPP Pro", "2025", "coding", chip("info", "low citation") + sm("skipped")),
 ]
 crow = []
 for key, disp, venue, dom, status in sel:
@@ -363,6 +364,69 @@ cite_block = f'''<div class="sub-head"><h3>Benchmark selection: 2025 venues rank
       </tbody>
     </table>
     <p class="src">LiveCodeBench is by far the most-cited 2025-venue coding benchmark ({s2.get("LiveCodeBench", "—")} on Semantic Scholar) and BigCodeBench the second; both run end to end here in direct mode. GSM-Symbolic ({s2.get("GSM-Symbolic", "—")}) is the most-cited 2025-venue benchmark outside coding that the model can take; KernelBench ({s2.get("KernelBench", "—")}) is well cited but out of reach for a 2.6B model. Scripts: <code>bench_cites.py</code> (OpenAlex), <code>bench_cites_s2.py</code> (Semantic Scholar), <code>lcb_pipeline.sh</code>, <code>bcb_pipeline.sh</code>, <code>prep_gsm_symbolic.py</code>.</p>
+  </div>
+'''
+
+# ---------------------------------------------------------------- more 2025 benchmarks (gather pipeline): one table
+def pt(name, label, graded_name=None):
+    """(accuracy text, loops text) for a pipeline point; graded file wins for sandbox-graded benchmarks."""
+    r = result_line(name, label)
+    if graded_name:
+        g = graded(name, label)
+        if g:
+            return f"{pct(g['pass@1'])} %", (f"{r['mean_loops']:.2f}" if r else "—")
+        return None, None
+    if r:
+        return f"{pct(r['acc'])} %", f"{r['mean_loops']:.2f}"
+    return None, None
+
+
+def orc_floor(name):
+    p = f"{TMP}/bench_{name}_oracle.json"
+    if os.path.exists(p):
+        o = json.load(open(p))
+        return f"{o['oracle_mean_loops']:.2f} loops; {pct(o['uniform_step_agreement_with_final'][0], 0)} % settle at loop 1"
+    return "running"
+
+
+more_rows = []
+for name, disp, note, is_code in [("codepro", "HumanEval Pro + MBPP Pro (542)", "2025; direct mode, 1,024-token budget, assert tests in a sandbox", True),
+                                  ("codemmlu", "CodeMMLU (300, 10-way MC)", "ICLR 2025; 2,048-token budget", False),
+                                  ("zebra", "ZebraLogic (150 puzzles)", "ICML 2025; puzzle-level exact match, 2,048-token budget", False),
+                                  ("lbr100", "LiveBench reasoning (100)", "ICLR 2025; official answer tag, 3,072-token budget", False)]:
+    if not os.path.exists(f"{TMP}/bench_{name}.txt"):
+        continue
+    k4, _ = pt(name, "k4", is_code)
+    k2, _ = pt(name, "k2", is_code)
+    q3, l3 = pt(name, "q0.3", is_code)
+    ps_label = "steps0.3-0.5-0.5" if is_code else "steps0.1-0.5-0.5"
+    ps, lps = pt(name, ps_label, is_code)
+    cells = [k4 or "running", k2 or "running", f"{q3} · {l3} loops" if q3 else "running", f"{ps} · {lps}" if ps else "running"]
+    extra = ""
+    r4 = result_line(name, "k4")
+    if r4 and name == "zebra" and "cell_acc" in r4:
+        extra = f"; cell accuracy {pct(r4['cell_acc'])} %; by size {r4.get('by_size', {})}"
+    if r4 and name == "lbr100" and "by_subtask" in r4:
+        extra = f"; by subtask {r4['by_subtask']}"
+    if r4 and name == "codepro":
+        g4 = graded(name, "k4")
+        if g4:
+            extra = f"; {g4.get('by_source', {})}"
+    if r4:
+        extra += f"; {pct(r4['trunc_rate'], 0)} % truncated at K = 4"
+    more_rows.append(f'<tr><td>{disp}</td><td class="n">{cells[0]}</td><td class="n">{cells[1]}</td><td class="n">{cells[2]}</td><td class="n">{cells[3]}</td>'
+                     f'<td class="st">{chip("info", "oracle " + orc_floor(name)) if not orc_floor(name).startswith("running") else chip("info", "running")}{sm(note + extra)}</td></tr>')
+more_block = ""
+if more_rows:
+    more_block = f'''<div class="sub-head"><h3>More 2025 benchmarks through the gather pipeline</h3><p>Four further 2025-venue benchmarks run through the same depth / gate / per-step pipeline (gather-mode selection, greedy, base Ouro-2.6B-Thinking). Per-step thresholds are (0.3, 0.5, 0.5) for the code benchmark and (0.1, 0.5, 0.5) for the others, the pipeline defaults.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Benchmark</th><th class="n">depth 4</th><th class="n">depth 2</th><th class="n">gate q = 0.3</th><th class="n">per-step</th><th class="st">Oracle floor and notes</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in more_rows).strip()}
+      </tbody>
+    </table>
+    <p class="src">Rows fill in as the pipelines finish (about 2 to 8 hours per point). Scripts: <code>prep_more_benchmarks.py</code>, <code>prep_livebench.py</code>, <code>codepro_pipeline.sh</code>, <code>bench_pipeline.sh</code>.</p>
   </div>
 '''
 
@@ -408,7 +472,7 @@ rep('Real-execution points (full depth, gate 0.5, gate 0.3 on 150 tasks) are run
 rep('<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>',
     bcb_block + lcb_block + lcb_wc_block + gsm_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
 rep('Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>',
-    'Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>\n' + cite_block.rstrip("\n"))
+    'Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>\n' + cite_block.rstrip("\n") + ("\n" + more_block.rstrip("\n") if more_block else ""))
 rep('Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, LiveCodeBench', 'Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, BigCodeBench, LiveCodeBench')
 rep('LiveCodeBench releases 5 and 6 (342 problems, 60 easy + 60 medium used); MMLU-Pro and SuperGPQA 300-item stratified subsets queued; GPQA is gated on the Hub',
     'LiveCodeBench releases 5 and 6 (all 342 problems in direct mode; 60 easy + 60 medium in the earlier thinking-mode run); BigCodeBench Hard (148) and a 300-task full-set sample; GSM-Symbolic p1 and main (300 each, 3 instances per template); MMLU-Pro and SuperGPQA 300-item stratified subsets; GPQA is gated on the Hub')
