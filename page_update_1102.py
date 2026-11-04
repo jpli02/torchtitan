@@ -297,9 +297,20 @@ if os.path.exists(f"{TMP}/wallclock_codepro.txt"):
         {chr(10).join("        " + r for r in prow).strip()}
       </tbody>
     </table>
-    <p class="src">Standard error about 4 points at n = 150.</p>
+    <p class="src">Standard error about 4 points at n = 150.{{CP_POOL}}</p>
   </div>
 '''
+    cp_pool = ""
+    f1, f2 = wp_graded("full"), wp_graded("full_o150")
+    r1_, r2_ = wp_result("full"), wp_result("full_o150")
+    if f1 and f2 and r1_ and r2_:
+        parts = [f"full depth {50 * (f1['pass@1'] + f2['pass@1']):.1f} %"]
+        for fam, disp in [("gate0.5", "gate q = 0.5"), ("gate0.3", "gate q = 0.3")]:
+            ga, gb, ra, rb = wp_graded(fam), wp_graded(fam + "_o150"), wp_result(fam), wp_result(fam + "_o150")
+            if ga and gb and ra and rb:
+                parts.append(f"{disp} {50 * (ga['pass@1'] + gb['pass@1']):.1f} % at {(ra['tok_s'] + rb['tok_s']) / (r1_['tok_s'] + r2_['tok_s']):.2f}×")
+        cp_pool = " Pooled over 300 problems: " + "; ".join(parts) + "."
+    codepro_wc_block = codepro_wc_block.replace("{CP_POOL}", cp_pool)
 
 # ---------------------------------------------------------------- GSM-Symbolic true-exit (wall-clock) table, long chain-of-thought regime
 def wg_result(label):
