@@ -450,7 +450,7 @@ tt_rows = [
     tt_row("train75_ep4", "ep4, 4 true epochs on their trajectories", "yes, memorised (99 % token accuracy)", "900 s",
            chip("good", "executes what it memorised") + sm("while its test pass@1 fell 9/22 → 5/21: over-fitting, not under-fitting")),
     tt_row("train75_r1", "take-turns r1, 1.67 epochs (best test checkpoint)", "yes", "900 s",
-           chip("crit", "turns 2× longer") + sm("64 s per turn vs 30 s for v3 at the same 5.5 tokens per second: the take-turns data made the student verbose, and 900 s is not enough")),
+           chip("crit", "serving cascade, invalid") + sm("a few 8k-token runaway generations (up to 1,479 s each) blocked the single-queue server, so 29 consecutive trials ended after one unanswered turn; r1's normal turns are 182 tokens, the same as v3's 180")),
     tt_row("train22_r1_1800", "take-turns r1 on the 22 tasks ep4 solved", "yes", "1,800 s", r22_reading),
 ]
 tt_block = f'''
@@ -462,7 +462,7 @@ tt_block = f'''
         {chr(10).join("        " + r for r in tt_rows).strip()}
       </tbody>
     </table>
-    <p class="src">Memorising the trajectories lifts the training-task pass rate from 27 to 42 % and lowers the test score, which settles the under-fitting question the other way round. The r1 row at 900 s measures verbosity, not fit: the checkpoint writes about twice the tokens per turn, so its fit is read from the 1,800-second row. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_r1_1800</code>; counter <code>tb_progress.py</code>.</p>
+    <p class="src">Memorising the trajectories lifts the training-task pass rate from 27 to 42 % and lowers the test score, which settles the under-fitting question the other way round. The r1 row at 900 s is a serving failure, not a model result; its fit is read from the 1,800-second row. Why r1 misses half of its own training tasks: its teacher-forced token accuracy on the rows of the tasks it fails (0.95 to 0.96) equals that on the tasks it solves (0.96), so no task is under-fit; but at temperature 0.7 it reproduces the demonstrated first command in only 5 of 11 solved and 4 of 11 unsolved trials (command recall 0.36 vs 0.14), and the fully memorised ep4 in 14 of 22, so the policy leaves the one or two demonstrated paths within a turn or two and has to generalise from there, while the maze tasks need 90 to 100 turns. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_r1_1800</code>; scripts <code>underfit_pertask.py</code>, <code>traj_divergence.py</code>, <code>server_timeline.py</code>.</p>
   </div>'''
 _i = html.find('<p class="src">Reading it: the model can absorb the generated trajectories completely')
 assert _i > 0

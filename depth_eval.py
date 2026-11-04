@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -131,6 +131,15 @@ def build_prompt(r):
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
+    if args.task == "zebra":  # ZebraLogic grid mode (ICML 2025)
+        attrs = ", ".join(r["header"])
+        return (f"{r['puzzle'].rstrip()}\n\nSolve the puzzle. Reason step by step, then give the final solution as a JSON object inside a "
+                "```json code block, with one key per house, like {\"House 1\": {\"" + r["header"][0] + "\": \"...\", ...}, \"House 2\": {...}, ...}, "
+                f"using exactly these attribute names: {attrs}.")
+    if args.task == "codepro":  # HumanEval Pro / MBPP Pro: self-invoking code generation (2025)
+        return ("Base problem:\n```python\n" + r["raw_problem"].rstrip() + "\n```\n\nNew problem, which builds on the base problem:\n```python\n"
+                + r["problem"].rstrip() + "\n```\n\nWrite the complete, self-contained Python code for the new problem (include every helper "
+                "you need, such as a solution to the base problem) inside a single ```python code block.")
     # LiveCodeBench, official prompt shape
     q = "### Question:\n" + r["question_content"] + "\n\n"
     if r.get("starter_code", "").strip():
@@ -143,8 +152,59 @@ def build_prompt(r):
     return q + "### Answer: (use the provided format with backticks)\n\n"
 
 
+def last_json_block(s):
+    blocks = re.findall(r"```json\s*\n(.*?)```", s, re.S)
+    cand = blocks[-1] if blocks else None
+    if cand is None:  # fall back to the last balanced {...}
+        i = s.rfind("}")
+        depth, j = 0, i
+        while j >= 0 and i >= 0:
+            if s[j] == "}":
+                depth += 1
+            elif s[j] == "{":
+                depth -= 1
+                if depth == 0:
+                    cand = s[j:i + 1]
+                    break
+            j -= 1
+    return cand
+
+
+def zebra_cells(pred, gold):
+    """(matching cells, total cells) between the predicted JSON and the gold {"House k": {attr: value}} dict."""
+    total = sum(len(v) for v in gold.values())
+    if not pred:
+        return 0, total
+    try:
+        p = json.loads(pred)
+    except Exception:
+        try:
+            import ast
+            p = ast.literal_eval(pred)
+        except Exception:
+            return 0, total
+    if not isinstance(p, dict):
+        return 0, total
+    p = p.get("solution", p) if isinstance(p.get("solution", None), dict) else p
+    pn = {re.sub(r"\s+", " ", str(k)).strip().lower(): v for k, v in p.items()}
+    ok = 0
+    for house, attrs in gold.items():
+        hv = pn.get(house.lower()) or pn.get(house.lower().replace("house ", "")) or {}
+        if not isinstance(hv, dict):
+            continue
+        hvn = {str(k).strip().lower(): str(v).strip().lower() for k, v in hv.items()}
+        for a, val in attrs.items():
+            if hvn.get(a.lower()) == str(val).strip().lower():
+                ok += 1
+    return ok, total
+
+
 def extract(gen):
-    return last_code_block(gen) if args.task in ("lcb", "bcb") else last_boxed(gen)
+    if args.task in ("lcb", "bcb", "codepro"):
+        return last_code_block(gen)
+    if args.task == "zebra":
+        return last_json_block(gen)
+    return last_boxed(gen)
 
 
 def crux_equal(pred, gold):
@@ -165,8 +225,11 @@ def crux_equal(pred, gold):
 
 
 def correct(pred, gold):
-    if args.task in ("lcb", "bcb"):
-        return False  # graded separately in a sandbox (lcb_grade.py / bcb_grade.py)
+    if args.task in ("lcb", "bcb", "codepro"):
+        return False  # graded separately in a sandbox (lcb_grade.py / bcb_grade.py / codepro_grade.py)
+    if args.task == "zebra":
+        ok, total = zebra_cells(pred, gold)
+        return total > 0 and ok == total
     if args.task == "mc":
         if pred is None:
             return False
@@ -233,7 +296,7 @@ n_ok = n_trunc = n_parse = 0
 recs = []
 for i, r in enumerate(rows):
     pred = extract(gens[i])
-    gold = r.get("answer") if args.task != "crux" else r.get("output")
+    gold = {"crux": r.get("output"), "zebra": r.get("solution")}.get(args.task, r.get("answer"))
     ok = correct(pred, gold)
     trunc = ntoks[i] >= args.max_new
     n_ok += ok
@@ -244,6 +307,11 @@ for i, r in enumerate(rows):
         rec.update({"question_id": r.get("question_id"), "difficulty": r.get("difficulty")})
     if args.task == "bcb":
         rec.update({"task_id": r.get("task_id")})
+    if args.task == "codepro":
+        rec.update({"task_id": r.get("task_id"), "source": r.get("source")})
+    if args.task == "zebra":
+        c_ok, c_tot = zebra_cells(pred, gold)
+        rec.update({"id": r.get("id"), "size": r.get("size"), "cell_acc": c_ok / max(c_tot, 1)})
     recs.append(rec)
 acc = n_ok / len(rows)
 loops_dec = getattr(model, "_exit_loops_decode_sum", None)
@@ -252,6 +320,14 @@ summary = {"ckpt": args.ckpt, "task": args.task, "steps": args.steps, "threshold
            "mean_loops": mean_loops,
            "parse_rate": n_parse / len(rows), "trunc_rate": n_trunc / len(rows), "mean_tokens": total_tok / len(rows),
            "wall_s": dt, "tok_s": total_tok / dt, "max_new": args.max_new}
+if args.task == "zebra":
+    summary["cell_acc"] = sum(rec["cell_acc"] for rec in recs) / len(recs)
+    by_size = {}
+    for rec in recs:
+        d = by_size.setdefault(rec["size"], [0, 0])
+        d[0] += rec["correct"]
+        d[1] += 1
+    summary["by_size"] = {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_size.items())}
 print("RESULT " + json.dumps(summary), flush=True)
 if args.out:
     with open(args.out, "w") as f:

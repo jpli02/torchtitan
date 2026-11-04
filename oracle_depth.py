@@ -49,6 +49,15 @@ def build_prompt(r, task):
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
                 f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
+    if task == "zebra":  # same text as depth_eval.py
+        attrs = ", ".join(r["header"])
+        return (f"{r['puzzle'].rstrip()}\n\nSolve the puzzle. Reason step by step, then give the final solution as a JSON object inside a "
+                "```json code block, with one key per house, like {\"House 1\": {\"" + r["header"][0] + "\": \"...\", ...}, \"House 2\": {...}, ...}, "
+                f"using exactly these attribute names: {attrs}.")
+    if task == "codepro":
+        return ("Base problem:\n```python\n" + r["raw_problem"].rstrip() + "\n```\n\nNew problem, which builds on the base problem:\n```python\n"
+                + r["problem"].rstrip() + "\n```\n\nWrite the complete, self-contained Python code for the new problem (include every helper "
+                "you need, such as a solution to the base problem) inside a single ```python code block.")
     if task == "lcb":  # LiveCodeBench, official prompt shape (same as depth_eval.py)
         q = "### Question:\n" + r["question_content"] + "\n\n"
         if r.get("starter_code", "").strip():
