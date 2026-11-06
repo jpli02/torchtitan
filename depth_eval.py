@@ -274,45 +274,78 @@ def lbd_extract(gen, task):
 
 
 def _records(text, fmt):
-    """Parse a table given as JSON / CSV / TSV / markdown / HTML into a list of {col: str} records, or None."""
+    """Parse a table given as JSON / JSONL / CSV / TSV / markdown / HTML into a sorted list of {col: str} records, or None.
+    Standard library only (the serving venv has no pandas)."""
+    import csv
+    import html as _html
     import io
+
+    def cell(v):
+        s = str(v).strip() if v is not None else ""
+        s = re.sub(r"\.0$", "", s)
+        return s
+
+    def table_to_records(header, body):
+        header = [str(h).strip().lower() for h in header]
+        out = []
+        for row in body:
+            if not any(str(c).strip() for c in row):
+                continue
+            out.append({header[k] if k < len(header) else str(k): cell(row[k]) for k in range(len(row))})
+        return out
+
     try:
-        import pandas as pd
         t = text.strip()
         if fmt == "json":
             try:
                 obj = json.loads(t)
             except Exception:
-                lines = [l.strip() for l in t.splitlines() if l.strip().startswith("{")]
+                lines = [l.strip().rstrip(",") for l in t.splitlines() if l.strip().startswith("{")]
                 if len(lines) >= 2:  # JSON lines (LiveBench's ground truth for JSONL targets)
-                    obj = [json.loads(l.rstrip(",")) for l in lines]
+                    obj = [json.loads(l) for l in lines]
                 else:
                     i, j = t.find("{"), t.rfind("}")
                     if i < 0:
                         i, j = t.find("["), t.rfind("]")
                     obj = json.loads(t[i:j + 1])
-            if isinstance(obj, dict) and all(isinstance(v, dict) for v in obj.values()):
-                df = pd.DataFrame.from_dict(obj, orient="index")
+            if isinstance(obj, dict) and obj and all(isinstance(v, dict) for v in obj.values()):
+                recs = [{str(k).strip().lower(): cell(v) for k, v in row.items()} for row in obj.values()]
+            elif isinstance(obj, dict) and obj and all(isinstance(v, (list, dict)) for v in obj.values()):  # column-oriented
+                cols = list(obj.keys())
+                n = max(len(v) for v in obj.values())
+                recs = [{str(c).strip().lower(): cell((obj[c][k] if isinstance(obj[c], list) else list(obj[c].values())[k]) if k < len(obj[c]) else "")
+                         for c in cols} for k in range(n)]
+            elif isinstance(obj, list):
+                recs = [{str(k).strip().lower(): cell(v) for k, v in row.items()} for row in obj if isinstance(row, dict)]
             else:
-                df = pd.DataFrame(obj)
-        elif fmt == "csv":
-            df = pd.read_csv(io.StringIO(t), dtype=str)
-        elif fmt == "tsv":
-            df = pd.read_csv(io.StringIO(t), sep="\t", dtype=str)
+                return None
+        elif fmt in ("csv", "tsv"):
+            rows = list(csv.reader(io.StringIO(t), delimiter="," if fmt == "csv" else "\t"))
+            rows = [r for r in rows if any(c.strip() for c in r)]
+            if len(rows) < 2:
+                return None
+            recs = table_to_records(rows[0], rows[1:])
         elif fmt == "html":
-            df = pd.read_html(io.StringIO(t))[0]
+            m = re.search(r"<table.*?</table>", t, re.S | re.I)
+            if not m:
+                return None
+            trs = re.findall(r"<tr[^>]*>(.*?)</tr>", m.group(0), re.S | re.I)
+            rows = [[_html.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", tr, re.S | re.I)] for tr in trs]
+            rows = [r for r in rows if r]
+            if len(rows) < 2:
+                return None
+            recs = table_to_records(rows[0], rows[1:])
         elif fmt == "markdown":
             lines = [l for l in t.splitlines() if l.strip().startswith("|")]
             if len(lines) < 2:
                 return None
             cols = [c.strip() for c in lines[0].strip().strip("|").split("|")]
-            body = [l for l in lines[1:] if not re.fullmatch(r"\|?[\s:\-|]+\|?", l.strip())]
-            df = pd.DataFrame([[c.strip() for c in l.strip().strip("|").split("|")] for l in body], columns=cols)
+            body = [[c.strip() for c in l.strip().strip("|").split("|")] for l in lines[1:] if not re.fullmatch(r"\|?[\s:\-|]+\|?", l.strip())]
+            recs = table_to_records(cols, body)
         else:
             return None
-        recs = []
-        for _, row in df.iterrows():
-            recs.append({str(k).strip().lower(): re.sub(r"\.0$", "", str(v).strip()) for k, v in row.items()})
+        # pandas-style index columns ("Unnamed: 0") are dropped on both sides
+        recs = [{k: v for k, v in r.items() if not k.startswith("unnamed:")} for r in recs]
         return sorted(recs, key=lambda d: json.dumps(d, sort_keys=True))
     except Exception:
         return None
