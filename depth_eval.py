@@ -251,6 +251,25 @@ def lbd_extract(gen, task):
     if task == "tablejoin":
         i, j = g.rfind("{"), g.rfind("}")
         return g[i:j + 1] if 0 <= i < j else g
+    # tablereformat without a code block: the table is the trailing run of table-looking lines after the reasoning
+    html = re.findall(r"<table.*?</table>", g, re.S | re.I)
+    if html:
+        return html[-1]
+    lines = g.splitlines()
+    tail = []
+    for line in reversed(lines):
+        s = line.strip()
+        if not s:
+            if tail:
+                break
+            continue
+        if s.startswith(("{", "[", "|", "<")) or ("," in s or "\t" in s) and not s.endswith((":", ".")) and len(s.split()) <= 60:
+            tail.append(s)
+        else:
+            if tail:
+                break
+    if tail:
+        return "\n".join(reversed(tail))
     return g
 
 
