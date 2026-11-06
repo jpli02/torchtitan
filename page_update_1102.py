@@ -454,7 +454,11 @@ more_rows = []
 for name, disp, note, is_code in [("codepro", "HumanEval Pro + MBPP Pro (542)", "2025; direct mode, 1,024-token budget, assert tests in a sandbox", True),
                                   ("codemmlu", "CodeMMLU (300, 10-way MC)", "ICLR 2025; 2,048-token budget", False),
                                   ("zebra", "ZebraLogic (150 puzzles)", "ICML 2025; puzzle-level exact match, 2,048-token budget", False),
-                                  ("lbr100", "LiveBench reasoning (100)", "ICLR 2025; official answer tag, 3,072-token budget", False)]:
+                                  ("lbr100", "LiveBench reasoning (100)", "ICLR 2025; official answer tag, 3,072-token budget", False),
+                                  ("lbm150", "LiveBench math (150: AMPS_Hard + competition)", "ICLR 2025; boxed or repeated-letter answers, 3,072-token budget; depth points only", False),
+                                  ("lbd150", "LiveBench data analysis (150: reformat / CTA / join)", "ICLR 2025; exact table / class / mapping match, 3,072-token budget; depth points only", False),
+                                  ("omnimath", "Omni-MATH, difficulty ≤ 5 (150)", "ICLR 2025; boxed exact match, 3,072-token budget; depth points only", False),
+                                  ("aime90", "AIME 2024 + 2025 + HMMT Feb 2025 (90)", "the model-card standard; boxed exact match, 4,096-token budget; depth points only", False)]:
     if not os.path.exists(f"{TMP}/bench_{name}.txt"):
         continue
     k4, _ = pt(name, "k4", is_code)
@@ -467,7 +471,7 @@ for name, disp, note, is_code in [("codepro", "HumanEval Pro + MBPP Pro (542)", 
     r4 = result_line(name, "k4")
     if r4 and name == "zebra" and "cell_acc" in r4:
         extra = f"; cell accuracy {pct(r4['cell_acc'])} %; by size {r4.get('by_size', {})}"
-    if r4 and name == "lbr100" and "by_subtask" in r4:
+    if r4 and name in ("lbr100", "lbm150", "lbd150") and "by_subtask" in r4:
         extra = f"; by subtask {r4['by_subtask']}"
     if r4 and name == "codepro":
         g4 = graded(name, "k4")
@@ -475,8 +479,14 @@ for name, disp, note, is_code in [("codepro", "HumanEval Pro + MBPP Pro (542)", 
             extra = f"; {g4.get('by_source', {})}"
     if r4:
         extra += f"; {pct(r4['trunc_rate'], 0)} % truncated at K = 4"
+    depth_only = name in ("lbm150", "lbd150", "omnimath", "aime90", "lbr100")
+    if depth_only:
+        cells[2] = cells[3] = "not run"
+        status = chip("warn", "budget-bound") if (r4 and r4.get("trunc_rate", 0) > 0.3) else chip("info", "depth points only")
+    else:
+        status = chip("info", "oracle " + orc_floor(name)) if not orc_floor(name).startswith("running") else chip("info", "running")
     more_rows.append(f'<tr><td>{disp}</td><td class="n">{cells[0]}</td><td class="n">{cells[1]}</td><td class="n">{cells[2]}</td><td class="n">{cells[3]}</td>'
-                     f'<td class="st">{chip("info", "oracle " + orc_floor(name)) if not orc_floor(name).startswith("running") else chip("info", "running")}{sm(note + extra)}</td></tr>')
+                     f'<td class="st">{status}{sm(note + extra)}</td></tr>')
 more_block = ""
 if more_rows:
     more_block = f'''<div class="sub-head"><h3>More 2025 benchmarks through the gather pipeline</h3><p>Four further 2025-venue benchmarks run through the same depth / gate / per-step pipeline (gather-mode selection, greedy, base Ouro-2.6B-Thinking). Per-step thresholds are (0.3, 0.5, 0.5) for the code benchmark and (0.1, 0.5, 0.5) for the others, the pipeline defaults.</p></div>
