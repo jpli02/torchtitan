@@ -458,7 +458,9 @@ for name, disp, note, is_code in [("codepro", "HumanEval Pro + MBPP Pro (542)", 
                                   ("lbm150", "LiveBench math (150: AMPS_Hard + competition)", "ICLR 2025; boxed or repeated-letter answers, 3,072-token budget; depth points only", False),
                                   ("lbd150", "LiveBench data analysis (150: reformat / CTA / join)", "ICLR 2025; exact table / class / mapping match, 3,072-token budget; depth points only", False),
                                   ("omnimath", "Omni-MATH, difficulty ≤ 5 (150)", "ICLR 2025; boxed exact match, 3,072-token budget; depth points only", False),
-                                  ("aime90", "AIME 2024 + 2025 + HMMT Feb 2025 (90)", "the model-card standard; boxed exact match, 4,096-token budget; depth points only", False)]:
+                                  ("aime90", "AIME 2024 + 2025 + HMMT Feb 2025 (90)", "the model-card standard; boxed exact match, 4,096-token budget; depth points only", False),
+                                  ("mmlupro_direct", "MMLU-Pro, direct answer (300, 10-way MC)", "NeurIPS 2024; the answer letter is forced as the first token (no reasoning): the thinking-mode score was 53.7 % at 1,200 tokens per item", False),
+                                  ("supergpqa_direct", "SuperGPQA, direct answer (300)", "2025; same forced-letter protocol; thinking mode was budget-bound at 19 %", False)]:
     if not os.path.exists(f"{TMP}/bench_{name}.txt"):
         continue
     k4, _ = pt(name, "k4", is_code)
@@ -477,12 +479,20 @@ for name, disp, note, is_code in [("codepro", "HumanEval Pro + MBPP Pro (542)", 
         g4 = graded(name, "k4")
         if g4:
             extra = f"; {g4.get('by_source', {})}"
-    if r4:
+    r1 = result_line(name, "k1")
+    if r1:
+        extra += f"; depth 1: {pct(r1['acc'])} %"
+    rq1 = result_line(name, "q0.1")
+    if rq1:
+        extra += f"; gate q = 0.1: {pct(rq1['acc'])} % at {rq1['mean_loops']:.2f} loops"
+    if r4 and name not in ("mmlupro_direct", "supergpqa_direct"):
         extra += f"; {pct(r4['trunc_rate'], 0)} % truncated at K = 4"
     depth_only = name in ("lbm150", "lbd150", "omnimath", "aime90", "lbr100")
     if depth_only:
         cells[2] = cells[3] = "not run"
         status = chip("warn", "budget-bound") if (r4 and r4.get("trunc_rate", 0) > 0.3) else chip("info", "depth points only")
+    elif name in ("mmlupro_direct", "supergpqa_direct"):
+        status = chip("info", "single-token regime") + sm("")
     else:
         status = chip("info", "oracle " + orc_floor(name)) if not orc_floor(name).startswith("running") else chip("info", "running")
     more_rows.append(f'<tr><td>{disp}</td><td class="n">{cells[0]}</td><td class="n">{cells[1]}</td><td class="n">{cells[2]}</td><td class="n">{cells[3]}</td>'
@@ -497,7 +507,7 @@ if more_rows:
         {chr(10).join("        " + r for r in more_rows).strip()}
       </tbody>
     </table>
-    <p class="src">Rows fill in as the pipelines finish (about 2 to 8 hours per point). Scripts: <code>prep_more_benchmarks.py</code>, <code>prep_livebench.py</code>, <code>codepro_pipeline.sh</code>, <code>bench_pipeline.sh</code>.</p>
+    <p class="src">Reading across the non-coding rows: every reasoning-heavy 2025 set (LiveBench math and reasoning, Omni-MATH beyond difficulty 3, AIME, ZebraLogic beyond 3x4) is budget-bound for a 2.6B model at 2k to 4k tokens, so their accuracies measure verbosity as much as depth; LiveBench data analysis is the one non-coding 2025 set that is not. The direct-answer rows show a different regime: on multiple choice the answer token saturates at two loops (depth 1 to 2 gains 19 to 10 points, 2 to 4 about 2), the no-reasoning score equals the thinking-mode score on MMLU-Pro at a six-hundredth of the tokens, and SuperGPQA becomes feasible. Real speed-ups in that regime would need per-token exit during prefill, which the serving path does not do yet. Scripts: <code>prep_more_benchmarks.py</code>, <code>prep_livebench.py</code>, <code>prep_noncoding_2025.py</code>, <code>mc_direct.sh</code>, <code>codepro_pipeline.sh</code>, <code>bench_pipeline.sh</code>.</p>
   </div>
 '''
 
