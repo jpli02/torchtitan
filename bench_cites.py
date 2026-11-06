@@ -58,6 +58,20 @@ PAPERS = [
     ("SimpleQA", "2411.04368", "factuality", "2024"),
     ("Terminal-Bench", "2601.11868", "code-agent", "2026 paper; benchmark released 2025"),
     ("AetherCode", "2508.16914", "code", "2025"),
+    ("Omni-MATH", "2410.07985", "math", "ICLR 2025; olympiad"),
+    ("MATH-Perturb", "2502.06453", "math", "ICML 2025"),
+    ("GSM8K-Platinum (reliability)", "2502.03461", "math", "ICML 2025"),
+    ("Global-MMLU", "2412.03304", "knowledge-mc", "ACL 2025"),
+    ("MMLU-CF", "2412.15194", "knowledge-mc", "ACL 2025"),
+    ("IFBench", "2507.02833", "instruction", "2025"),
+    ("BBEH", "2502.19187", "reasoning", "2025"),
+    ("MathArena", "2505.23281", "math", "2025"),
+    ("AIME (MathArena/HMMT)", "2505.23281", "math", "2025"),
+    ("LiveBench", "2406.19314", "mixed", "ICLR 2025"),
+    ("MedXpertQA", "2501.18362", "medical-mc", "ICML 2025"),
+    ("PHYBench", "2504.16074", "physics", "2025"),
+    ("SimpleBench", "2410.00134", "reasoning", "2024"),
+    ("MMLU-Pro", "2406.01574", "knowledge-mc", "NeurIPS 2024"),
 ]
 SEARCH = ["Terminal-Bench: Benchmarking Agents on Hard, Realistic Tasks in Command Line Interfaces", "SWE-bench Verified"]
 

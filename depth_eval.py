@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -133,6 +133,8 @@ def build_prompt(r):
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
     if args.task == "lbr":  # LiveBench reasoning: the official prompt asks for the answer in **bold**; we also accept \boxed{}
         return r["question"].rstrip() + "\n\nAfter your reasoning, also give the final answer within \\boxed{}."
+    if args.task in ("lbm", "lbd"):  # LiveBench math / data analysis: the official prompt as is (it states the answer format)
+        return r["question"].rstrip()
     if args.task == "zebra":  # ZebraLogic grid mode (ICML 2025)
         attrs = ", ".join(r["header"])
         return (f"{r['puzzle'].rstrip()}\n\nSolve the puzzle. Reason step by step, then give the final solution as a JSON object inside a "
@@ -201,11 +203,15 @@ def zebra_cells(pred, gold):
     return ok, total
 
 
-def extract(gen):
+def extract(gen, r=None):
     if args.task in ("lcb", "bcb", "codepro"):
         return last_code_block(gen)
     if args.task == "zebra":
         return last_json_block(gen)
+    if args.task == "lbm":
+        return lbm_extract(gen, r.get("task") if r else None)
+    if args.task == "lbd":
+        return lbd_extract(gen, r.get("task") if r else None)
     if args.task == "lbr":  # official format is <solution>...</solution>; also accept \boxed{} and the last **bold** span
         sol = re.findall(r"<solution>(.*?)</solution>", gen, re.S)
         if sol:
@@ -216,6 +222,110 @@ def extract(gen):
         bold = re.findall(r"\*\*(.+?)\*\*", gen, re.S)
         return bold[-1].strip() if bold else None
     return last_boxed(gen)
+
+
+def lbm_extract(gen, subtask):
+    """LiveBench math: AMPS_Hard answers live in \\boxed{}; math_comp answers are a letter the prompt asks to repeat five times."""
+    if subtask == "math_comp":
+        m = re.findall(r"\b([A-E])\1{4}\b", gen)
+        if m:
+            return m[-1]
+        b = last_boxed(gen)
+        if b:
+            mm = re.findall(r"[A-E]", b.upper())
+            return mm[-1] if mm else b
+        return None
+    return last_boxed(gen) if "\\boxed" in gen else None
+
+
+def lbd_extract(gen, task):
+    """LiveBench data analysis: the answer is the response itself (table / class name / dict); drop reasoning before the last block."""
+    g = gen.strip()
+    g = re.sub(r"<think>.*?</think>", "", g, flags=re.S).strip()
+    if task == "cta":
+        lines = [l.strip().strip("*`'\"") for l in g.splitlines() if l.strip()]
+        return lines[-1] if lines else None
+    blocks = re.findall(r"```[a-zA-Z]*\s*\n(.*?)```", g, re.S)
+    if blocks:
+        return blocks[-1].strip()
+    if task == "tablejoin":
+        i, j = g.rfind("{"), g.rfind("}")
+        return g[i:j + 1] if 0 <= i < j else g
+    return g
+
+
+def _records(text, fmt):
+    """Parse a table given as JSON / CSV / TSV / markdown / HTML into a list of {col: str} records, or None."""
+    import io
+    try:
+        import pandas as pd
+        t = text.strip()
+        if fmt == "json":
+            try:
+                obj = json.loads(t)
+            except Exception:
+                lines = [l.strip() for l in t.splitlines() if l.strip().startswith("{")]
+                if len(lines) >= 2:  # JSON lines (LiveBench's ground truth for JSONL targets)
+                    obj = [json.loads(l.rstrip(",")) for l in lines]
+                else:
+                    i, j = t.find("{"), t.rfind("}")
+                    if i < 0:
+                        i, j = t.find("["), t.rfind("]")
+                    obj = json.loads(t[i:j + 1])
+            if isinstance(obj, dict) and all(isinstance(v, dict) for v in obj.values()):
+                df = pd.DataFrame.from_dict(obj, orient="index")
+            else:
+                df = pd.DataFrame(obj)
+        elif fmt == "csv":
+            df = pd.read_csv(io.StringIO(t), dtype=str)
+        elif fmt == "tsv":
+            df = pd.read_csv(io.StringIO(t), sep="\t", dtype=str)
+        elif fmt == "html":
+            df = pd.read_html(io.StringIO(t))[0]
+        elif fmt == "markdown":
+            lines = [l for l in t.splitlines() if l.strip().startswith("|")]
+            if len(lines) < 2:
+                return None
+            cols = [c.strip() for c in lines[0].strip().strip("|").split("|")]
+            body = [l for l in lines[1:] if not re.fullmatch(r"\|?[\s:\-|]+\|?", l.strip())]
+            df = pd.DataFrame([[c.strip() for c in l.strip().strip("|").split("|")] for l in body], columns=cols)
+        else:
+            return None
+        recs = []
+        for _, row in df.iterrows():
+            recs.append({str(k).strip().lower(): re.sub(r"\.0$", "", str(v).strip()) for k, v in row.items()})
+        return sorted(recs, key=lambda d: json.dumps(d, sort_keys=True))
+    except Exception:
+        return None
+
+
+def lbd_correct(pred, gold, task, prompt):
+    if pred is None:
+        return False
+    if task == "cta":
+        return pred.strip().lower() == str(gold).strip().lower()
+    if task == "tablejoin":
+        try:
+            import ast
+            p = ast.literal_eval(pred) if pred.strip().startswith("{") else json.loads(pred)
+            g = ast.literal_eval(gold) if str(gold).strip().startswith("{") else json.loads(gold)
+            return {str(k).strip().lower(): str(v).strip().lower() for k, v in p.items()} == {str(k).strip().lower(): str(v).strip().lower() for k, v in g.items()}
+        except Exception:
+            return False
+    # tablereformat: the target format is named in the prompt ("convert ... from X format to Y format")
+    m = re.search(r"to (JSON|CSV|TSV|HTML|Markdown|JSONL) format", prompt, re.I)
+    fmt = (m.group(1).lower() if m else "json")
+    if fmt == "jsonl":
+        fmt = "json"
+    gm = re.search(r"from (JSON|CSV|TSV|HTML|Markdown|JSONL) format", prompt, re.I)
+    gold_fmt = fmt  # LiveBench's ground truth is given in the target format
+    pr, gr = _records(pred, fmt), _records(str(gold), gold_fmt)
+    if gr is None:  # try the other formats for the gold
+        for f2 in ("json", "csv", "tsv", "markdown", "html"):
+            gr = _records(str(gold), f2)
+            if gr is not None:
+                break
+    return pr is not None and gr is not None and pr == gr
 
 
 def lbr_norm(s):
@@ -243,9 +353,21 @@ def crux_equal(pred, gold):
     return pred.strip() == gold.strip()
 
 
-def correct(pred, gold):
+def correct(pred, gold, r=None):
     if args.task in ("lcb", "bcb", "codepro"):
         return False  # graded separately in a sandbox (lcb_grade.py / bcb_grade.py / codepro_grade.py)
+    if args.task == "lbd":
+        return lbd_correct(pred, gold, r.get("task"), r.get("question", ""))
+    if args.task == "lbm":
+        if pred is None:
+            return False
+        if r.get("task") == "math_comp":
+            return pred.strip().upper() == str(gold).strip().upper()
+        p, g = norm_math(pred), norm_math(str(gold))
+        if p == g:
+            return True
+        pn, gn = norm_num(p), norm_num(g)
+        return pn is not None and gn is not None and re.fullmatch(r"-?[\d.,]+", p or "") is not None and abs(pn - gn) < 1e-6
     if args.task == "zebra":
         ok, total = zebra_cells(pred, gold)
         return total > 0 and ok == total
@@ -316,9 +438,9 @@ dt = time.time() - t0
 n_ok = n_trunc = n_parse = 0
 recs = []
 for i, r in enumerate(rows):
-    pred = extract(gens[i])
+    pred = extract(gens[i], r)
     gold = {"crux": r.get("output"), "zebra": r.get("solution")}.get(args.task, r.get("answer"))
-    ok = correct(pred, gold)
+    ok = correct(pred, gold, r)
     trunc = ntoks[i] >= args.max_new
     n_ok += ok
     n_trunc += trunc
@@ -333,7 +455,7 @@ for i, r in enumerate(rows):
     if args.task == "zebra":
         c_ok, c_tot = zebra_cells(pred, gold)
         rec.update({"id": r.get("id"), "size": r.get("size"), "cell_acc": c_ok / max(c_tot, 1)})
-    if args.task == "lbr":
+    if args.task in ("lbr", "lbm", "lbd"):
         rec.update({"question_id": r.get("question_id"), "subtask": r.get("task")})
     recs.append(rec)
 acc = n_ok / len(rows)
@@ -351,7 +473,7 @@ if args.task == "zebra":
         d[0] += rec["correct"]
         d[1] += 1
     summary["by_size"] = {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_size.items())}
-if args.task == "lbr":
+if args.task in ("lbr", "lbm", "lbd"):
     by_t = {}
     for rec in recs:
         d = by_t.setdefault(rec["subtask"], [0, 0])
