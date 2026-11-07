@@ -51,7 +51,7 @@ def build_prompt(r, task):
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
     if task == "lbr":
         return r["question"].rstrip() + "\n\nAfter your reasoning, also give the final answer within \\boxed{}."
-    if task in ("lbm", "lbd"):
+    if task in ("lbm", "lbd", "lbl"):
         return r["question"].rstrip()
     if task == "zebra":  # same text as depth_eval.py
         attrs = ", ".join(r["header"])

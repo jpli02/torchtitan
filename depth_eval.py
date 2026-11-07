@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -133,7 +133,7 @@ def build_prompt(r):
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
     if args.task == "lbr":  # LiveBench reasoning: the official prompt asks for the answer in **bold**; we also accept \boxed{}
         return r["question"].rstrip() + "\n\nAfter your reasoning, also give the final answer within \\boxed{}."
-    if args.task in ("lbm", "lbd"):  # LiveBench math / data analysis: the official prompt as is (it states the answer format)
+    if args.task in ("lbm", "lbd", "lbl"):  # LiveBench math / data analysis / language: the official prompt as is
         return r["question"].rstrip()
     if args.task == "zebra":  # ZebraLogic grid mode (ICML 2025)
         attrs = ", ".join(r["header"])
@@ -212,6 +212,8 @@ def extract(gen, r=None):
         return lbm_extract(gen, r.get("task") if r else None)
     if args.task == "lbd":
         return lbd_extract(gen, r.get("task") if r else None)
+    if args.task == "lbl":
+        return lbl_extract(gen, r.get("task") if r else None)
     if args.task == "lbr":  # official format is <solution>...</solution>; also accept \boxed{} and the last **bold** span
         sol = re.findall(r"<solution>(.*?)</solution>", gen, re.S)
         if sol:
@@ -380,6 +382,30 @@ def lbd_correct(pred, gold, task, prompt):
     return pr is not None and gr is not None and pr == gr
 
 
+def lbl_extract(gen, task):
+    """LiveBench language: connections and typos / plot answers live in <solution>...</solution>; else the last paragraph."""
+    g = re.sub(r"<think>.*?</think>", "", gen, flags=re.S)
+    sol = re.findall(r"<solution>(.*?)</solution>", g, re.S)
+    if sol:
+        return sol[-1].strip()
+    if "<PLOT_SUMMARY>" in g:  # plot_unscrambling: the prompt asks to begin the answer with this tag
+        return g.rsplit("<PLOT_SUMMARY>", 1)[1].replace("</PLOT_SUMMARY>", "").strip()
+    paras = [p.strip() for p in re.split(r"\n\s*\n", g.strip()) if p.strip()]
+    return paras[-1] if paras else None
+
+
+def lbl_correct(pred, gold, task):
+    if pred is None:
+        return False
+    if task == "connections":
+        def groups(s):
+            items = [x.strip().lower() for x in re.split(r"[,\n]", s) if x.strip()]
+            return {frozenset(items[k:k + 4]) for k in range(0, len(items), 4)} if len(items) == 8 else None
+        return groups(pred) is not None and groups(pred) == groups(str(gold))
+    n = lambda s: re.sub(r"\s+", " ", str(s)).strip().strip("\"'").lower()  # noqa: E731
+    return n(pred) == n(gold)
+
+
 def lbr_norm(s):
     s = str(s).lower().strip().strip(".").replace("**", "")
     s = re.sub(r"\\text\{([^}]*)\}", r"\1", s)
@@ -410,6 +436,8 @@ def correct(pred, gold, r=None):
         return False  # graded separately in a sandbox (lcb_grade.py / bcb_grade.py / codepro_grade.py)
     if args.task == "lbd":
         return lbd_correct(pred, gold, r.get("task"), r.get("question", ""))
+    if args.task == "lbl":
+        return lbl_correct(pred, gold, r.get("task"))
     if args.task == "lbm":
         if pred is None:
             return False
@@ -507,7 +535,7 @@ for i, r in enumerate(rows):
     if args.task == "zebra":
         c_ok, c_tot = zebra_cells(pred, gold)
         rec.update({"id": r.get("id"), "size": r.get("size"), "cell_acc": c_ok / max(c_tot, 1)})
-    if args.task in ("lbr", "lbm", "lbd"):
+    if args.task in ("lbr", "lbm", "lbd", "lbl"):
         rec.update({"question_id": r.get("question_id"), "subtask": r.get("task")})
     recs.append(rec)
 acc = n_ok / len(rows)
@@ -525,7 +553,7 @@ if args.task == "zebra":
         d[0] += rec["correct"]
         d[1] += 1
     summary["by_size"] = {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_size.items())}
-if args.task in ("lbr", "lbm", "lbd"):
+if args.task in ("lbr", "lbm", "lbd", "lbl"):
     by_t = {}
     for rec in recs:
         d = by_t.setdefault(rec["subtask"], [0, 0])
