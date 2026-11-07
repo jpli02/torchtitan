@@ -654,7 +654,53 @@ def _terminal_agent_sft_tokens(
     if not messages:
         # Dropped by normalisation; contribute nothing to the packed buffer.
         return [], []
-    return _sft_tokens_from_messages(messages, tokenizer)
+    ids, labels = _sft_tokens_from_messages(messages, tokenizer)
+    if _PROSE_KEEP < 1.0:
+        labels = _mask_prose_labels(ids, labels, tokenizer, _PROSE_KEEP)
+    return ids, labels
+
+
+# OURO_SFT_PROSE_KEEP = probability of keeping the loss on a PROSE token of an assistant turn (the string values of
+# the "analysis" and "plan" fields of the terminus action JSON). 1.0 (default) = plain assistant-only SFT; 0.0 = loss
+# on the commands ("keystrokes"), the JSON scaffolding and task_complete only. Diagnostic from 2026-11-06: r1 fits the
+# commands at 97.9 % token accuracy but reproduces a 67-token command in full only 69 % of the time, and the prose
+# (92.2 %) is where most of the loss budget goes; this knob lets the fit concentrate on what the harness executes.
+_PROSE_KEEP = float(os.environ.get("OURO_SFT_PROSE_KEEP", "1.0"))
+
+
+def _mask_prose_labels(ids, labels, tokenizer, keep: float):
+    import random as _random
+    import re as _re
+
+    pieces = [tokenizer.decode([t]) for t in ids]
+    offsets, pos = [], 0
+    for p in pieces:
+        offsets.append((pos, pos + len(p)))
+        pos += len(p)
+    text = "".join(pieces)
+    spans = []
+    for key in ("analysis", "plan"):
+        for m in _re.finditer(r'"%s"\s*:\s*"' % key, text):
+            i = j = m.end()
+            while j < len(text):
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    break
+                j += 1
+            spans.append((i, j))
+    if not spans:
+        return labels
+    rng = _random.Random(hash(text[:2000]) & 0xFFFFFFFF)
+    out = list(labels)
+    for k, (a, b) in enumerate(offsets):
+        if out[k] == IGNORE_INDEX:
+            continue
+        mid = (a + b) / 2
+        if any(s <= mid < e for s, e in spans) and rng.random() >= keep:
+            out[k] = IGNORE_INDEX
+    return out
 
 
 # Add your dataset here - more information at docs/datasets.md
