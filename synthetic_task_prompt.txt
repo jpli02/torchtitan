@@ -1,0 +1,82 @@
+SYNTHETIC TASK GENERATION FOR THE TERMINAL-BENCH SETTING
+=========================================================
+
+Source: gen_task_variant.py (branch worktree-ouro-terminal-sft), driver gen_variants_v2.sh,
+gate validate_variant.sh. Produced the 139-task variant pool (58 base tasks covered) that the
+take-turns distillation data (deepseek-v4.1-flash teacher / Ouro student) was generated on.
+
+Generator call
+--------------
+model:            gpt-6-luna (OpenRouter), reasoning_effort = high, max_completion_tokens = 16000
+system message:   "You output only strict JSON."
+user message:     the PROMPT below, filled per seed task with
+                    {cat}, {diff}   category and difficulty from the seed task.yaml
+                    {instr}         seed instruction (cut at 4,000 chars, canary strings stripped)
+                    {docker}        seed Dockerfile (cut at 3,000 chars)
+                    {test}          seed tests/test_outputs.py (cut at 6,000 chars)
+                    {appfiles}      seed app files copied into the image (cut at 6,000 chars)
+seeds:            the 80 Terminal-Bench tasks (terminal-bench-core 0.1.1)
+per seed:         up to 3 valid variants within 8 attempts, 4 workers in parallel
+
+PROMPT (verbatim)
+-----------------
+You are creating a NEW command-line task for an agent benchmark, as a VARIANT of a seed task.
+The variant must test the SAME skill, tools, and difficulty, but with a DIFFERENT concrete scenario:
+rename files/dirs, change values, data, and the specific goal, so it is clearly NOT the same task yet very similar.
+It must be fully self-contained and runnable in a Linux container.
+
+SEED TASK
+category: {cat} | difficulty: {diff}
+--- instruction ---
+{instr}
+--- Dockerfile ---
+{docker}
+--- tests/test_outputs.py ---
+{test}
+--- app files ---
+{appfiles}
+
+Produce the VARIANT as a STRICT JSON object (no markdown, no prose) with keys:
+- "instruction": string, the new task instruction given to the agent (describe what to build/fix; do NOT reveal the solution).
+- "dockerfile": string, a complete Dockerfile that sets up the starting environment (base image, deps, COPY app files, WORKDIR /app). The starting state must make the tests FAIL (task unsolved).
+- "app_files": object mapping relative path -> file contents for any starting files COPY'd by the Dockerfile.
+- "test_file": string, a pytest file (tests/test_outputs.py) that verifies the task is solved; it must FAIL on the fresh container and PASS once the task is correctly done.
+- "solution_sh": string, a bash script that, run in /app of the fresh container, correctly solves the task so the tests pass. This is the reference solution used only for validation.
+
+CRITICAL VALIDITY RULES (a task that violates these is useless):
+1. FAIL-FRESH IS MANDATORY. In the STARTING state (Dockerfile + app_files only, before solution_sh), the pytest suite MUST FAIL. The single most common fatal mistake is shipping a start state that already passes — do NOT do this.
+2. DESIGN FOR FAIL-FRESH using one of these patterns:
+   (a) OUTPUT-ARTIFACT: the task requires the agent to PRODUCE an output (a file at a specific path, a value, a built binary). The tests assert that artifact exists & is correct. At start the artifact does NOT exist, so tests fail. solution_sh creates it.
+   (b) BROKEN-CODE: ship app code that is genuinely broken (throws / wrong output / missing dep). Tests assert correct behavior; they fail at start; solution_sh fixes the code/env.
+   Before finalizing, mentally RUN your tests against the starting files — if any test could pass with no agent work, redesign.
+3. Running solution_sh in /app of the fresh container MUST make all tests PASS. Tests must actually REQUIRE that work (assert on concrete artifacts/values/behavior), be deterministic, and not import the agent's solution.
+4. THE IMAGE MUST BUILD. Use ONE common base (python:3.11-slim-bookworm or ubuntu:22.04), pin pip versions, keep deps minimal and available. Avoid heavyweight/exotic builds (no kernel/qemu compiles, no large model downloads).
+5. Common tools only (python3/pip, bash, standard CLI); self-contained; no canary strings.
+Output ONLY the JSON object.
+
+Output handling
+---------------
+The JSON is written as a Terminal-Bench task directory:
+  task.yaml          instruction (verbatim), difficulty and category inherited from the seed,
+                     tags [synthetic, tb-variant], parser pytest, max_agent_timeout_sec 420,
+                     max_test_timeout_sec 120, test_scripts [setup-uv-pytest.sh, run-uv-pytest.sh]
+  Dockerfile         "dockerfile"
+  solution.sh        "solution_sh"  (reference solution, used only by the validation gate, never shown to the agent)
+  tests/test_outputs.py   "test_file"
+  <app files>        "app_files"
+
+Validation gate (validate_variant.sh), applied to every generated task
+----------------------------------------------------------------------
+1. docker build the task image (fail -> INVALID(build_failed))
+2. run the pytest suite on the fresh container  -> must FAIL
+3. run solution.sh in /app, run the suite again  -> must PASS
+Only tasks with fresh=FAIL and solved=PASS enter the pool. 139 valid variants over 58 base tasks.
+
+Take-turns trajectory generation (no extra prompt)
+---------------------------------------------------
+The student (Ouro v3 checkpoint, served by ouro_openai_server.py) runs the stock terminus-2 agent on the
+pool tasks. On the turns assigned to the teacher by the --teacher_turns pattern (odd | every:K | prob:p |
+after:N), the server forwards the student's exact conversation (terminus-2 system prompt, task instruction,
+terminal history) to deepseek-v4.1-flash via OpenRouter (temperature as requested, max_tokens 8192) and
+returns its action JSON in place of the student's. Only trajectories whose tests passed were kept:
+take-turns r1 = 112 rows over 70 variant tasks (39 base tasks), 9.1 assistant turns per row.
