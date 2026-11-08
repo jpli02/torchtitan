@@ -1,6 +1,7 @@
 """Page blocks added 2026-11-07 for page_update_1102.py: the token-accuracy distribution table (Q11), the Dory1.0-suite
 benchmark table (Q12, GPQA Diamond + IFBench) and the LiveCodeBench BO status table (Q12). Each function returns HTML
 (or "" when the result files are not there yet) and re-reads the result files on every page build."""
+import glob
 import json
 import os
 
@@ -158,11 +159,21 @@ def lcb_bo_block():
                     f'<td class="n">{e["value"]:.2f}</td><td class="n">{e["wall_s"] / 60:.0f} min · GPU {e["gpu"]}</td></tr>')
     if not rows:
         rows.append('<tr><td colspan="8">first two evaluations running (started 2026-11-07 21:09)</td></tr>')
-    status = f'{len(evs)} of 24 evaluations done'
+    log = f"{TMP}/lcb_bo_gp.log"
+    finished = os.path.exists(log) and "Completed 1 experiment" in open(log, errors="replace").read()
+    n_failed = 0
+    for d in glob.glob("/home/jli199/boptim_scratch/bo_lcb_router/q*/record.json"):
+        try:
+            n_failed += json.load(open(d)).get("status") == "generation_failed"
+        except Exception:
+            pass
+    status = (f'finished 2026-11-08 12:30: {len(evs)} valid evaluations; {n_failed} proposals failed to generate (out of memory when another user\'s job on the shared card grew) '
+              f'and were fed back as the worst value, which steers the model away from that corner' if finished else f'{len(evs)} of 24 evaluations done')
     if best:
         t = best["thresholds"][:3]
-        status += f'; best so far ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}): {best["pass1_pct"]:.1f} % at {best["tok_s"]:.2f} tokens/s, objective {best["value"]:.2f}'
-    return f'''<div class="sub-head"><h3>Bayesian optimisation of the router on LiveCodeBench {_chip("info", "running")}</h3><p>The first BO run on the real objective. gp_hedge (boptim-agent) searches the three per-step exit thresholds (q1, q2, q3) in [0.05, 1]; every evaluation serves the 120-problem slice under real decode-time early exit (batch 1, greedy, 1,024 tokens) and grades it against the official tests in the sandbox. Objective, minimised: −tokens/s + 2 × max(0, 21.5 − pass@1 %), the fastest router that keeps the full-depth accuracy (22.5 %) within one point, with a price of two tokens/s per further point lost. Two evaluations run in parallel (GPUs 0 and 3, shared with idle jobs of other users, so tokens/s carry some noise); 4 random initial points, then 10 pairs proposed by the model, about 1 to 1.5 h per evaluation. The 222 held-out problems validate the winner afterwards. Every evaluation is recorded (thresholds, pass@1, tokens/s, truncation, loops) as a trajectory for the agent work.</p></div>
+        status += f'; best ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}): {best["pass1_pct"]:.1f} % at {best["tok_s"]:.2f} tokens/s, objective {best["value"]:.2f}'
+    chip = _chip("good", "finished") if finished else _chip("info", "running")
+    return f'''<div class="sub-head"><h3>Bayesian optimisation of the router on LiveCodeBench {chip}</h3><p>The first BO run on the real objective. gp_hedge (boptim-agent) searches the three per-step exit thresholds (q1, q2, q3) in [0.05, 1]; every evaluation serves the 120-problem slice under real decode-time early exit (batch 1, greedy, 1,024 tokens) and grades it against the official tests in the sandbox. Objective, minimised: −tokens/s + 2 × max(0, 21.5 − pass@1 %), the fastest router that keeps the full-depth accuracy (22.5 %) within one point, with a price of two tokens/s per further point lost. Two evaluations run in parallel (GPUs 0 and 3, shared with idle jobs of other users, so tokens/s carry some noise); 4 random initial points, then 10 pairs proposed by the model, about 1 to 1.5 h per evaluation. Every evaluation is recorded (thresholds, pass@1, tokens/s, truncation, loops) as a trajectory for the agent work.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th class="n">#</th><th>thresholds (q1, q2, q3)</th><th class="n">pass@1 % (120)</th><th class="n">tokens / s</th><th class="n">speed-up vs full depth</th><th class="n">truncated</th><th class="n">objective</th><th class="n">cost</th></tr></thead>
@@ -170,6 +181,58 @@ def lcb_bo_block():
         {chr(10).join("        " + r for r in rows).strip()}
       </tbody>
     </table>
-    <p class="src">Reference points on this slice (wall-clock table above): full depth 22.5 % at 6.23 tokens/s (objective −6.2); released gate q = 0.3 21.7 % at 11.12 (−11.1); q = 0.5 20.0 % at 8.82 (−5.8); q = 0.2 12.5 % at 14.21 (+3.8). {status}.</p>
+    <p class="src">Reference points on this slice (wall-clock table above): full depth 22.5 % at 6.23 tokens/s (objective −6.2); released gate q = 0.3 21.7 % at 11.12 (−11.1); q = 0.5 20.0 % at 8.82 (−5.8); q = 0.2 12.5 % at 14.21 (+3.8). {status}. Pattern of the search: the first-loop threshold moves up to 0.4 to 0.53 (harder to exit after one loop than the released gate's 0.3), the second-loop threshold collapses towards 0.05 (a token that did not exit after loop 1 almost always exits after loop 2), the third stays near 0.31 to 0.35; a first-loop threshold at or below 0.12 falls off the cliff (10 to 13 % at 2.1 to 2.5×).</p>
+  </div>
+''' + lcb_bo_validation_block()
+
+
+def _pooled(label):
+    """RESULT + GRADED lines for label_o120 and label_o240 from the wall-clock and validation reports, pooled over the 222 held-out problems."""
+    n = passed = toks = wall = 0.0
+    slices = []
+    for suf in ("_o120", "_o240"):
+        res = grd = None
+        for rep in (f"{TMP}/wallclock_lcb.txt", f"{TMP}/wallclock_lcb_bo.txt"):
+            if not os.path.exists(rep):
+                continue
+            for line in open(rep):
+                if line.startswith(f"RESULT {label}{suf} "):
+                    res = json.loads(line[len(f"RESULT {label}{suf} "):])
+                if line.startswith(f"{label}{suf} GRADED "):
+                    kv = dict(p.split("=", 1) for p in line.split()[2:] if "=" in p and not p.startswith("by_difficulty"))
+                    grd = {"n": int(kv["n"]), "acc": float(kv["pass@1"])}
+        if res and grd:
+            slices.append(suf)
+            n += grd["n"]
+            passed += grd["acc"] * grd["n"]
+            toks += res["mean_tokens"] * res["n"]
+            wall += res["wall_s"]
+    if not n:
+        return None
+    return {"n": int(n), "acc": passed / n, "tok_s": toks / wall, "slices": slices}
+
+
+def lcb_bo_validation_block():
+    cands = [("bo20", "BO best (0.53, 0.06, 0.35)"), ("bo15", "BO runner-up (0.41, 0.27, 0.31)"), ("bo18", "BO highest accuracy (0.49, 0.37, 0.31)"),
+             ("gate0.3", "released gate q = 0.3"), ("gate0.5", "released gate q = 0.5"), ("gate0.7", "released gate q = 0.7"), ("full", "full depth")]
+    pooled = {k: _pooled(k) for k, _ in cands}
+    full = pooled.get("full")
+    rows = []
+    for k, disp in cands:
+        p = pooled[k]
+        if not p:
+            rows.append(f'<tr class="dim"><td>{disp}</td><td class="n" colspan="4">{"queued on GPU 0" if k.startswith("bo") or k == "gate0.3" else "—"}</td></tr>')
+            continue
+        part = "" if len(p["slices"]) == 2 else _sm(" (problems 120 to 239 only so far)")
+        su = f'{p["tok_s"] / full["tok_s"]:.2f}×' if full else "—"
+        rows.append(f'<tr{" class=\"best\"" if k == "bo20" else ""}><td>{disp}</td><td class="n">{_pct(p["acc"])} %{part}</td><td class="n">{p["n"]}</td><td class="n">{p["tok_s"]:.2f}</td><td class="n">{su}</td></tr>')
+    return f'''<div class="sub-head"><h3>Held-out check of the BO routers: LiveCodeBench problems 120 to 341</h3><p>The routers found on problems 0 to 119 are re-run under the same real-execution protocol on the 222 problems the search never saw, next to the released gate at the same cost level. Standard error about 2.8 points at n = 222.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Router</th><th class="n">pass@1 % (held-out)</th><th class="n">n</th><th class="n">tokens / s</th><th class="n">speed-up vs full depth</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in rows).strip()}
+      </tbody>
+    </table>
   </div>
 '''
