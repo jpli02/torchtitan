@@ -618,8 +618,36 @@ r75_cell = (f"{r75[0]}/{r75[1]} ({100 * r75[0] / r75[1]:.0f} %)" if r75[1] else 
 r75_reading = (chip("info", f"{r75[1]} of 75 done") + sm("the clean pass rate of r1 on its whole training set, standard 1,800-second budget, two shards")) if r75[1] < 75 else (
     chip("good", f"{100 * r75[0] / r75[1]:.0f} % of its training set") + sm("standard 1,800-second budget, one attempt per task"))
 tt_rows.insert(3, f'<tr class="best"><td>r1 on ALL 75 of its training tasks</td><td>yes</td><td class="n">{r75_cell}</td><td class="n">{r75[2] if r75[1] else "—"}</td><td class="n">1,800 s</td><td class="st">{r75_reading}</td></tr>')
+# ---- ep4-only view: the 4-true-epoch checkpoint trained on the take-turns r1 data
+ep4_900 = tb_counts("train75_ep4")
+ep4_1800 = [0, 0, 0]
+for _s in range(1, 5):
+    _c = tb_counts(f"train75_ep4_1800_s{_s}")
+    ep4_1800 = [ep4_1800[0] + _c[0], ep4_1800[1] + _c[1], ep4_1800[2] + _c[2]]
+ep4_1800_cell = f"{ep4_1800[0]}/{ep4_1800[1]} ({100 * ep4_1800[0] / ep4_1800[1]:.0f} %)" if ep4_1800[1] else "running"
+ep4_1800_reading = (chip("info", f"{ep4_1800[1]} of 75 done") + sm("four shards, one server per card")) if ep4_1800[1] < 75 else (
+    chip("good", f"{100 * ep4_1800[0] / ep4_1800[1]:.0f} % of its training set") + sm("standard 1,800-second budget, one attempt per task"))
+tt_rows = [
+    tt_row("train75_ep4", "ep4 at the 900-second budget (run cut at 53 of 75 tasks by the 12-hour cap)", "yes, memorised (99 % token accuracy)", "900 s",
+           chip("good", "executes what it memorised") + sm("solves 42 % of the tasks it was trained on while its test pass@1 is 5/21")),
+    f'<tr class="best"><td>ep4 on all 75 training tasks</td><td>yes, memorised</td><td class="n">{ep4_1800_cell}</td><td class="n">{ep4_1800[2] if ep4_1800[1] else "—"}</td><td class="n">1,800 s</td><td class="st">{ep4_1800_reading}</td></tr>',
+]
+ep4_metrics = '''<div class="sub-head"><h3>ep4 training metrics by epoch</h3><p>The take-turns r1 data (112 rows) mixed 1:1 with 112 v3 replay rows, 2,144 steps of 4,096 tokens = 4 true epochs (536 steps each), continued from the v3 checkpoint, AdamW8bit, seq 4,096. Loss is the trainer's global average per step (it includes the 0.01 entropy bonus); fit is the teacher-forced token accuracy and cross-entropy of each epoch's checkpoint on its own rows; the test score is pass@1 over the 11 valid Terminal-Bench tasks, two attempts each.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Checkpoint</th><th class="n">steps</th><th class="n">training loss, epoch mean</th><th class="n">loss at epoch end</th><th class="n">new rows: token acc · CE</th><th class="n">replay rows: token acc · CE</th><th class="n">Terminal-Bench pass@1</th><th class="st">Tasks solved</th></tr></thead>
+      <tbody>
+        <tr><td>epoch 1</td><td class="n">536</td><td class="n">0.429</td><td class="n">0.319</td><td class="n">90.3 % · 0.347</td><td class="n">94.9 % · 0.183</td><td class="n">6/22</td><td class="st"><span class="sm">csv-to-parquet 2/2, fix-permissions 2/2, hello-world 2/2; evaluated under node load (13 timeouts)</span></td></tr>
+        <tr><td>epoch 2</td><td class="n">1,072</td><td class="n">0.288</td><td class="n">0.216</td><td class="n">95.0 % · 0.178</td><td class="n">96.8 % · 0.120</td><td class="n">6/22 · 4/20</td><td class="st"><span class="sm">under load: 4 tasks; clean re-evaluation: fix-permissions 2/2, hello-world 2/2</span></td></tr>
+        <tr class="dim"><td>epoch 3</td><td class="n">1,608</td><td class="n">0.166</td><td class="n">0.104</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st"><span class="sm">not evaluated</span></td></tr>
+        <tr class="best"><td>epoch 4 (ep4)</td><td class="n">2,144</td><td class="n">0.042</td><td class="n">0.033</td><td class="n">99.0 % · 0.043</td><td class="n">98.5 % · 0.069</td><td class="n">5/21</td><td class="st"><span class="chip crit">memorised, test down</span><span class="sm">csv-to-parquet 1/2, fix-permissions 2/2, hello-world 2/2; 9 of 21 trials end with a false completion claim, 7 time out; 4.5 repeated responses per trial</span></td></tr>
+      </tbody>
+    </table>
+    <p class="src">Fit rises monotonically with exposure (63 % of the new rows at or above 99 % token accuracy after epoch 4; the model reproduces a demonstrated 67-token command in full 91 % of the time and the first demonstrated command in 14 of 22 training-task trials) while the test score does not: the reference 1.67-epoch checkpoint on the same data scores 9/22. Loss data: wandb run take-turns r1 4 true epochs (73 logged points); fit: <code>fit_eval.py</code>; evaluations: <code>tvary_r1_4ep_*</code> run dirs.</p>
+  </div>
+'''
 tt_block = f'''
-<div class="sub-head"><h3>The take-turns r1 training set: 139 pool tasks, 70 with a resolved trajectory</h3><p>The distillation pool holds 139 variant tasks (58 base tasks). Teacher (deepseek-v4.1-flash) and student (the v3 checkpoint) took turns on all of them in round 1; only resolved trajectories were kept, and this set trained every checkpoint in the table below.</p></div>
+<div class="sub-head"><h3>ep4's training data: take-turns r1, 139 pool tasks, 70 with a resolved trajectory</h3><p>The distillation pool holds 139 variant tasks (58 base tasks). Teacher (deepseek-v4.1-flash) and student (the v3 checkpoint) took turns on all of them in round 1; only resolved trajectories were kept.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Take-turns r1</th><th class="n">rows</th><th class="n">variant tasks</th><th class="n">base tasks</th><th class="n">tasks with 1 / 2 rows</th><th class="n">pool tasks with a resolved trajectory</th><th class="st">Notes</th></tr></thead>
@@ -629,7 +657,7 @@ tt_block = f'''
     </table>
     <p class="src">Half of the pool tasks yielded a resolved trajectory, no task has more than two, and 40 % of the covered tasks have exactly one: that is the data-side reason a policy that leaves the demonstrated path has nothing to fall back on. Script: <code>dataset_tasks.py</code> (tasks matched by the pool instruction text).</p>
   </div>
-<div class="sub-head"><h3>Training-task pass@1 on the take-turns r1 tasks</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained these checkpoints; stock terminus-2 with the serving fixes, one server per card. The 12-hour run cap stopped the 900-second arms at 48 to 53 tasks; v3 is the starting checkpoint that never saw these tasks.</p></div>
+{ep4_metrics}<div class="sub-head"><h3>ep4 pass@1 on its training set</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained it; stock terminus-2 with the serving fixes (2,048-token turn cap), one server per card.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Checkpoint</th><th>Trained on these tasks?</th><th class="n">solved</th><th class="n">timeouts</th><th class="n">budget</th><th class="st">Reading</th></tr></thead>
@@ -648,6 +676,10 @@ if _a > 0:
     html = html[:_e] + ('\n        <tr><td>SFT · take-turns r1, command-focused loss</td><td>same 112 rows and 896 steps, prose loss dropped</td>'
                         '<td class="n">6/22</td><td class="n">4</td><td class="st"><span class="chip crit">regresses</span><span class="sm">14 of 22 trials time out '
                         'after about 110 short turns; the prose carries the planning and the decision to stop</span></td></tr>') + html[_e:]
+import re as _re
+tt_block = _re.sub(r'<p class="src">Memorising the trajectories.*?</p>',
+                   '<p class="src">Reading: ep4 memorised its 112 training trajectories (99 % token accuracy, 91 % of demonstrated commands reproduced in full) and executes the memorised tasks far better than the untrained starting point (42 % against 27 % at 900 seconds; the full-budget number fills in above), but the same fit costs the test set: 5/21 against 9/22 for the lighter 1.67-epoch checkpoint on the same data, with 9 of 21 test trials ending in a false completion claim and 4.5 repeated responses per trial. The training-set pass rate and the test pass rate move in opposite directions with exposure to one or two trajectories per task. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_ep4*</code>; counter <code>tb_progress.py</code>.</p>',
+                   tt_block, flags=_re.S)
 _i = html.find('<p class="src">Reading it: the model can absorb the generated trajectories completely')
 assert _i > 0
 _j = html.find('</p>\n  </div>', _i) + len('</p>\n  </div>')
