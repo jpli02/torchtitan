@@ -636,8 +636,11 @@ r1_1800 = [0, 0, 0]
 for _s in range(1, 5):
     _c = tb_counts(f"train75_r1_1800_s{_s}")
     r1_1800 = [r1_1800[0] + _c[0], r1_1800[1] + _c[1], r1_1800[2] + _c[2]]
+if r1_1800[1] == 74:  # shard 1's last trial (build-initramfs-qemu) hung for 11 h in a server-error retry loop and was stopped: unresolved
+    r1_1800 = [r1_1800[0], 75, r1_1800[2] + 1]
 r1_1800_cell = f"{r1_1800[0]}/{r1_1800[1]} ({100 * r1_1800[0] / r1_1800[1]:.0f} %)" if r1_1800[1] else "queued behind the ep4 shards"
-r1_1800_reading = (chip("info", f"{r1_1800[1]} of 75 done") if r1_1800[1] else chip("info", "queued")) if r1_1800[1] < 75 else chip("good", f"{100 * r1_1800[0] / r1_1800[1]:.0f} % of its training set")
+r1_1800_reading = (chip("info", f"{r1_1800[1]} of 75 done") if r1_1800[1] else chip("info", "queued")) if r1_1800[1] < 75 else (
+    chip("warn", f"{100 * r1_1800[0] / r1_1800[1]:.0f} % of its training set") + sm("standard 1,800-second budget, one attempt per task; the 52 misses are 17 false completion claims, 34 timeouts and one trial that hung in a server-error retry loop; 17 of them pass some tests"))
 r22 = tb_counts("train22_r1_1800")
 tt_rows = [
     '<tr class="dim"><td colspan="6"><b>ep4: the take-turns r1 data at 4 true epochs</b></td></tr>',
@@ -705,7 +708,7 @@ if _a > 0:
                         'after about 110 short turns; the prose carries the planning and the decision to stop</span></td></tr>') + html[_e:]
 import re as _re
 tt_block = _re.sub(r'<p class="src">Memorising the trajectories.*?</p>',
-                   '<p class="src">Reading: ep4 memorised its 112 training trajectories (99 % token accuracy, 91 % of demonstrated commands reproduced in full) and executes the memorised tasks far better than the starting point (44 % at the full 1,800-second budget over all 75 tasks and 42 % at 900 seconds over 53, against 27 % for v3; the 42 misses at the full budget are 15 false completion claims and 27 timeouts, 13 of them passing some tests), but the same fit costs the test set: 5/21 against 9/22 for r1 on the same data. r1, at 94.7 % token accuracy and 69 % full-command replay, solves half of what ep4 solved at the full budget and its misses are total (1 of 11 passes any test); neither greedy decoding, nor a 1.39× faster server, nor concentrating the loss on the commands changes that, so the training-set gap is the replay probability of one or two demonstrations per task, and closing it (ep4) is exactly what loses the test set. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_*</code>; counter <code>tb_progress.py</code>.</p>',
+                   '<p class="src">Reading: ep4 memorised its 112 training trajectories (99 % token accuracy, 91 % of demonstrated commands reproduced in full) and executes the memorised tasks far better than the starting point (44 % at the full 1,800-second budget over all 75 tasks and 42 % at 900 seconds over 53, against 27 % for v3; the 42 misses at the full budget are 15 false completion claims and 27 timeouts, 13 of them passing some tests), but the same fit costs the test set: 5/21 against 9/22 for r1 on the same data. r1, at 94.7 % token accuracy and 69 % full-command replay, solves 31 % of the same tasks at the same budget (23/75: 17 false completion claims, 34 timeouts at 27 to 59 episodes each, one hung trial), and on the 22 tasks ep4 solved its misses are total (1 of 11 passes any test); neither greedy decoding, nor a 1.39× faster server, nor concentrating the loss on the commands changes that, so the training-set gap is the replay probability of one or two demonstrations per task, and closing it (ep4) is exactly what loses the test set. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_*</code>; counter <code>tb_progress.py</code>.</p>',
                    tt_block, flags=_re.S)
 _i = html.find('<p class="src">Reading it: the model can absorb the generated trajectories completely')
 assert _i > 0
