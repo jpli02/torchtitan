@@ -390,9 +390,12 @@ for p in sorted(glob.glob(f"{TMP}/cites_s2*.tsv")):
         if f[4] not in ("None", ""):
             s2[f[0]] = f[4]
 sel = [
-    ("LiveCodeBench", "LiveCodeBench", "ICLR 2025", "coding", chip("good", "adopted") + sm("direct mode; table above")),
-    ("BigCodeBench", "BigCodeBench", "ICLR 2025", "coding", chip("good", "adopted") + sm("direct mode; Hard split is depth-insensitive")),
-    ("GSM-Symbolic", "GSM-Symbolic", "ICLR 2025", "math", chip("good", "adopted") + sm("p1 and main subsets, 300 items each; real-exit table below")),
+    ("LiveCodeBench", "LiveCodeBench", "ICLR 2025", "coding", chip("good", "headline") + sm("all 342 problems in direct mode; depth 5.6 / 15.8 / 21.3 %; the gate shows a real speed-accuracy trade-off under real execution")),
+    ("BigCodeBench", "BigCodeBench", "ICLR 2025", "coding", chip("good", "inner loop") + sm("cheapest real-execution point (about 1.5 h per 150 tasks); lossless to gate 0.3 at 1.8×")),
+    ("HumanEval Pro / MBPP Pro", "HumanEval Pro + MBPP Pro", "2025", "coding", chip("good", "replication") + sm("542 self-invoking problems; lossless to gate 0.3 at 1.8× over 300")),
+    ("GSM-Symbolic", "GSM-Symbolic", "ICLR 2025", "math", chip("good", "non-coding headline") + sm("main and p1 subsets; lossless to gate 0.3 at 1.6× over 200")),
+]
+_sel_dropped = [
     ("LiveBench", "LiveBench (reasoning, math, data analysis, language)", "ICLR 2025", "mixed", chip("warn", "data analysis usable") + sm("reasoning, math and language are budget-bound for a 2.6B model (60 to 76 % truncated at 3,072 tokens; language also needs exact long-text match); data analysis is not; table below")),
     ("ZebraLogic", "ZebraLogic", "ICML 2025", "logic", chip("warn", "budget-bound above 3x4") + sm("150 grid puzzles over 25 sizes, puzzle- and cell-level exact match; table below")),
     ("HumanEval Pro / MBPP Pro", "HumanEval Pro + MBPP Pro", "2025", "coding", chip("good", "adopted") + sm("542 self-invoking problems, direct mode, assert tests; lossless real exit to q = 0.3; tables below")),
@@ -420,7 +423,7 @@ def both(key):
     return f"{s2[key]} / {cites.get(key, '—')}" if key in s2 else f"— / {cites.get(key, '—')}"
 
 
-cite_block = f'''<div class="sub-head"><h3>Benchmark selection: 2025 venues ranked by citations</h3><p>Criterion for the paper's headline benchmark: a 2025 venue, highly cited, preferably coding, and takeable by a 2.6B model in greedy mode within a few hours per router point. Two counts on 3 November 2026: Semantic Scholar (Google-Scholar scale; its public API answered for some papers only) and OpenAlex (about a tenth of that, same ordering). For reference the 2024-venue benchmarks already in use: MMLU-Pro {both("MMLU-Pro")}, GSM8K {both("GSM8K")}, CRUXEval {both("CRUXEval")}, HumanEval {both("HumanEval (Codex)")}.</p></div>
+cite_block = f'''<div class="sub-head"><h3>The selected benchmarks</h3><p>Criterion: a 2025 venue, highly cited, preferably coding, and takeable by a 2.6B model in greedy mode within a few hours per router point. Citation counts: Semantic Scholar (Google-Scholar scale) and OpenAlex (about a tenth of that, same ordering), November 2026. Every other 2025 candidate surveyed was either budget-bound for a 2.6B model at 2k to 4k tokens (LiveBench math, reasoning and language, Omni-MATH beyond difficulty 3, AIME/HMMT, ZebraLogic beyond 3x4, CodeMMLU, SuperGPQA in thinking mode) or out of reach (KernelBench, CodeElo, LiveCodeBench Pro, SWE-bench, Humanity's Last Exam, MedXpertQA), and is left off this page.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Benchmark</th><th>Venue</th><th>Domain</th><th class="n">Semantic Scholar</th><th class="n">OpenAlex</th><th class="st">Status for Ouro-2.6B</th></tr></thead>
@@ -428,7 +431,7 @@ cite_block = f'''<div class="sub-head"><h3>Benchmark selection: 2025 venues rank
         {chr(10).join("        " + r for r in crow).strip()}
       </tbody>
     </table>
-    <p class="src">LiveCodeBench is by far the most-cited 2025-venue coding benchmark ({s2.get("LiveCodeBench", "—")} on Semantic Scholar) and BigCodeBench the second; both run end to end here in direct mode. GSM-Symbolic ({s2.get("GSM-Symbolic", "—")}) is the most-cited 2025-venue benchmark outside coding that the model can take; KernelBench ({s2.get("KernelBench", "—")}) is well cited but out of reach for a 2.6B model. Scripts: <code>bench_cites.py</code> (OpenAlex), <code>bench_cites_s2.py</code> (Semantic Scholar), <code>lcb_pipeline.sh</code>, <code>bcb_pipeline.sh</code>, <code>prep_gsm_symbolic.py</code>.</p>
+    <p class="src">LiveCodeBench is by far the most-cited 2025-venue coding benchmark ({s2.get("LiveCodeBench", "—")} on Semantic Scholar) and BigCodeBench the second; GSM-Symbolic ({s2.get("GSM-Symbolic", "—")}) is the most-cited 2025-venue benchmark outside coding that the model can take. Scripts: <code>bench_cites.py</code>, <code>bench_cites_s2.py</code>, <code>lcb_pipeline.sh</code>, <code>bcb_pipeline.sh</code>, <code>codepro_pipeline.sh</code>, <code>prep_gsm_symbolic.py</code>.</p>
   </div>
 '''
 
@@ -502,7 +505,7 @@ for name, disp, note, is_code in [("codepro", "HumanEval Pro + MBPP Pro (542)", 
     more_rows.append(f'<tr><td>{disp}</td><td class="n">{cells[0]}</td><td class="n">{cells[1]}</td><td class="n">{cells[2]}</td><td class="n">{cells[3]}</td>'
                      f'<td class="st">{status}{sm(note + extra)}</td></tr>')
 more_block = ""
-if more_rows:
+if more_rows and os.environ.get("PAGE_SHOW_ALL_BENCHMARKS"):  # the page shows the selected benchmarks only (user, 2026-11-07)
     more_block = f'''<div class="sub-head"><h3>More 2025 benchmarks through the gather pipeline</h3><p>Four further 2025-venue benchmarks run through the same depth / gate / per-step pipeline (gather-mode selection, greedy, base Ouro-2.6B-Thinking). Per-step thresholds are (0.3, 0.5, 0.5) for the code benchmark and (0.1, 0.5, 0.5) for the others, the pipeline defaults.</p></div>
 <div class="tablewrap">
     <table>
@@ -627,23 +630,45 @@ for _s in range(1, 5):
 ep4_1800_cell = f"{ep4_1800[0]}/{ep4_1800[1]} ({100 * ep4_1800[0] / ep4_1800[1]:.0f} %)" if ep4_1800[1] else "running"
 ep4_1800_reading = (chip("info", f"{ep4_1800[1]} of 75 done") + sm("four shards, one server per card")) if ep4_1800[1] < 75 else (
     chip("good", f"{100 * ep4_1800[0] / ep4_1800[1]:.0f} % of its training set") + sm("standard 1,800-second budget, one attempt per task"))
+r1_1800 = [0, 0, 0]
+for _s in range(1, 5):
+    _c = tb_counts(f"train75_r1_1800_s{_s}")
+    r1_1800 = [r1_1800[0] + _c[0], r1_1800[1] + _c[1], r1_1800[2] + _c[2]]
+r1_1800_cell = f"{r1_1800[0]}/{r1_1800[1]} ({100 * r1_1800[0] / r1_1800[1]:.0f} %)" if r1_1800[1] else "queued behind the ep4 shards"
+r1_1800_reading = (chip("info", f"{r1_1800[1]} of 75 done") if r1_1800[1] else chip("info", "queued")) if r1_1800[1] < 75 else chip("good", f"{100 * r1_1800[0] / r1_1800[1]:.0f} % of its training set")
+r22 = tb_counts("train22_r1_1800")
 tt_rows = [
+    '<tr class="dim"><td colspan="6"><b>ep4: the take-turns r1 data at 4 true epochs</b></td></tr>',
     tt_row("train75_ep4", "ep4 at the 900-second budget (run cut at 53 of 75 tasks by the 12-hour cap)", "yes, memorised (99 % token accuracy)", "900 s",
            chip("good", "executes what it memorised") + sm("solves 42 % of the tasks it was trained on while its test pass@1 is 5/21")),
     f'<tr class="best"><td>ep4 on all 75 training tasks</td><td>yes, memorised</td><td class="n">{ep4_1800_cell}</td><td class="n">{ep4_1800[2] if ep4_1800[1] else "—"}</td><td class="n">1,800 s</td><td class="st">{ep4_1800_reading}</td></tr>',
+    '<tr class="dim"><td colspan="6"><b>r1: the same data at 1.67 true epochs (best test checkpoint, 9/22)</b></td></tr>',
+    tt_row("train75_r1", "r1 at the 900-second budget", "yes (94.7 % token accuracy)", "900 s",
+           chip("crit", "invalid: serving cascade") + sm("a few 8k-token runaway generations blocked the single-queue server, so 29 consecutive trials ended after one unanswered turn")),
+    tt_row("train22_r1_1800", "r1 on the 22 tasks ep4 solved", "yes", "1,800 s",
+           chip("info", f"{100 * r22[0] / max(r22[1], 1):.0f} % of what ep4 solved") + sm("5 false completion claims, 6 timeouts; only 1 of the 11 misses passes any test")),
+    tt_row("train22_r1_greedy", "r1, greedy decoding (temperature 0, 2,048-token turn cap)", "yes", "1,800 s",
+           chip("warn", "no better than sampling") + sm("replays the first demonstrated command in 10 of 22 trials; 3.1 repeated responses per trial")),
+    tt_row("train22_r1_ee03", "r1 served with true early exit at gate 0.3", "yes", "1,800 s",
+           chip("info", "same score, 1.39× faster") + sm("24 s per turn instead of 34; the two saved timeouts end as false completion claims")),
+    tt_row("train22_cmdonly", "r1 data retrained with the prose loss dropped (command-focused)", "yes", "1,800 s",
+           chip("crit", "much worse") + sm("17 timeouts at 91 episodes each; command fit unchanged, prose fit 69 %: the prose carries planning and stopping; test 6/22")),
+    f'<tr><td>r1 on all 75 training tasks</td><td>yes</td><td class="n">{r1_1800_cell}</td><td class="n">{r1_1800[2] if r1_1800[1] else "—"}</td><td class="n">1,800 s</td><td class="st">{r1_1800_reading}</td></tr>',
 ]
-ep4_metrics = '''<div class="sub-head"><h3>ep4 training metrics by epoch</h3><p>The take-turns r1 data (112 rows) mixed 1:1 with 112 v3 replay rows, 2,144 steps of 4,096 tokens = 4 true epochs (536 steps each), continued from the v3 checkpoint, AdamW8bit, seq 4,096. Loss is the trainer's global average per step (it includes the 0.01 entropy bonus); fit is the teacher-forced token accuracy and cross-entropy of each epoch's checkpoint on its own rows; the test score is pass@1 over the 11 valid Terminal-Bench tasks, two attempts each.</p></div>
+ep4_metrics = '''<div class="sub-head"><h3>ep4 and r1 training metrics</h3><p>Both continue the v3 checkpoint on the take-turns r1 data (112 rows) mixed 1:1 with 112 v3 replay rows, AdamW8bit, seq 4,096: r1 for 890 steps (1.67 true epochs), ep4 for 2,144 steps (4 true epochs, 536 steps each, checkpoint per epoch). Loss is the trainer's global average per step (it includes the 0.01 entropy bonus); fit is the teacher-forced token accuracy and cross-entropy of each checkpoint on its own rows; the test score is pass@1 over the 11 valid Terminal-Bench tasks, two attempts each.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Checkpoint</th><th class="n">steps</th><th class="n">training loss, epoch mean</th><th class="n">loss at epoch end</th><th class="n">new rows: token acc · CE</th><th class="n">replay rows: token acc · CE</th><th class="n">Terminal-Bench pass@1</th><th class="st">Tasks solved</th></tr></thead>
       <tbody>
+        <tr class="best"><td>r1 (1.67 epochs)</td><td class="n">890</td><td class="n">0.351 → 0.093 (last 10 steps 0.143)</td><td class="n">0.093</td><td class="n">94.7 % · 0.19</td><td class="n">96.7 % · 0.12</td><td class="n">9/22</td><td class="st"><span class="chip good">best test score</span><span class="sm">crack-7z-hash.easy 2/2, csv-to-parquet 2/2, hello-world 2/2, fix-permissions 1/2, heterogeneous-dates 1/2, processing-pipeline 1/2; commands 97.9 % / prose 92.2 % token accuracy, 69 % of demonstrated commands reproduced in full</span></td></tr>
+        <tr class="dim"><td colspan="8"><b>the 4-epoch run, checkpoint per epoch</b></td></tr>
         <tr><td>epoch 1</td><td class="n">536</td><td class="n">0.429</td><td class="n">0.319</td><td class="n">90.3 % · 0.347</td><td class="n">94.9 % · 0.183</td><td class="n">6/22</td><td class="st"><span class="sm">csv-to-parquet 2/2, fix-permissions 2/2, hello-world 2/2; evaluated under node load (13 timeouts)</span></td></tr>
         <tr><td>epoch 2</td><td class="n">1,072</td><td class="n">0.288</td><td class="n">0.216</td><td class="n">95.0 % · 0.178</td><td class="n">96.8 % · 0.120</td><td class="n">6/22 · 4/20</td><td class="st"><span class="sm">under load: 4 tasks; clean re-evaluation: fix-permissions 2/2, hello-world 2/2</span></td></tr>
         <tr class="dim"><td>epoch 3</td><td class="n">1,608</td><td class="n">0.166</td><td class="n">0.104</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="st"><span class="sm">not evaluated</span></td></tr>
         <tr class="best"><td>epoch 4 (ep4)</td><td class="n">2,144</td><td class="n">0.042</td><td class="n">0.033</td><td class="n">99.0 % · 0.043</td><td class="n">98.5 % · 0.069</td><td class="n">5/21</td><td class="st"><span class="chip crit">memorised, test down</span><span class="sm">csv-to-parquet 1/2, fix-permissions 2/2, hello-world 2/2; 9 of 21 trials end with a false completion claim, 7 time out; 4.5 repeated responses per trial</span></td></tr>
       </tbody>
     </table>
-    <p class="src">Fit rises monotonically with exposure (63 % of the new rows at or above 99 % token accuracy after epoch 4; the model reproduces a demonstrated 67-token command in full 91 % of the time and the first demonstrated command in 14 of 22 training-task trials) while the test score does not: the reference 1.67-epoch checkpoint on the same data scores 9/22. Loss data: wandb run take-turns r1 4 true epochs (73 logged points); fit: <code>fit_eval.py</code>; evaluations: <code>tvary_r1_4ep_*</code> run dirs.</p>
+    <p class="src">Fit rises monotonically with exposure (63 % of the new rows at or above 99 % token accuracy after epoch 4; ep4 reproduces a demonstrated 67-token command in full 91 % of the time and the first demonstrated command in 14 of 22 training-task trials, r1 69 % and 10 of 22) while the test score does not: r1 at 1.67 epochs is the best checkpoint at 9/22 and ep4 the worst at 5/21. Loss data: wandb runs take-turns r1 (90 points) and take-turns r1 4 true epochs (73 points); fit: <code>fit_eval.py</code>, <code>fit_eval_spans.py</code>; evaluations: <code>tvary_r1_eval</code>, <code>tvary_r1_4ep_*</code> run dirs.</p>
   </div>
 '''
 tt_block = f'''
@@ -657,7 +682,7 @@ tt_block = f'''
     </table>
     <p class="src">Half of the pool tasks yielded a resolved trajectory, no task has more than two, and 40 % of the covered tasks have exactly one: that is the data-side reason a policy that leaves the demonstrated path has nothing to fall back on. Script: <code>dataset_tasks.py</code> (tasks matched by the pool instruction text).</p>
   </div>
-{ep4_metrics}<div class="sub-head"><h3>ep4 pass@1 on its training set</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained it; stock terminus-2 with the serving fixes (2,048-token turn cap), one server per card.</p></div>
+{ep4_metrics}<div class="sub-head"><h3>ep4 and r1 pass@1 on their training set</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained them; stock terminus-2 with the serving fixes (2,048-token turn cap), one server per card; v3, the starting checkpoint, solves 27 % of these tasks without having seen them.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Checkpoint</th><th>Trained on these tasks?</th><th class="n">solved</th><th class="n">timeouts</th><th class="n">budget</th><th class="st">Reading</th></tr></thead>
@@ -678,7 +703,7 @@ if _a > 0:
                         'after about 110 short turns; the prose carries the planning and the decision to stop</span></td></tr>') + html[_e:]
 import re as _re
 tt_block = _re.sub(r'<p class="src">Memorising the trajectories.*?</p>',
-                   '<p class="src">Reading: ep4 memorised its 112 training trajectories (99 % token accuracy, 91 % of demonstrated commands reproduced in full) and executes the memorised tasks far better than the untrained starting point (42 % against 27 % at 900 seconds; the full-budget number fills in above), but the same fit costs the test set: 5/21 against 9/22 for the lighter 1.67-epoch checkpoint on the same data, with 9 of 21 test trials ending in a false completion claim and 4.5 repeated responses per trial. The training-set pass rate and the test pass rate move in opposite directions with exposure to one or two trajectories per task. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_ep4*</code>; counter <code>tb_progress.py</code>.</p>',
+                   '<p class="src">Reading: ep4 memorised its 112 training trajectories (99 % token accuracy, 91 % of demonstrated commands reproduced in full) and executes the memorised tasks far better than the starting point (42 % against 27 % at 900 seconds; the full-budget number fills in above), but the same fit costs the test set: 5/21 against 9/22 for r1 on the same data. r1, at 94.7 % token accuracy and 69 % full-command replay, solves half of what ep4 solved at the full budget and its misses are total (1 of 11 passes any test); neither greedy decoding, nor a 1.39× faster server, nor concentrating the loss on the commands changes that, so the training-set gap is the replay probability of one or two demonstrations per task, and closing it (ep4) is exactly what loses the test set. Run dirs: <code>/srv/scratch/jli199/tb_runs/train75_*</code>, <code>train22_*</code>; counter <code>tb_progress.py</code>.</p>',
                    tt_block, flags=_re.S)
 _i = html.find('<p class="src">Reading it: the model can absorb the generated trajectories completely')
 assert _i > 0
