@@ -81,7 +81,7 @@ else
 fi
 echo "agent: $AGENT_ARGS" | tee -a "$OUT"
 
-PYTHONPATH="$WT" timeout 43200 .venv/bin/tb run \
+PYTHONPATH="$WT" timeout "${TBTIMEOUT:-43200}" .venv/bin/tb run \
   --dataset-path "$DATASET" \
   $AGENT_ARGS \
   --model "openai/$NAME" \

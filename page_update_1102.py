@@ -608,7 +608,29 @@ tt_rows = [
     tt_row("train22_cmdonly", "command-focused SFT: same data and steps, loss on the prose dropped", "yes", "1,800 s",
            chip("crit", "much worse") + sm("17 timeouts at 91 episodes each and no partial credit; command fit unchanged (97.6 %, 66.5 % full-command replay) while prose fit fell to 69 %: the prose is where planning and stopping live")),
 ]
+def tt_sharded(name_a, name_b):
+    a, b = tb_counts(name_a), tb_counts(name_b)
+    return a[0] + b[0], a[1] + b[1], a[2] + b[2]
+
+
+r75 = tt_sharded("train75_r1_1800_a", "train75_r1_1800_b")
+r75_cell = (f"{r75[0]}/{r75[1]} ({100 * r75[0] / r75[1]:.0f} %)" if r75[1] else "running")
+r75_reading = (chip("info", f"{r75[1]} of 75 done") + sm("the clean pass rate of r1 on its whole training set, standard 1,800-second budget, two shards")) if r75[1] < 75 else (
+    chip("good", f"{100 * r75[0] / r75[1]:.0f} % of its training set") + sm("standard 1,800-second budget, one attempt per task"))
+tt_rows.insert(3, f'<tr><td>take-turns r1 on ALL 75 training tasks</td><td>yes</td><td class="n">{r75_cell}</td><td class="n">{r75[2] if r75[1] else "—"}</td><td class="n">1,800 s</td><td class="st">{r75_reading}</td></tr>')
 tt_block = f'''
+<div class="sub-head"><h3>The take-turns training set: 139 pool tasks, 70 with a resolved trajectory</h3><p>The distillation pool holds 139 variant tasks (58 base tasks). Teacher (deepseek-v4.1-flash) and student (the v3 checkpoint) took turns on all of them; only resolved trajectories were kept.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Set</th><th class="n">rows</th><th class="n">variant tasks</th><th class="n">base tasks</th><th class="n">tasks with 1 / 2 rows</th><th class="n">pool coverage</th><th class="st">Notes</th></tr></thead>
+      <tbody>
+        <tr class="best"><td>take-turns r1 (trained r1, ep4)</td><td class="n">112</td><td class="n">70</td><td class="n">39</td><td class="n">28 / 42</td><td class="n">70 of 139 = 50 %</td><td class="st"><span class="sm">9.1 assistant turns per row; mixed 1:1 with 112 v3 replay rows; the train-task evals use the 75-task list of all resolved attempts</span></td></tr>
+        <tr><td>take-turns r2</td><td class="n">84</td><td class="n">51</td><td class="n">34</td><td class="n">18 / 33</td><td class="n">51 of 139 = 37 %</td><td class="st"><span class="sm">second generation round, 0 failures</span></td></tr>
+        <tr><td>r1 + r2 (trained the 7/22 checkpoint)</td><td class="n">196</td><td class="n">78</td><td class="n">43</td><td class="n">—</td><td class="n">78 of 139 = 56 %</td><td class="st"><span class="chip crit">regressed to 7/22</span><span class="sm">more rows on mostly the same tasks did not help</span></td></tr>
+      </tbody>
+    </table>
+    <p class="src">No task has more than two trajectories, and 40 % of the tasks have exactly one: that is the data-side reason a policy that leaves the demonstrated path has nothing to fall back on. Script: <code>dataset_tasks.py</code> (tasks matched by the pool instruction text).</p>
+  </div>
 <div class="sub-head"><h3>Training-task pass@1: do the checkpoints solve the tasks they trained on?</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns trajectories trained r1 and ep4; stock terminus-2 with the serving fixes, one server per card. The 12-hour run cap stopped the 900-second arms at 48 to 53 tasks.</p></div>
 <div class="tablewrap">
     <table>
