@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl", "ifb"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -144,6 +144,8 @@ def build_prompt(r):
         return ("Base problem:\n```python\n" + r["raw_problem"].rstrip() + "\n```\n\nNew problem, which builds on the base problem:\n```python\n"
                 + r["problem"].rstrip() + "\n```\n\nWrite the complete, self-contained Python code for the new problem (include every helper "
                 "you need, such as a solution to the base problem) inside a single ```python code block.")
+    if args.task == "ifb":  # IFBench: the prompt as is; the verifiers check the whole response
+        return r["prompt"].rstrip()
     # LiveCodeBench, official prompt shape
     q = "### Question:\n" + r["question_content"] + "\n\n"
     if r.get("starter_code", "").strip():
@@ -206,6 +208,9 @@ def zebra_cells(pred, gold):
 def extract(gen, r=None):
     if args.task in ("lcb", "bcb", "codepro"):
         return last_code_block(gen)
+    if args.task == "ifb":  # the response after the reasoning block; an unclosed (truncated) block stays as is
+        g = (gen.split("</think>")[-1] if "</think>" in gen else gen).strip()
+        return g or None
     if args.task == "zebra":
         return last_json_block(gen)
     if args.task == "lbm":
@@ -432,7 +437,7 @@ def crux_equal(pred, gold):
 
 
 def correct(pred, gold, r=None):
-    if args.task in ("lcb", "bcb", "codepro"):
+    if args.task in ("lcb", "bcb", "codepro", "ifb"):
         return False  # graded separately in a sandbox (lcb_grade.py / bcb_grade.py / codepro_grade.py)
     if args.task == "lbd":
         return lbd_correct(pred, gold, r.get("task"), r.get("question", ""))
@@ -530,6 +535,8 @@ for i, r in enumerate(rows):
         rec.update({"question_id": r.get("question_id"), "difficulty": r.get("difficulty")})
     if args.task == "bcb":
         rec.update({"task_id": r.get("task_id")})
+    if args.task == "ifb":
+        rec.update({"key": r.get("key"), "instruction_id_list": r.get("instruction_id_list")})
     if args.task == "codepro":
         rec.update({"task_id": r.get("task_id"), "source": r.get("source")})
     if args.task == "zebra":

@@ -1,0 +1,29 @@
+# Router search on LiveCodeBench under REAL decode-time early exit (the fidelity that counts), problems 0..119 of the
+# 342-problem set, direct mode. gp_hedge over the per-step exit thresholds (q1, q2, q3); the value is
+#   -tokens/s + 2.0 * max(0, 21.5 - pass@1 %)       (full depth: 22.5 % at 6.23 tok/s; released gate q=0.3: 21.7 % at 11.12)
+# One evaluation = ~1 to 1.5 h on one card (batch 1) + ~5 min grading; batch_size 2 = two GPUs in parallel, 12 x 2 = 24 evaluations.
+#   cd ~/boptim-agent && LCB_BO_GPUS=3 WANDB_MODE=offline ./.venv/bin/python run_experiment.py \
+#       --config configs/ouro_lcb_router_gp_local.yaml --log-prefix lcb_router_gp
+replicates: 1
+
+wandb:
+  enabled: true
+  project: boptim-agent
+
+experiments:
+  - optim: gp_hedge
+    objective:
+      type: ouro_lcb_router
+      ouro_lcb_mode: steps
+      ouro_lcb_n: 120
+      ouro_lcb_offset: 0
+      ouro_lcb_max_new: 1024
+      ouro_lcb_baseline_acc: 22.5
+      ouro_lcb_tol: 1.0
+      ouro_lcb_penalty: 2.0
+      ouro_lcb_work_dir: /home/jli199/boptim_scratch/bo_lcb_router
+    batch_size: 2
+    max_iter: 12
+    n_initial: 4
+    optim_seed: 42
+    objective_seed: 42
