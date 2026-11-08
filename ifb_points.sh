@@ -3,7 +3,7 @@
 # official verifiers inside the sandboxed image ifbench-grader (boptim_lcb/ifbench_grader.Dockerfile).
 #   GPU=1 VARIANT=think bash ifb_points.sh      # thinking regime, 2,048-token budget (the reasoning block is stripped)
 #   GPU=1 VARIANT=direct bash ifb_points.sh     # an empty think block is forced -> the answer directly, 1,024 tokens
-# Points (gather mode, loops counted): K=4, K=2, gate q=0.3, q=0.5, per-step (0.3,0.5,0.5).  Report: $TMP/bench_ifbench_$VARIANT.txt
+# Points (gather mode, loops counted), POINTS="k4 k2 q0.3 q0.5 steps0.3-0.5-0.5" by default.  Report: $TMP/bench_ifbench_$VARIANT.txt
 set -u
 : "${GPU:?}"
 VARIANT=${VARIANT:-think}
@@ -34,9 +34,14 @@ run() {  # run <label> <extra depth_eval args...>
   cp "$STAGE/bench_${NAME}_${label}.graded.json" "$TMP/" 2>/dev/null
 }
 echo "=== IFBENCH $VARIANT (n=$N, max_new $MAXNEW, batch $BATCH, gpu $GPU) start $(date '+%m-%d %H:%M') ===" | tee -a "$REP"
-run k4 --steps 4
-run k2 --steps 2
-run q0.3 --steps 4 --threshold 0.3
-run q0.5 --steps 4 --threshold 0.5
-run steps0.3-0.5-0.5 --steps 4 --threshold_steps 0.3,0.5,0.5
+for pt in ${POINTS:-k4 k2 q0.3 q0.5 steps0.3-0.5-0.5}; do
+  case $pt in
+    k4) run k4 --steps 4 ;;
+    k2) run k2 --steps 2 ;;
+    q0.3) run q0.3 --steps 4 --threshold 0.3 ;;
+    q0.5) run q0.5 --steps 4 --threshold 0.5 ;;
+    steps0.3-0.5-0.5) run steps0.3-0.5-0.5 --steps 4 --threshold_steps 0.3,0.5,0.5 ;;
+    *) echo "unknown point $pt" | tee -a "$REP" ;;
+  esac
+done
 echo "=== IFBENCH $VARIANT done $(date '+%m-%d %H:%M') ===" | tee -a "$REP"
