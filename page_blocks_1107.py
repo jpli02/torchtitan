@@ -129,10 +129,23 @@ def dory_block():
         gates = [(lab, gd[lab]) for lab in ("q0.5", "q0.3", "q0.1", "steps0.3-0.5-0.5", "steps0.1-0.5-0.5") if gd.get(lab)]
         if gates:
             reading.append("gates: " + ", ".join(f'{lab} {_pct(r["acc"])} % at {r["mean_loops"]:.2f} loops' for lab, r in gates))
-    if not gt_any:
-        reading.append("the thinking regime (2,048 tokens) and IFBench are queued on GPU 1 behind the r1 training-set shards")
+    gk2 = last_result("gpqa_think", "k2")
+    if gk2:
+        reading.append(f'the thinking regime is budget-bound: at depth 2, {_pct(gk2.get("trunc_rate", 0), 0)} % of the answers are cut at 2,048 tokens and accuracy is '
+                       f'{_pct(gk2["acc"])} % (below chance), so the single-token regime is the usable one; the depth-4 thinking points ran a 48 GB card out of memory at batch 6 and were not repeated')
+    elif not gt_any:
+        reading.append("the thinking regime (2,048 tokens) is queued")
+    ik4, ik2, iq3 = (last_result("ifbench_think", l) for l in ("k4", "k2", "q0.3"))
+    gk4, gk2i, gq3 = (last_graded("ifbench_think", l) for l in ("k4", "k2", "q0.3"))
+    if ik4 and gk4 and ik2 and gk2i:
+        s = (f'IFBench, thinking: strict prompt-level accuracy {_pct(float(gk4["strict_prompt"]))} % at depth 4 against {_pct(float(gk2i["strict_prompt"]))} % at depth 2 '
+             f'(loose {_pct(float(gk4["loose_prompt"]))} / {_pct(float(gk2i["loose_prompt"]))} %), with {_pct(ik4.get("trunc_rate", 0), 0)} % of the responses cut at 2,048 tokens, '
+             f'so part of the gap is budget')
+        if iq3 and gq3:
+            s += f'; the gate at q = 0.3 keeps {_pct(float(gq3["strict_prompt"]))} % at {iq3["mean_loops"]:.2f} loops'
+        reading.append(s)
     elif not if_any:
-        reading.append("IFBench is queued behind the GPQA thinking run")
+        reading.append("IFBench is running on GPU 1")
     return f'''<div class="sub-head"><h3>Benchmarks from the Dory1.0 paper (arXiv 2611.03998)</h3><p>Dory1.0-4B (NVIDIA, November 2026) is the closest published looped-LM reference: a looped nGPT trained with a difficulty-aware loop curriculum and reported at 1, 2 and 4 loops (Terminal-Bench v2.1 12.5 / 18.1 / 22.2 %). Its suite is mostly agentic or frontier-hard (SWE-Bench Verified, Terminal-Bench, τ3-Banking, GDPval, SciCode, HLE, AA-LCR); the two pieces a 2.6B non-agentic model can take are GPQA Diamond (198 graduate-level 4-way questions, ungated mirror) and IFBench (NeurIPS 2025, 299 prompts with 58 new verifiable constraints, scored by the official strict and loose verifiers in a sandbox). Gather mode, loops counted.</p></div>
 <div class="tablewrap">
     <table>
