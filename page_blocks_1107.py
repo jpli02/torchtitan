@@ -226,7 +226,18 @@ def lcb_bo_validation_block():
         part = "" if len(p["slices"]) == 2 else _sm(" (problems 120 to 239 only so far)")
         su = f'{p["tok_s"] / full["tok_s"]:.2f}×' if full else "—"
         rows.append(f'<tr{" class=\"best\"" if k == "bo20" else ""}><td>{disp}</td><td class="n">{_pct(p["acc"])} %{part}</td><td class="n">{p["n"]}</td><td class="n">{p["tok_s"]:.2f}</td><td class="n">{su}</td></tr>')
-    return f'''<div class="sub-head"><h3>Held-out check of the BO routers: LiveCodeBench problems 120 to 341</h3><p>The routers found on problems 0 to 119 are re-run under the same real-execution protocol on the 222 problems the search never saw, next to the released gate at the same cost level. Standard error about 2.8 points at n = 222.</p></div>
+    reading = ""
+    g, b20, b15, b18 = pooled.get("gate0.3"), pooled.get("bo20"), pooled.get("bo15"), pooled.get("bo18")
+    if g and b20 and b15 and b18 and len(b20["slices"]) == 2:
+        reading = (f'<p class="src">Reading: the search did not transfer. On the 222 unseen problems the BO best gives up {100 * (g["acc"] - b20["acc"]):.1f} points '
+                   f'against the released gate at q = 0.3 ({_pct(b20["acc"])} against {_pct(g["acc"])} %) for its {b20["tok_s"] / g["tok_s"]:.2f}× extra speed, and the two BO routers '
+                   f'that hold the gate\'s accuracy ({_pct(b15["acc"])} and {_pct(b18["acc"])} %) run at {b15["tok_s"] / g["tok_s"]:.2f}× and {b18["tok_s"] / g["tok_s"]:.2f}× the gate\'s speed, '
+                   f'i.e. no better. The objective was scored on 120 problems with a one-point tolerance while the standard error of pass@1 at that size is about 3.8 points, '
+                   f'so the model optimised the noise of the search slice: the near-zero second-loop threshold it liked saves a loop on tokens that needed it on the unseen problems '
+                   f'(easy problems drop from 23/36 to 19/36). The released gate\'s one knob, swept on a 120-problem slice, generalised; three knobs fitted to the same slice did not. '
+                   f'For the paper this sets the protocol: the search needs a pooled objective over all 342 problems (or a held-out accuracy floor inside the loop) and the '
+                   f'tolerance must be set from the measured standard error, not to one point.</p>')
+    return f'''<div class="sub-head"><h3>Held-out check of the BO routers: LiveCodeBench problems 120 to 341</h3><p>The routers found on problems 0 to 119 are re-run under the same real-execution protocol on the 222 problems the search never saw, next to the released gate at the same cost level. Standard error about 2.5 points at n = 222.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Router</th><th class="n">pass@1 % (held-out)</th><th class="n">n</th><th class="n">tokens / s</th><th class="n">speed-up vs full depth</th></tr></thead>
@@ -234,5 +245,6 @@ def lcb_bo_validation_block():
         {chr(10).join("        " + r for r in rows).strip()}
       </tbody>
     </table>
+    {reading}
   </div>
 '''
