@@ -143,6 +143,14 @@ def dory_block():
              f'so part of the gap is budget')
         if iq3 and gq3:
             s += f'; the gate at q = 0.3 keeps {_pct(float(gq3["strict_prompt"]))} % at {iq3["mean_loops"]:.2f} loops'
+        dk4, dq3 = last_result("ifbench_direct", "k4"), last_result("ifbench_direct", "q0.3")
+        gd4, gd3 = last_graded("ifbench_direct", "k4"), last_graded("ifbench_direct", "q0.3")
+        if dk4 and gd4:
+            s += (f'. Without reasoning (an empty think block forced, 1,024 tokens, {_pct(dk4.get("trunc_rate", 0), 0)} % truncated) the model scores '
+                  f'{_pct(float(gd4["strict_prompt"]))} % strict at depth 4')
+            if dq3 and gd3:
+                s += f' and {_pct(float(gd3["strict_prompt"]))} % at gate 0.3 ({dq3["mean_loops"]:.2f} loops)'
+            s += ': the reasoning is worth about four points here even though it is cut off nearly half the time, and depth is worth two to three'
         reading.append(s)
     elif not if_any:
         reading.append("IFBench is running on GPU 1")
