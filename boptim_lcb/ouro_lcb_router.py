@@ -99,8 +99,25 @@ class OuroLCBRouterObjective(BaseObjective):
     def _label(self, thr) -> str:
         return "q" + "-".join(f"{v:.3f}" for v in thr[:3]) + f"_{int(time.time()) % 100000}"
 
+    def _refresh_gpus(self) -> None:
+        """Cards can be added while the run is going: append ids to <work_dir>/gpus.txt (one per line or space-separated)."""
+        p = self.work_dir / "gpus.txt"
+        if not p.exists():
+            return
+        try:
+            ids = [g for g in p.read_text().replace(",", " ").split() if g.strip()]
+        except Exception:
+            return
+        with self._lock:
+            for g in ids:
+                if g not in self.gpus:
+                    self.gpus.append(g)
+                    self._gpu_free.append(g)
+                    print(f"[lcb-router] gpu {g} added from gpus.txt", flush=True)
+
     def _acquire_gpu(self) -> str:
         while True:
+            self._refresh_gpus()
             with self._lock:
                 if self._gpu_free:
                     return self._gpu_free.pop(0)
