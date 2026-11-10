@@ -135,13 +135,33 @@ class OuroLCBRouterObjective(BaseObjective):
                     self._gpu_free.append(g)
                     print(f"[lcb-router] gpu {g} added from gpus.txt", flush=True)
 
+    MIN_FREE_MIB = 12000  # model (5.5 GB) + batch-1 cache + headroom; a card another user has filled is skipped
+
+    @staticmethod
+    def _free_mib(gpu: str) -> int:
+        try:
+            out = subprocess.run(["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits", "-i", gpu],
+                                 capture_output=True, text=True, timeout=30).stdout.strip()
+            return int(out.split()[0])
+        except Exception:
+            return 0
+
     def _acquire_gpu(self) -> str:
+        """A free card from the pool that currently has enough memory; a card that is full (another user's job) stays in the pool
+        but is skipped until it has room again."""
+        warned = set()
         while True:
             self._refresh_gpus()
             with self._lock:
-                if self._gpu_free:
-                    return self._gpu_free.pop(0)
-            time.sleep(5)
+                for _ in range(len(self._gpu_free)):
+                    g = self._gpu_free.pop(0)
+                    if self._free_mib(g) >= self.MIN_FREE_MIB:
+                        return g
+                    self._gpu_free.append(g)
+                    if g not in warned:
+                        warned.add(g)
+                        print(f"[lcb-router] gpu {g} has under {self.MIN_FREE_MIB} MiB free; skipping it until it has room", flush=True)
+            time.sleep(30)
 
     def _release_gpu(self, g: str) -> None:
         with self._lock:
