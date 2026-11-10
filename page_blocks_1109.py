@@ -123,8 +123,8 @@ def cont_block():
         loss_end = f'{L["end"]:.3f}' if done_epoch else "—"
         test = f'{t_ok}/{t_n} · {t_tasks} tasks' if t_n else ("running" if done_epoch else "—")
         sub = (f'{s_ok}/{s_n}' + ("" if s_n >= 25 else " so far")) if s_n else ("queued" if done_epoch else "—")
-        staged = os.path.isdir(f"{CONT_DUMP}_ep{k}_clean")
-        note = "" if not done_epoch else ("done" if t_n >= 22 and s_n >= 25 else ("staged, evaluating" if staged else "checkpoint saved"))
+        staged = bool(glob.glob(f"{CONT_DUMP}_ep{k}_clean/model*.safetensors"))
+        note = "" if not done_epoch else ("done" if t_n >= 22 and s_n >= 25 else ("staged, evaluating" if staged else "checkpoint saved; staging retried after epoch 7 (the first attempt hit a card another user had filled)" if k == 5 else "checkpoint saved"))
         rows.append(f'<tr><td>epoch {k}</td><td class="n">{2144 + CONT_SPE * (k - 4):,}</td><td class="n">{loss_mean}</td><td class="n">{loss_end}</td><td class="n">{test}</td><td class="n">{sub}</td><td class="st">{_sm(note)}</td></tr>')
     trained = os.path.exists(f"{CONT_DUMP}/TRAIN_DONE")
     if trained:
