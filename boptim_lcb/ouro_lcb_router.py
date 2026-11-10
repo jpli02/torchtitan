@@ -111,11 +111,23 @@ class OuroLCBRouterObjective(BaseObjective):
             self._gpu_free.append(g)
 
     def evaluate(self, params) -> float:
-        gpu = self._acquire_gpu()
-        try:
-            return self._evaluate_on(params, gpu)
-        finally:
-            self._release_gpu(gpu)
+        """One evaluation; a failed generation (e.g. out of memory because another job on the shared card grew) is retried once on
+        another card before the worst value is returned, so a transient failure does not poison the surrogate."""
+        for attempt in range(2):
+            gpu = self._acquire_gpu()
+            try:
+                value = self._evaluate_on(params, gpu)
+            finally:
+                self._release_gpu(gpu)
+            if self._eval_records and self._eval_records[-1].get("status") == "ok":
+                return value
+            if attempt == 0:
+                self._eval_records.pop()  # drop the failed record; try once more on (preferably) a different card
+                with self._lock:
+                    if len(self._gpu_free) > 1 and self._gpu_free[0] == gpu:
+                        self._gpu_free.append(self._gpu_free.pop(0))
+                print(f"[lcb-router] generation failed on gpu {gpu}; retrying once", flush=True)
+        return value
 
     def evaluate_batch(self, points) -> list:
         results = [None] * len(points)

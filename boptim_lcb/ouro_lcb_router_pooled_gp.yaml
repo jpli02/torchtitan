@@ -1,0 +1,30 @@
+# Corrected router search on LiveCodeBench: the objective pools ALL 342 problems under REAL decode-time early exit (batch 1,
+# greedy, 1,024 tokens, sandbox grading), so there is no held-out slice to overfit against; the accuracy floor is the measured
+# full-depth pass@1 over the 342 (20.5 %) minus one standard error at this size (2.2 points); a failed generation is retried
+# once on another card. gp_hedge over the per-step exit thresholds (q1, q2, q3):
+#   value = -tokens/s + 2.0 * max(0, 18.3 - pass@1 %)      (full depth 20.5 % at ~6.2 tok/s; released gate q=0.3 18.1 % at ~11.4; q=0.5 19.3 % at ~8.8)
+# One evaluation = 3 to 6 h on one card. batch_size 3 = three cards in parallel; 7 iterations = 21 evaluations (4 random, then 17 proposed).
+#   cd ~/boptim-agent && LCB_BO_GPUS=0,1,2 ./.venv/bin/python run_experiment.py --config configs/ouro_lcb_router_pooled_gp.yaml --log-prefix lcb_router_pooled
+replicates: 1
+
+wandb:
+  enabled: true
+  project: boptim-agent
+
+experiments:
+  - optim: gp_hedge
+    objective:
+      type: ouro_lcb_router
+      ouro_lcb_mode: steps
+      ouro_lcb_n: 342
+      ouro_lcb_offset: 0
+      ouro_lcb_max_new: 1024
+      ouro_lcb_baseline_acc: 20.5
+      ouro_lcb_tol: 2.2
+      ouro_lcb_penalty: 2.0
+      ouro_lcb_work_dir: /home/jli199/boptim_scratch/bo_lcb_router_pooled
+    batch_size: 3
+    max_iter: 7
+    n_initial: 4
+    optim_seed: 7
+    objective_seed: 7
