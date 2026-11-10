@@ -3,7 +3,7 @@
 # full-depth pass@1 over the 342 (20.5 %) minus one standard error at this size (2.2 points); a failed generation is retried
 # once on another card. gp_hedge over the per-step exit thresholds (q1, q2, q3):
 #   value = -tokens/s + 2.0 * max(0, 18.3 - pass@1 %)      (full depth 20.5 % at ~6.2 tok/s; released gate q=0.3 18.1 % at ~11.4; q=0.5 19.3 % at ~8.8)
-# One evaluation = 3 to 6 h on one card. batch_size 3 = three cards in parallel; 7 iterations = 21 evaluations (4 random, then 17 proposed).
+# One evaluation = 3 to 7 h on one card. batch_size 2 = two cards in parallel; 10 iterations = 20 evaluations (4 random, then 16 proposed); completed points are reused from evaluations.jsonl after a crash.
 #   cd ~/boptim-agent && LCB_BO_GPUS=0,1,2 ./.venv/bin/python run_experiment.py --config configs/ouro_lcb_router_pooled_gp.yaml --log-prefix lcb_router_pooled
 replicates: 1
 
@@ -23,8 +23,8 @@ experiments:
       ouro_lcb_tol: 2.2
       ouro_lcb_penalty: 2.0
       ouro_lcb_work_dir: /home/jli199/boptim_scratch/bo_lcb_router_pooled
-    batch_size: 3
-    max_iter: 7
+    batch_size: 2
+    max_iter: 10
     n_initial: 4
     optim_seed: 7
     objective_seed: 7

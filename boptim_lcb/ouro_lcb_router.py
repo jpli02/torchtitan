@@ -110,30 +110,64 @@ class OuroLCBRouterObjective(BaseObjective):
         with self._lock:
             self._gpu_free.append(g)
 
+    FAIL_VALUE = 50.0
+    GEN_TIMEOUT_S = 9 * 3600  # a slow (near full-depth) router over 342 problems at batch 1 takes about 6.5 h
+
+    def _cached(self, thr):
+        """A completed evaluation of the same thresholds in this work dir (e.g. from a crashed run) is reused instead of re-generated."""
+        p = self.work_dir / "evaluations.jsonl"
+        if not p.exists():
+            return None
+        key = [round(v, 6) for v in thr]
+        for line in open(p):
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if rec.get("status") == "ok" and [round(v, 6) for v in rec.get("thresholds", [])] == key:
+                return rec
+        return None
+
     def evaluate(self, params) -> float:
-        """One evaluation; a failed generation (e.g. out of memory because another job on the shared card grew) is retried once on
-        another card before the worst value is returned, so a transient failure does not poison the surrogate."""
+        """One evaluation. A completed evaluation of the same point is reused; a failed or timed-out generation (e.g. out of memory
+        because another job on the shared card grew) is retried once on another card before the worst value is returned, and no
+        exception escapes the worker thread (the optimizer would otherwise see None and crash)."""
+        thr = self._thresholds(params)
+        hit = self._cached(thr)
+        if hit is not None:
+            rec = dict(hit, status="cached")
+            self._eval_records.append(rec)
+            print(f"[lcb-router] thr={['%.3f' % v for v in thr[:3]]} cached: pass@1={rec['pass1_pct']:.1f}% tok/s={rec['tok_s']:.2f} value={rec['value']:.3f}", flush=True)
+            return float(rec["value"])
+        value, ok = self.FAIL_VALUE, False
         for attempt in range(2):
             gpu = self._acquire_gpu()
             try:
-                value = self._evaluate_on(params, gpu)
+                value, ok = self._evaluate_on(params, gpu)
+            except Exception as e:  # timeout, grading error, anything: count as a failed generation
+                print(f"[lcb-router] evaluation raised on gpu {gpu}: {type(e).__name__}: {str(e)[:120]}", flush=True)
+                value, ok = self.FAIL_VALUE, False
             finally:
                 self._release_gpu(gpu)
-            if self._eval_records and self._eval_records[-1].get("status") == "ok":
+            if ok:
                 return value
             if attempt == 0:
-                self._eval_records.pop()  # drop the failed record; try once more on (preferably) a different card
-                with self._lock:
+                with self._lock:  # prefer a different card for the retry
                     if len(self._gpu_free) > 1 and self._gpu_free[0] == gpu:
                         self._gpu_free.append(self._gpu_free.pop(0))
                 print(f"[lcb-router] generation failed on gpu {gpu}; retrying once", flush=True)
+        self._eval_records.append({"thresholds": thr, "status": "generation_failed", "value": value, "gpu": gpu})
         return value
 
     def evaluate_batch(self, points) -> list:
         results = [None] * len(points)
 
         def worker(k, p):
-            results[k] = self.evaluate(p)
+            try:
+                results[k] = self.evaluate(p)
+            except Exception as e:  # never hand the optimizer a None
+                print(f"[lcb-router] worker {k} raised: {type(e).__name__}: {str(e)[:120]}", flush=True)
+                results[k] = self.FAIL_VALUE
 
         threads = [threading.Thread(target=worker, args=(k, p)) for k, p in enumerate(points)]
         for t in threads:
@@ -156,16 +190,15 @@ class OuroLCBRouterObjective(BaseObjective):
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, PYTORCH_ALLOC_CONF="expandable_segments:True")
         t0 = time.time()
         with open(log, "w") as lf:
-            subprocess.run(cmd, cwd=str(self.worktree), env=env, stdout=lf, stderr=subprocess.STDOUT, timeout=6 * 3600)
+            subprocess.run(cmd, cwd=str(self.worktree), env=env, stdout=lf, stderr=subprocess.STDOUT, timeout=self.GEN_TIMEOUT_S)
         result = None
         for line in open(log, errors="replace"):
             if line.startswith("RESULT "):
                 result = json.loads(line[len("RESULT "):])
         if result is None:
-            rec = {"thresholds": thr, "status": "generation_failed", "value": 50.0}
-            self._eval_records.append(rec)
+            rec = {"thresholds": thr, "status": "generation_failed", "value": self.FAIL_VALUE, "gpu": gpu}
             json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
-            return 50.0
+            return self.FAIL_VALUE, False
         # grade in the sandbox (staging dir is bind-mounted; the job dir cannot be)
         stage = self.stage_dir
         subprocess.run(["cp", str(self.worktree / "lcb_grade.py"), str(stage / "lcb_grade.py")], check=False)
@@ -190,7 +223,7 @@ class OuroLCBRouterObjective(BaseObjective):
         with open(self.work_dir / "evaluations.jsonl", "a") as f:
             f.write(json.dumps(rec) + "\n")
         print(f"[lcb-router] thr={['%.3f' % v for v in thr[:3]]} pass@1={acc_pct:.1f}% tok/s={tok_s:.2f} value={value:.3f} ({(time.time()-t0)/60:.0f} min, gpu {gpu})", flush=True)
-        return value
+        return value, True
 
     def format_for_display(self, value: float) -> float:
         return value
