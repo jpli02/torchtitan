@@ -40,23 +40,25 @@ def lcb_bo_pooled_block():
     rows = []
     for k, e in enumerate(evs, 1):
         t = e["thresholds"][:3]
+        su = f'{e["speedup"]:.2f}×' if e.get("speedup") else f'{e["tok_s"] / LCB342_FULL_TOK_S:.2f}×'
+        flag = "" if e.get("cal_clean", True) else _sm(" shared card")
         rows.append(f'<tr{" class=\"best\"" if e is best else ""}><td class="n">{k}</td><td>({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f})</td><td class="n">{e["pass1_pct"]:.1f}</td>'
-                    f'<td class="n">{e["tok_s"]:.2f}</td><td class="n">{e["tok_s"] / LCB342_FULL_TOK_S:.2f}×</td><td class="n">{_pct(e.get("trunc_rate") or 0, 0)} %</td>'
+                    f'<td class="n">{e["tok_s"]:.2f}{flag}</td><td class="n">{su}</td><td class="n">{_pct(e.get("trunc_rate") or 0, 0)} %</td>'
                     f'<td class="n">{e["value"]:.2f}</td><td class="n">{e["wall_s"] / 3600:.1f} h · GPU {e["gpu"]}</td></tr>')
     if not rows:
-        rows.append('<tr><td colspan="8">first three evaluations running (started 2026-11-09 19:32)</td></tr>')
-    log = f"{TMP}/lcb_bo_pooled.log"
-    finished = os.path.exists(log) and "Completed 1 experiment" in open(log, errors="replace").read()
+        rows.append('<tr><td colspan="8">evaluations running (restarted 2026-11-10 12:30 with calibrated speed; the four accuracies already measured are reused)</td></tr>')
+    log = sorted(glob.glob(f"{TMP}/lcb_bo_pooled*.log"))[-1] if glob.glob(f"{TMP}/lcb_bo_pooled*.log") else ""
+    finished = bool(log) and "Completed 1 experiment" in open(log, errors="replace").read()
     refs = [(d, _pooled342(k)) for k, d in (("full", "full depth"), ("gate0.5", "released gate q = 0.5"), ("gate0.3", "released gate q = 0.3"))]
     ref_txt = "; ".join(f'{d} {_pct(r["acc"])} % at {r["tok_s"]:.1f} tokens/s' for d, r in refs if r)
     status = f'{"finished" if finished else "running"}: {len(evs)} of 21 evaluations done'
     if best:
         t = best["thresholds"][:3]
         status += f'; best so far ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}): {best["pass1_pct"]:.1f} % at {best["tok_s"]:.2f} tokens/s, objective {best["value"]:.2f}'
-    return f'''<div class="sub-head"><h3>Second BO run: pooled objective over all 342 problems {_chip("good", "finished") if finished else _chip("info", "running")}</h3><p>The corrected protocol after the held-out failure above: every evaluation now serves all 342 LiveCodeBench problems under real decode-time early exit (batch 1, greedy, 1,024 tokens, sandbox grading), so there is no unseen slice to overfit against; the accuracy floor is the measured full-depth pass@1 over the 342 (20.5 %) minus one standard error at this size (2.2 points), i.e. 18.3 %; a failed generation is retried once on another card before it counts. gp_hedge over (q1, q2, q3), three evaluations in parallel on GPUs 0 to 2, 4 random points then 17 proposed, 3 to 6 hours each.</p></div>
+    return f'''<div class="sub-head"><h3>Second BO run: pooled objective over all 342 problems {_chip("good", "finished") if finished else _chip("info", "running")}</h3><p>The corrected protocol after the held-out failure above: every evaluation serves all 342 LiveCodeBench problems under real decode-time early exit (batch 1, greedy, 1,024 tokens, sandbox grading), so there is no unseen slice to overfit against; the accuracy floor is the measured full-depth pass@1 over the 342 (20.5 %) minus one standard error at this size (2.2 points), i.e. 18.3 %. Speed is no longer read off the long generation: the first attempt lost 28 % of one router's tokens/s to a neighbour's job on the shared card, so each point's tokens/s now comes from a 30-problem calibration run whose card is checked for other users' compute before and after and repeated if it was shared (flagged in the table if it stayed shared); the full-depth speed is calibrated the same way on the same card for the speed-up. A failed generation is retried once on another card. gp_hedge over (q1, q2, q3), 4 random points then 16 proposed, 3 to 7 hours each; cards join as the Terminal-Bench evaluations release them.</p></div>
 <div class="tablewrap">
     <table>
-      <thead><tr><th class="n">#</th><th>thresholds (q1, q2, q3)</th><th class="n">pass@1 % (342)</th><th class="n">tokens / s</th><th class="n">speed-up vs full depth</th><th class="n">truncated</th><th class="n">objective</th><th class="n">cost</th></tr></thead>
+      <thead><tr><th class="n">#</th><th>thresholds (q1, q2, q3)</th><th class="n">pass@1 % (342)</th><th class="n">tokens / s (calibrated)</th><th class="n">speed-up vs full depth</th><th class="n">truncated</th><th class="n">objective</th><th class="n">cost</th></tr></thead>
       <tbody>
         {chr(10).join("        " + r for r in rows).strip()}
       </tbody>
