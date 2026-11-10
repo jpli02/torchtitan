@@ -18,7 +18,9 @@ Two measurements per evaluation, because the machine is shared:
     thresholds in the work dir is reused.
   * speed: a short calibration run (the first CAL_N problems) whose card is checked for other users' compute before and
     after (nvidia-smi pmon); if another process was computing on the card the calibration is repeated (up to 3 times)
-    and the record is flagged. The full-depth speed on the same problems is measured once per card for the speed-up.
+    and the record is flagged. The full-depth speed on the same problems is measured right after it on the same card, and
+    the objective's speed term is that speed-up times a fixed reference (6.25 tokens/s, full depth on a quiet card), so
+    cards that differ in speed, or a stationary neighbour, cancel out.
     (The 2026-11-09 run measured tokens/s on the whole 342-problem generation and lost 28 % of it to a neighbour's job.)
 
 Search space:
@@ -200,19 +202,20 @@ class OuroLCBRouterObjective(BaseObjective):
             time.sleep(60)
         return best
 
+    REF_FULL_TOK_S = 6.25  # full depth over the 342 problems on a quiet card (2026-11); the objective's speed term is speed-up x this
+
     def _cal_full(self, gpu: str, run_dir: Path):
-        """Full-depth calibration speed on this card (measured once, cached in the work dir)."""
+        """Full-depth calibration speed on this card, measured right after the candidate's calibration (interleaved, so a card that
+        is slower today, or a stationary neighbour, cancels out in the speed-up); the last clean one per card is kept for reference."""
         p = self.work_dir / f"cal_full_gpu{gpu}.json"
-        if p.exists():
+        d = self._calibrate([1.0, 1.0, 1.0, 1.0], gpu, run_dir, "full")
+        if d and d.get("clean"):
+            json.dump(d, open(p, "w"), indent=1)
+        if d is None and p.exists():
             try:
                 d = json.load(open(p))
-                if d.get("clean"):
-                    return d
             except Exception:
-                pass
-        d = self._calibrate([1.0, 1.0, 1.0, 1.0], gpu, run_dir, "full")
-        if d:
-            json.dump(d, open(p, "w"), indent=1)
+                d = None
         return d
 
     def _find_graded(self, thr):
@@ -338,10 +341,12 @@ class OuroLCBRouterObjective(BaseObjective):
             json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
             return self.FAIL_VALUE, False
         full = self._cal_full(gpu, run_dir)
-        tok_s = cal["tok_s"]
+        tok_s_cal = cal["tok_s"]
+        speedup = (tok_s_cal / full["tok_s"]) if full and full.get("tok_s") else None
+        tok_s = speedup * self.REF_FULL_TOK_S if speedup else tok_s_cal  # card-normalised speed
         value = -tok_s + self.penalty_per_pt * max(0.0, self.acc_floor - acc_pct)
-        rec = {"thresholds": thr, "pass1_pct": acc_pct, "tok_s": tok_s, "tok_s_cal": tok_s, "cal_clean": cal["clean"], "cal_attempts": cal["attempt"] + 1,
-               "cal_others": cal["others"], "tok_s_full_cal": (full or {}).get("tok_s"), "speedup": (tok_s / full["tok_s"]) if full and full.get("tok_s") else None,
+        rec = {"thresholds": thr, "pass1_pct": acc_pct, "tok_s": tok_s, "tok_s_cal": tok_s_cal, "cal_clean": cal["clean"] and bool(full and full.get("clean")),
+               "cal_attempts": cal["attempt"] + 1, "cal_others": cal["others"], "tok_s_full_cal": (full or {}).get("tok_s"), "speedup": speedup,
                "tok_s_gen": gen.get("tok_s"), "trunc_rate": gen.get("trunc_rate"), "mean_tokens": gen.get("mean_tokens"),
                "mean_loops_counter": gen.get("mean_loops"), "wall_s": time.time() - t0, "gpu": gpu, "value": value, "status": "ok", "run_dir": str(run_dir)}
         self._eval_records.append(rec)
