@@ -9,6 +9,7 @@ import shutil
 import sys
 
 import page_blocks_1107 as pb  # 2026-11-07 blocks: token distribution, Dory suite, LCB BO
+import page_blocks_1109 as pb2  # 2026-11-09 blocks: pooled LCB BO, ep4 continuation
 
 TMP = "/home/jli199/.claude/jobs/c0d2da0a/tmp"
 SRC = "/home/jli199/boptim_scratch/boptim-experiments.html"
@@ -560,7 +561,7 @@ rep('<tr class="dim"><td>LiveCodeBench easy+medium (120)</td><td class="n">—</
 rep('Real-execution points (full depth, gate 0.5, gate 0.3 on 150 tasks) are running; short outputs should make the skipped-loop cache approximation cheaper than on CRUXEval.',
     'Under real decode-time early exit (next table) the gate at q = 0.5 keeps this accuracy at 1.37× real speed.')
 rep('<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>',
-    bcb_block + lcb_block + lcb_wc_block + pb.lcb_bo_block() + gsm_wc_block + codepro_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
+    bcb_block + lcb_block + lcb_wc_block + pb.lcb_bo_block() + pb2.lcb_bo_pooled_block() + gsm_wc_block + codepro_wc_block + '<div class="sub-head"><h3>Real execution: decode-time early exit, batch 1, CRUXEval items 0 to 99</h3>')
 rep('Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>',
     'Throughput 80 / 34 / 19 tokens per second at depths 1 / 2 / 4, batched.</p>\n  </div>\n' + cite_block.rstrip("\n") + "\n" + pb.dory_block().rstrip("\n") + ("\n" + more_block.rstrip("\n") if more_block else ""))
 rep('Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, LiveCodeBench', 'Q12 · Router headroom: CRUXEval, GSM8K, MATH-500, BigCodeBench, LiveCodeBench')
@@ -687,7 +688,7 @@ tt_block = f'''
     </table>
     <p class="src">Half of the pool tasks yielded a resolved trajectory, no task has more than two, and 40 % of the covered tasks have exactly one: that is the data-side reason a policy that leaves the demonstrated path has nothing to fall back on. Script: <code>dataset_tasks.py</code> (tasks matched by the pool instruction text).</p>
   </div>
-{ep4_metrics}{pb.tokdist_block()}<div class="sub-head"><h3>ep4 and r1 pass@1 on their training set</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained them; stock terminus-2 with the serving fixes (2,048-token turn cap), one server per card; v3, the starting checkpoint, solves 27 % of these tasks without having seen them.</p></div>
+{ep4_metrics}{pb.tokdist_block()}{pb2.cont_block()}<div class="sub-head"><h3>ep4 and r1 pass@1 on their training set</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained them; stock terminus-2 with the serving fixes (2,048-token turn cap), one server per card; v3, the starting checkpoint, solves 27 % of these tasks without having seen them.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Checkpoint</th><th>Trained on these tasks?</th><th class="n">solved</th><th class="n">timeouts</th><th class="n">budget</th><th class="st">Reading</th></tr></thead>
