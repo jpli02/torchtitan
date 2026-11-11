@@ -24,7 +24,8 @@ experiments:
       ouro_lcb_penalty: 2.0
       ouro_lcb_work_dir: /home/jli199/boptim_scratch/bo_lcb_router_pooled
     batch_size: 2
-    max_iter: 10
+    max_iter: 14
     n_initial: 4
+    resume: true
     optim_seed: 7
     objective_seed: 7

@@ -182,6 +182,51 @@ class OuroLCBRouterObjective(BaseObjective):
                 result = json.loads(line[len("RESULT "):])
         return result
 
+    GEN_SHARDS = 3  # batch-1 processes on one card for the accuracy generation (outputs are per sequence, so identical to one process)
+
+    def _depth_eval_sharded(self, thr, gpu, n, run_dir: Path, timeout):
+        """The accuracy generation as K concurrent batch-1 processes over K contiguous problem ranges on the same card (a single
+        batch-1 process uses under half the card), merged into run_dir/gen.jsonl; returns an aggregate RESULT-like dict or None."""
+        free = self._free_mib(gpu)
+        k = max(1, min(self.GEN_SHARDS, free // 12000))
+        bounds = [(self.offset + (n * j) // k, self.offset + (n * (j + 1)) // k) for j in range(k)]
+        procs = []
+        for j, (lo, hi) in enumerate(bounds):
+            cfg = "decode_early_exit_threshold=" + json.dumps(thr)
+            cmd = [self.python_exe, str(self.worktree / "depth_eval.py"), self.ckpt, self.data, "--task", "lcb", "--steps", "4",
+                   "--n", str(hi - lo), "--seed_offset", str(lo), "--batch", "1", "--max_new", str(self.max_new),
+                   "--assistant_prefix", "```python\\n", "--cfg", cfg, "--out", str(run_dir / f"gen_{j}.jsonl")]
+            env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, PYTORCH_ALLOC_CONF="expandable_segments:True")
+            procs.append(subprocess.Popen(cmd, cwd=str(self.worktree), env=env, stdout=open(run_dir / f"gen_{j}.log", "w"), stderr=subprocess.STDOUT))
+        t0 = time.time()
+        for p in procs:
+            try:
+                p.wait(timeout=max(60, timeout - (time.time() - t0)))
+            except subprocess.TimeoutExpired:
+                for q in procs:
+                    q.kill()
+                raise
+        results = []
+        for j in range(k):
+            res = None
+            for line in open(run_dir / f"gen_{j}.log", errors="replace"):
+                if line.startswith("RESULT "):
+                    res = json.loads(line[len("RESULT "):])
+            if res is None:
+                return None
+            results.append(res)
+        with open(run_dir / "gen.jsonl", "w") as out:
+            for j in range(k):
+                for line in open(run_dir / f"gen_{j}.jsonl"):
+                    if line.strip() and "question_id" in line:
+                        out.write(line if line.endswith("\n") else line + "\n")
+        n_tot = sum(r["n"] for r in results)
+        wall = time.time() - t0
+        return {"n": n_tot, "trunc_rate": sum(r["trunc_rate"] * r["n"] for r in results) / n_tot,
+                "mean_tokens": sum(r["mean_tokens"] * r["n"] for r in results) / n_tot,
+                "mean_loops": sum(r["mean_loops"] * r["n"] for r in results) / n_tot,
+                "tok_s": sum(r["mean_tokens"] * r["n"] for r in results) / wall, "shards": k, "wall_s": wall}
+
     def _gpu_contention(self, gpu: str) -> list:
         """Other users' processes computing on this card right now: [(pid, user, sm%)], from nvidia-smi pmon."""
         try:
@@ -331,7 +376,7 @@ class OuroLCBRouterObjective(BaseObjective):
             print(f"[lcb-router] thr={['%.3f' % v for v in thr[:3]]} accuracy reused from {prev.get('run_dir')}: {acc_pct:.1f}%", flush=True)
         else:
             out_jsonl = run_dir / "gen.jsonl"
-            gen = self._depth_eval(thr, gpu, self.n_items, out_jsonl, run_dir / "gen.log", self.GEN_TIMEOUT_S)
+            gen = self._depth_eval_sharded(thr, gpu, self.n_items, run_dir, self.GEN_TIMEOUT_S)
             if gen is None:
                 rec = {"thresholds": thr, "status": "generation_failed", "value": self.FAIL_VALUE, "gpu": gpu}
                 json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
