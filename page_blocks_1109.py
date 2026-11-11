@@ -131,34 +131,39 @@ def _oom_turns(name):
 
 def cont_block():
     losses = _cont_losses()
-    rows = ['<tr class="dim"><td>r1 (1.67 epochs, reference)</td><td class="n">890</td><td class="n">0.351 → 0.093</td><td class="n">0.093</td><td class="n">9/22 · 6 tasks</td><td class="n">7/25</td><td class="st"><span class="sm">best test checkpoint</span></td></tr>',
-            '<tr class="dim"><td>epoch 4 (ep4, the starting point)</td><td class="n">2,144</td><td class="n">0.042</td><td class="n">0.033</td><td class="n">5/21 · 3 tasks</td><td class="n">8/25</td><td class="st"><span class="sm">99 % token accuracy; 33/75 on the whole training set</span></td></tr>']
+    rows = ['<tr class="dim"><td>r1 (1.67 epochs, reference)</td><td class="n">890</td><td class="n">0.351 → 0.093</td><td class="n">0.093</td><td class="n">23/75 (31 %)</td><td class="n">7/25</td><td class="n">9/22 · 6 tasks</td><td class="st"><span class="sm">best test checkpoint</span></td></tr>',
+            '<tr class="dim"><td>epoch 4 (ep4, the starting point)</td><td class="n">2,144</td><td class="n">0.042</td><td class="n">0.033</td><td class="n">33/75 (44 %)</td><td class="n">8/25</td><td class="n">5/21 · 3 tasks</td><td class="st"><span class="sm">99 % token accuracy</span></td></tr>']
     for k in range(5, 9):
         L = losses.get(k)
         t_ok, t_n, t_tasks = _tb_counts("/tmp/tb_runs", f"tvary_r1_8ep_ep{k}_eval")
         s_ok, s_n, _ = _tb_counts("/srv/scratch/jli199/tb_runs", f"train25_ep{k}_1800")
+        f_ok, f_n, _ = _tb_counts("/srv/scratch/jli199/tb_runs", f"train75_ep{k}_1800")
         done_epoch = bool(L and L["complete"])
         loss_mean = (f'{L["mean"]:.3f}' + ("" if L["complete"] else " (so far)")) if L else "—"
         loss_end = f'{L["end"]:.3f}' if done_epoch else "—"
         t_oom, t_turns = _oom_turns(f"tvary_r1_8ep_ep{k}_eval")
         s_oom, s_turns = _oom_turns(f"train25_ep{k}_1800")
-        test = f'{t_ok}/{t_n} · {t_tasks} tasks' if t_n else ("running" if done_epoch else "—")
-        sub = (f'{s_ok}/{s_n}' + ("" if s_n >= 25 else " so far")) if s_n else ("queued" if done_epoch else "—")
+        f_oom, f_turns = _oom_turns(f"train75_ep{k}_1800")
+        test = f'{t_ok}/{t_n} · {t_tasks} tasks' if t_n else ("not yet" if done_epoch else "—")
+        sub = (f'{s_ok}/{s_n}' + ("" if s_n >= 25 else " so far")) if s_n else "—"
+        full = (f'{f_ok}/{f_n}' + (f" ({100 * f_ok / f_n:.0f} %)" if f_n >= 75 else " so far")) if f_n else ("queued" if done_epoch else "—")
         if t_n and t_oom:
             test += _sm(f" {t_oom} of {t_turns} turns out of memory: card shared, rerun")
         if s_n and s_oom:
             sub += _sm(f" {s_oom} of {s_turns} turns out of memory: card shared, rerun")
+        if f_n and f_oom:
+            full += _sm(f" {f_oom} of {f_turns} turns out of memory: card shared, rerun")
         staged = bool(glob.glob(f"{CONT_DUMP}_ep{k}_clean/model*.safetensors"))
-        note = "" if not done_epoch else ("done" if t_n >= 22 and s_n >= 25 else ("staged, evaluating" if staged else "checkpoint saved; staging retried after epoch 7 (the first attempt hit a card another user had filled)" if k == 5 else "checkpoint saved"))
-        rows.append(f'<tr><td>epoch {k}</td><td class="n">{2144 + CONT_SPE * (k - 4):,}</td><td class="n">{loss_mean}</td><td class="n">{loss_end}</td><td class="n">{test}</td><td class="n">{sub}</td><td class="st">{_sm(note)}</td></tr>')
+        note = "" if not done_epoch else ("done" if f_n >= 75 else ("evaluating on all 75 tasks" if f_n else ("staged, queued for a free card" if staged else "checkpoint saved, queued")))
+        rows.append(f'<tr><td>epoch {k}</td><td class="n">{2144 + CONT_SPE * (k - 4):,}</td><td class="n">{loss_mean}</td><td class="n">{loss_end}</td><td class="n">{full}</td><td class="n">{sub}</td><td class="n">{test}</td><td class="st">{_sm(note)}</td></tr>')
     trained = os.path.exists(f"{CONT_DUMP}/TRAIN_DONE")
     if trained:
-        all_done = all(_tb_counts("/srv/scratch/jli199/tb_runs", f"train25_ep{k}_1800")[1] >= 25 for k in range(5, 9))
+        all_done = all(_tb_counts("/srv/scratch/jli199/tb_runs", f"train75_ep{k}_1800")[1] >= 75 for k in range(5, 9))
         status = "training finished; evaluations " + ("done" if all_done else "in progress")
     else:
         status = "training on GPU 5 since 2026-11-09 19:33; the evaluation chains on GPUs 3 and 4 stage and score each epoch as it lands"
     if trained and not all_done:
-        status += ("; the first test evaluations of epochs 6 and 7 are discarded: the evaluation chain had left out the 12k-token context cap that every "
+        status += ("; per the user's ask the measure is now every epoch on ALL 75 training tasks (one card runs epochs 6 then 5; epochs 7 and 8 start on the first card another user releases, about 25 hours per epoch per card); the first test evaluations of epochs 6 and 7 are discarded: the evaluation chain had left out the 12k-token context cap that every "
                    "epoch 1 to 4 evaluation used, so contexts grew to 16k tokens and 13 % of the turns failed in the prefill; epoch 7's first training-subset "
                    "run is discarded too (its card was half-filled by another user's job and 99 % of its turns ran out of memory at the cap). Everything is "
                    "being re-run with the cap on the one card we hold entirely (GPU 1), epochs 6, 7, 5, 8 in that order, about 27 hours; epoch 6's "
@@ -166,7 +171,7 @@ def cont_block():
     return f'''<div class="sub-head"><h3>Continuing ep4: four more epochs on the same data {_chip("good", "trained") if trained else _chip("info", "running")}</h3><p>Test of the under-fitting hypothesis: ep4 is continued on the same shuffled 1:1 mixture (112 take-turns r1 rows + 112 v3 replay rows) for four more true epochs (536 packed steps each), weights-only load as in every continuation here, a checkpoint at every epoch boundary. Each checkpoint is scored on the 11-task test set (2 attempts, the protocol of the epoch 1 to 4 rows above) and on a fixed 25-task subset of the 75 training tasks (every third task; 1 attempt, 1,800 s), where ep4 solves 8 and r1 7. If the training-subset score keeps rising while the test score does not, the training-task gap is execution, not fit.</p></div>
 <div class="tablewrap">
     <table>
-      <thead><tr><th>Checkpoint</th><th class="n">steps (cumulative)</th><th class="n">training loss, epoch mean</th><th class="n">loss at epoch end</th><th class="n">test pass@1 (11 tasks × 2)</th><th class="n">training subset (25 tasks)</th><th class="st">Status</th></tr></thead>
+      <thead><tr><th>Checkpoint</th><th class="n">steps (cumulative)</th><th class="n">training loss, epoch mean</th><th class="n">loss at epoch end</th><th class="n">all 75 training tasks</th><th class="n">training subset (25 tasks)</th><th class="n">test pass@1 (11 tasks × 2)</th><th class="st">Status</th></tr></thead>
       <tbody>
         {chr(10).join("        " + r for r in rows).strip()}
       </tbody>
