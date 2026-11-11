@@ -51,7 +51,8 @@ class OuroLCBRouterObjective(BaseObjective):
     internal_minimize = True  # the value is already a to-be-minimized scalar (like the HumanEval objective)
     FAIL_VALUE = 50.0
     GEN_TIMEOUT_S = 9 * 3600  # a slow (near full-depth) router over 342 problems at batch 1 takes about 6.5 h
-    CAL_N = 30                # problems in the speed calibration (about 15 to 35 min)
+    CAL_N = 32                # problems in the speed calibration (about 25 to 45 min)
+    CAL_DATA = "/home/jli199/.claude/jobs/c0d2da0a/tmp/lcb_cal31.jsonl"  # every 11th problem of the 342: the benchmark's prompt/output mix
     CAL_TIMEOUT_S = 3 * 3600
 
     def __init__(
@@ -167,11 +168,11 @@ class OuroLCBRouterObjective(BaseObjective):
         with self._lock:
             self._gpu_free.append(g)
 
-    def _depth_eval(self, thr, gpu, n, out_jsonl, log, timeout):
+    def _depth_eval(self, thr, gpu, n, out_jsonl, log, timeout, data=None):
         """Run depth_eval.py under true early exit; returns the RESULT dict or None."""
         cfg = "decode_early_exit_threshold=" + json.dumps(thr)
-        cmd = [self.python_exe, str(self.worktree / "depth_eval.py"), self.ckpt, self.data, "--task", "lcb", "--steps", "4",
-               "--n", str(n), "--seed_offset", str(self.offset), "--batch", "1", "--max_new", str(self.max_new),
+        cmd = [self.python_exe, str(self.worktree / "depth_eval.py"), self.ckpt, data or self.data, "--task", "lcb", "--steps", "4",
+               "--n", str(n), "--seed_offset", "0" if data else str(self.offset), "--batch", "1", "--max_new", str(self.max_new),
                "--assistant_prefix", "```python\\n", "--cfg", cfg, "--out", str(out_jsonl)]
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, PYTORCH_ALLOC_CONF="expandable_segments:True")
         with open(log, "w") as lf:
@@ -252,7 +253,8 @@ class OuroLCBRouterObjective(BaseObjective):
         best = None
         for attempt in range(3):
             before = self._gpu_contention(gpu)
-            res = self._depth_eval(thr, gpu, self.CAL_N, run_dir / f"cal_{tag}_{attempt}.jsonl", run_dir / f"cal_{tag}_{attempt}.log", self.CAL_TIMEOUT_S)
+            res = self._depth_eval(thr, gpu, self.CAL_N, run_dir / f"cal_{tag}_{attempt}.jsonl", run_dir / f"cal_{tag}_{attempt}.log", self.CAL_TIMEOUT_S,
+                                   data=self.CAL_DATA)
             after = self._gpu_contention(gpu)
             if res is None:
                 continue

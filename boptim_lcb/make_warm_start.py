@@ -50,15 +50,24 @@ slice0 = {"full": (27, 6.23), "gate0.7": (28, 7.58), "gate0.5": (24, 8.82), "gat
 points = {"full": [1.0, 1.0, 1.0], "gate0.7": [0.7, 0.7, 0.7], "gate0.5": [0.5, 0.5, 0.5], "gate0.3": [0.3, 0.3, 0.3],
           "bo20": [0.529, 0.058, 0.348], "bo15": [0.408, 0.269, 0.313], "bo18": [0.49, 0.37, 0.314]}
 records, notes = [], []
+recal_path = WORK / "recal_speeds.json"   # speed-ups re-measured with the stratified 32-problem calibration (recalibrate_points.py)
+recal = {tuple(round(v, 6) for v in d["x"]): d for d in json.load(open(recal_path)).values()} if recal_path.exists() else {}
 for name, x in points.items():
     passed, tok_s = slice0[name]
     acc = pooled_acc(name, passed)
     if acc is None:
         notes.append(f"{name}: held-out slices missing, skipped")
         continue
-    speed = tok_s / 6.23 * REF_FULL_TOK_S
-    value = -speed + PENALTY * max(0.0, FLOOR - acc)
-    records.append({"x": x, "fval": round(value, 4), "note": f"warm:{name} acc={acc:.1f} speedup={tok_s / 6.23:.2f}"})
+    d = recal.get(tuple(round(v, 6) for v in x))
+    if d:
+        speedup, src = d["speedup"], "cal32"
+    elif recal:
+        notes.append(f"{name}: no cal32 speed yet, skipped")
+        continue
+    else:
+        speedup, src = tok_s / 6.23, "slice0 raw"
+    value = -(speedup * REF_FULL_TOK_S) + PENALTY * max(0.0, FLOOR - acc)
+    records.append({"x": x, "fval": round(value, 4), "note": f"warm:{name} acc={acc:.1f} speedup={speedup:.2f} ({src})"})
 for line in open(WORK / "evaluations.jsonl"):
     e = json.loads(line)
     if e.get("status") == "ok":
