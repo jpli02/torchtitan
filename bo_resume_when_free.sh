@@ -5,11 +5,11 @@
 #   bash bo_resume_when_free.sh
 set -u
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
-MINFREE=${MINFREE:-40000}
+MINFREE=${MINFREE:-30000}   # three batch-1 shards (about 9 GB each) plus the calibration; an idle neighbour's server may stay
 END=$(( $(date +%s) + 259200 ))
 while [ "$(date +%s)" -lt "$END" ]; do
   cands="0 2 3 4 5"
-  grep -q 'chain for epochs \[6 7 5 8\] finished' "$TMP/train_tvary_r1_8ep.txt" 2>/dev/null && cands="1 $cands"
+  grep -q 'train75 chain for epochs \[6 5\] finished' "$TMP/train_tvary_r1_8ep.txt" 2>/dev/null && cands="1 $cands"
   pick=""
   for g in $cands; do
     free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i "$g" | tr -d ' ')

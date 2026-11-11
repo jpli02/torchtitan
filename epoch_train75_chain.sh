@@ -40,6 +40,10 @@ for k in $EPOCHS_LIST; do
   echo "=== epoch $k on all 75 training tasks x1, 1800 s, GPU $GPU start $(date '+%m-%d %H:%M') ===" | tee -a "$REP"
   GPU=$GPU GATE=0 MAXTOK=2048 TBTIMEOUT=100000 CKPT="$clean" NAME=$NAME PORT=$((8180 + k)) ATT=1 MINFREE=${MINFREE:-38000} \
     DATASET=$POOL OUTROOT=$OUT AGENT_TIMEOUT=1800 TASKS="$TASKS75" bash eval_gated.sh > "$TMP/$NAME.log" 2>&1
+  if grep -q '^ABORT' "$TMP/$NAME.log" 2>/dev/null; then
+    echo "epoch $k train75: launch aborted on GPU $GPU ($(grep -m1 '^ABORT' "$TMP/$NAME.log" | cut -c1-80)) $(date '+%m-%d %H:%M')" | tee -a "$REP"
+    exit 2
+  fi
   # tasks the harness cap left unfinished
   left=$(for t in $TASKS75; do [ "$(find "$OUT/$NAME/$t" -name results.json 2>/dev/null | wc -l)" -ge 1 ] || echo "$t"; done | tr '\n' ' ')
   if [ -n "$left" ]; then
