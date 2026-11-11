@@ -15,6 +15,7 @@ POOL=/home/jli199/boptim_scratch/tb_variants/pool; OUT=/srv/scratch/jli199/tb_ru
 REP=$TMP/train_tvary_r1_8ep.txt
 ALL11="hello-world fix-permissions extract-safely csv-to-parquet processing-pipeline heterogeneous-dates chess-best-move fibonacci-server crack-7z-hash.easy cron-broken-network sanitize-git-repo"
 SUB25=$(cat "$TMP/train_tasks_sub25.txt")
+export OURO_SEQ_CAP=12000   # the context cap of every epoch 1..4 evaluation; without it contexts grow past 16k tokens and the prefill runs out of memory
 cd "$WT" || exit 1
 stage() {  # stage <step-dir> <clean-dir>: interval saves are DCP -> export; a final save is safetensors
   local src=$1 clean=$2
