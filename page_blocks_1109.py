@@ -158,10 +158,11 @@ def cont_block():
     else:
         status = "training on GPU 5 since 2026-11-09 19:33; the evaluation chains on GPUs 3 and 4 stage and score each epoch as it lands"
     if trained and not all_done:
-        status += ("; the first evaluations of epochs 6 and 7 ran on cards another user had half-filled (24 GB), where the server could not prefill contexts "
-                   "beyond about 8k tokens (13 % of the test turns and 99 % of epoch 7's training-subset turns ended in out-of-memory errors), so those are "
-                   "being re-run on the one card we hold entirely (GPU 1), epochs 6, 7, 5, 8 in that order, about 27 hours in all; epoch 6's training-subset "
-                   "run was clean and stands")
+        status += ("; the first test evaluations of epochs 6 and 7 are discarded: the evaluation chain had left out the 12k-token context cap that every "
+                   "epoch 1 to 4 evaluation used, so contexts grew to 16k tokens and 13 % of the turns failed in the prefill; epoch 7's first training-subset "
+                   "run is discarded too (its card was half-filled by another user's job and 99 % of its turns ran out of memory at the cap). Everything is "
+                   "being re-run with the cap on the one card we hold entirely (GPU 1), epochs 6, 7, 5, 8 in that order, about 27 hours; epoch 6's "
+                   "training-subset run was clean and stands")
     return f'''<div class="sub-head"><h3>Continuing ep4: four more epochs on the same data {_chip("good", "trained") if trained else _chip("info", "running")}</h3><p>Test of the under-fitting hypothesis: ep4 is continued on the same shuffled 1:1 mixture (112 take-turns r1 rows + 112 v3 replay rows) for four more true epochs (536 packed steps each), weights-only load as in every continuation here, a checkpoint at every epoch boundary. Each checkpoint is scored on the 11-task test set (2 attempts, the protocol of the epoch 1 to 4 rows above) and on a fixed 25-task subset of the 75 training tasks (every third task; 1 attempt, 1,800 s), where ep4 solves 8 and r1 7. If the training-subset score keeps rising while the test score does not, the training-task gap is execution, not fit.</p></div>
 <div class="tablewrap">
     <table>
