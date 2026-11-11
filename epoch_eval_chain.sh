@@ -40,9 +40,14 @@ for k in $EPOCHS_LIST; do
   while [ -n "$(find "$src" -newermt '-120 seconds' 2>/dev/null | head -n 1)" ]; do sleep 30; done
   if ! stage "$src" "$clean"; then echo "epoch $k: staging FAILED" | tee -a "$REP"; continue; fi
   echo "epoch $k (step $step) staged $clean; evals on gpu $GPU start $(date '+%m-%d %H:%M')" | tee -a "$REP"
-  # (a) test set
-  GPU=$GPU GATE=0 CKPT="$clean" NAME=tvary_r1_8ep_ep${k}_eval PORT=$((8160 + k)) ATT=2 MINFREE=20000 TASKS="$ALL11" \
+  # (a) test set (skipped when 22 results already exist from a clean run)
+  if [ "$(find /tmp/tb_runs/tvary_r1_8ep_ep${k}_eval -name results.json 2>/dev/null | wc -l)" -ge 22 ]; then
+    echo "epoch $k test eval already complete; skipping" | tee -a "$REP"
+  else
+  GPU=$GPU GATE=0 CKPT="$clean" NAME=tvary_r1_8ep_ep${k}_eval PORT=$((8160 + k)) ATT=2 MINFREE=${MINFREE:-38000} TASKS="$ALL11" \
     bash eval_gated.sh > "$TMP/tvary_r1_8ep_ep${k}_eval.log" 2>&1
+  echo "epoch $k test eval: $(grep -c 'OOM at step' /home/jli199/terminal_bench_eval/logs/tvary_r1_8ep_ep${k}_eval_server.log 2>/dev/null) out-of-memory turns of $(grep -c 'TURN prompt' /home/jli199/terminal_bench_eval/logs/tvary_r1_8ep_ep${k}_eval_server.log 2>/dev/null)" | tee -a "$REP"
+  fi
   "$PY" - tvary_r1_8ep_ep${k}_eval >> "$REP" 2>&1 <<'PYEOF'
 import json, glob, sys, collections
 name=sys.argv[1]; per=collections.defaultdict(lambda:[0,0]); fm=collections.Counter()
@@ -54,9 +59,14 @@ print(f"{name}: {tot}/{n} solved  tasks>=1: {sum(1 for v in per.values() if v[0]
 for t,(s,c) in sorted(per.items()): print(f"   {'SOLVED' if s else '  --  '} {t} {s}/{c}")
 print("failure_modes:", dict(fm))
 PYEOF
-  # (b) training subset
-  OURO_SEQ_CAP=12000 GPU=$GPU GATE=0 MAXTOK=2048 TBTIMEOUT=64800 CKPT="$clean" NAME=train25_ep${k}_1800 PORT=$((8170 + k)) ATT=1 MINFREE=20000 \
+  # (b) training subset (skipped when 25 results already exist from a clean run)
+  if [ "$(find $OUT/train25_ep${k}_1800 -name results.json 2>/dev/null | wc -l)" -ge 25 ]; then
+    echo "epoch $k training-subset eval already complete; skipping" | tee -a "$REP"
+  else
+  OURO_SEQ_CAP=12000 GPU=$GPU GATE=0 MAXTOK=2048 TBTIMEOUT=64800 CKPT="$clean" NAME=train25_ep${k}_1800 PORT=$((8170 + k)) ATT=1 MINFREE=${MINFREE:-38000} \
     DATASET=$POOL OUTROOT=$OUT AGENT_TIMEOUT=1800 TASKS="$SUB25" bash eval_gated.sh > "$TMP/train25_ep${k}_1800.log" 2>&1
+  echo "epoch $k training-subset eval: $(grep -c 'OOM at step' /home/jli199/terminal_bench_eval/logs/train25_ep${k}_1800_server.log 2>/dev/null) out-of-memory turns of $(grep -c 'TURN prompt' /home/jli199/terminal_bench_eval/logs/train25_ep${k}_1800_server.log 2>/dev/null)" | tee -a "$REP"
+  fi
   python3 -I tb_progress.py "$OUT" train25_ep${k}_1800 | tee -a "$REP"
   echo "epoch $k evals done $(date '+%m-%d %H:%M')" | tee -a "$REP"
 done

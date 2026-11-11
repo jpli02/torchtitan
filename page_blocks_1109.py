@@ -51,7 +51,10 @@ def lcb_bo_pooled_block():
     finished = bool(log) and "Completed 1 experiment" in open(log, errors="replace").read()
     refs = [(d, _pooled342(k)) for k, d in (("full", "full depth"), ("gate0.5", "released gate q = 0.5"), ("gate0.3", "released gate q = 0.3"))]
     ref_txt = "; ".join(f'{d} {_pct(r["acc"])} % at {r["tok_s"]:.1f} tokens/s' for d, r in refs if r)
-    status = f'{"finished" if finished else "running"}: {len(evs)} of 21 evaluations done'
+    running = bool(glob.glob("/proc/[0-9]*/cmdline")) and any(
+        "bo_lcb_router_pooled" in open(c, errors="replace").read() and "main.py" in open(c, errors="replace").read()
+        for c in glob.glob("/proc/[0-9]*/cmdline") if os.access(c, os.R_OK))
+    status = f'{"finished" if finished else ("running" if running else "paused until a card is entirely free (other users hold cards 0 and 2 to 5; card 1 runs the epoch evaluations); resumes automatically")}: {len(evs)} of 20 evaluations done'
     if best:
         t = best["thresholds"][:3]
         status += f'; best so far ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}): {best["pass1_pct"]:.1f} % at {best["tok_s"]:.2f} tokens/s, objective {best["value"]:.2f}'
@@ -112,6 +115,20 @@ def _tb_counts(root, name):
     return ok, n, len(tasks)
 
 
+def _oom_turns(name):
+    """Out-of-memory turns in an evaluation's serving log (a card another user half-filled cannot prefill 8k-token contexts)."""
+    p = f"/home/jli199/terminal_bench_eval/logs/{name}_server.log"
+    if not os.path.exists(p):
+        return 0, 0
+    oom = turns = 0
+    for line in open(p, errors="replace"):
+        if "OOM at step" in line:
+            oom += 1
+        elif "TURN prompt" in line:
+            turns += 1
+    return oom, turns
+
+
 def cont_block():
     losses = _cont_losses()
     rows = ['<tr class="dim"><td>r1 (1.67 epochs, reference)</td><td class="n">890</td><td class="n">0.351 → 0.093</td><td class="n">0.093</td><td class="n">9/22 · 6 tasks</td><td class="n">7/25</td><td class="st"><span class="sm">best test checkpoint</span></td></tr>',
@@ -123,8 +140,14 @@ def cont_block():
         done_epoch = bool(L and L["complete"])
         loss_mean = (f'{L["mean"]:.3f}' + ("" if L["complete"] else " (so far)")) if L else "—"
         loss_end = f'{L["end"]:.3f}' if done_epoch else "—"
+        t_oom, t_turns = _oom_turns(f"tvary_r1_8ep_ep{k}_eval")
+        s_oom, s_turns = _oom_turns(f"train25_ep{k}_1800")
         test = f'{t_ok}/{t_n} · {t_tasks} tasks' if t_n else ("running" if done_epoch else "—")
         sub = (f'{s_ok}/{s_n}' + ("" if s_n >= 25 else " so far")) if s_n else ("queued" if done_epoch else "—")
+        if t_n and t_oom:
+            test += _sm(f" {t_oom} of {t_turns} turns out of memory: card shared, rerun")
+        if s_n and s_oom:
+            sub += _sm(f" {s_oom} of {s_turns} turns out of memory: card shared, rerun")
         staged = bool(glob.glob(f"{CONT_DUMP}_ep{k}_clean/model*.safetensors"))
         note = "" if not done_epoch else ("done" if t_n >= 22 and s_n >= 25 else ("staged, evaluating" if staged else "checkpoint saved; staging retried after epoch 7 (the first attempt hit a card another user had filled)" if k == 5 else "checkpoint saved"))
         rows.append(f'<tr><td>epoch {k}</td><td class="n">{2144 + CONT_SPE * (k - 4):,}</td><td class="n">{loss_mean}</td><td class="n">{loss_end}</td><td class="n">{test}</td><td class="n">{sub}</td><td class="st">{_sm(note)}</td></tr>')
@@ -134,6 +157,11 @@ def cont_block():
         status = "training finished; evaluations " + ("done" if all_done else "in progress")
     else:
         status = "training on GPU 5 since 2026-11-09 19:33; the evaluation chains on GPUs 3 and 4 stage and score each epoch as it lands"
+    if trained and not all_done:
+        status += ("; the first evaluations of epochs 6 and 7 ran on cards another user had half-filled (24 GB), where the server could not prefill contexts "
+                   "beyond about 8k tokens (13 % of the test turns and 99 % of epoch 7's training-subset turns ended in out-of-memory errors), so those are "
+                   "being re-run on the one card we hold entirely (GPU 1), epochs 6, 7, 5, 8 in that order, about 27 hours in all; epoch 6's training-subset "
+                   "run was clean and stands")
     return f'''<div class="sub-head"><h3>Continuing ep4: four more epochs on the same data {_chip("good", "trained") if trained else _chip("info", "running")}</h3><p>Test of the under-fitting hypothesis: ep4 is continued on the same shuffled 1:1 mixture (112 take-turns r1 rows + 112 v3 replay rows) for four more true epochs (536 packed steps each), weights-only load as in every continuation here, a checkpoint at every epoch boundary. Each checkpoint is scored on the 11-task test set (2 attempts, the protocol of the epoch 1 to 4 rows above) and on a fixed 25-task subset of the 75 training tasks (every third task; 1 attempt, 1,800 s), where ep4 solves 8 and r1 7. If the training-subset score keeps rising while the test score does not, the training-task gap is execution, not fit.</p></div>
 <div class="tablewrap">
     <table>
