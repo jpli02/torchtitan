@@ -101,17 +101,20 @@ def _cont_losses():
 
 
 def _tb_counts(root, name):
-    n = ok = 0
-    tasks = set()
-    for f in glob.glob(f"{root}/{name}/*/*/results.json"):
-        try:
-            d = json.load(open(f))
-        except Exception:
-            continue
-        n += 1
-        if d.get("is_resolved"):
-            ok += 1
-            tasks.add(d.get("task_id"))
+    """(resolved, results, resolved tasks) over the run's main root and its resume root (resume_NAME/NAME), one result per task."""
+    seen = {}
+    for pattern in (f"{root}/{name}/*/*/results.json", f"{root}/resume_{name}/{name}/*/*/results.json"):
+        for f in sorted(glob.glob(pattern)):
+            try:
+                d = json.load(open(f))
+            except Exception:
+                continue
+            key = (d.get("task_id"), f.split("/")[-2])
+            if key not in seen:
+                seen[key] = d
+    n = len(seen)
+    ok = sum(1 for d in seen.values() if d.get("is_resolved"))
+    tasks = {d.get("task_id") for d in seen.values() if d.get("is_resolved")}
     return ok, n, len(tasks)
 
 
