@@ -89,6 +89,35 @@ def _repeated_ngram_block(new_ids: list[int], n: int) -> set[int]:
 # spec) and the most recent turns (current terminal state), drop the stale
 # middle. Bounds KV so prompt(<=SEQ_CAP) + max_new fits with margin on 48GB.
 SEQ_CAP = int(os.environ.get("OURO_SEQ_CAP", "16000"))
+RESERVE_GB = os.environ.get("OURO_RESERVE_GB")  # unset = automatic: 34 GB when the card has 40 GB free, else none
+
+
+def _reserve_gpu_memory():
+    """Keep the card's memory for this process. Other users' jobs on this cluster take any card with room, after which the KV
+    cache of a 12k-token context no longer fits and turns end in out-of-memory errors. The headroom is allocated once and freed
+    into PyTorch's caching allocator, which keeps it reserved (nvidia-smi shows it as used); the per-request empty_cache is
+    skipped while a reservation is on, and the reservation is renewed after the out-of-memory safety net releases memory."""
+    import torch
+    if not torch.cuda.is_available():
+        return 0.0
+    free, _total = torch.cuda.mem_get_info()
+    free_gb = free / 2**30
+    gb = float(RESERVE_GB) if RESERVE_GB is not None else (min(34.0, free_gb - 4.0) if free_gb >= 40 else 0.0)
+    if gb <= 0:
+        print(f"[ouro-server] no memory reservation (free {free_gb:.1f} GB)", flush=True)
+        _state["reserve_gb"] = 0.0
+        return 0.0
+    try:
+        x = torch.empty(int(gb * 2**30), dtype=torch.uint8, device="cuda")
+        del x
+    except torch.cuda.OutOfMemoryError:
+        print(f"[ouro-server] memory reservation of {gb:.0f} GB failed (free {free_gb:.1f} GB)", flush=True)
+        _state["reserve_gb"] = 0.0
+        return 0.0
+    _state["reserve_gb"] = gb
+    print(f"[ouro-server] reserved {gb:.0f} GB of GPU memory for this process (free was {free_gb:.1f} GB)", flush=True)
+    return gb
+
 
 
 def _fit_messages(messages, hf_tok, cap):
@@ -242,6 +271,7 @@ def generate_chat(hf_model, hf_tok, eos_ids, messages, max_new, exit_threshold=N
             cache = None
             session and session.clear()
             torch.cuda.empty_cache()
+            _reserve_gpu_memory()
             break
         cache = base_out.past_key_values
         R = len(gate_list)
@@ -502,7 +532,8 @@ async def chat_completions(req: ChatCompletionRequest):
         # unattended run (observed 6GB -> 43GB over 12 requests). Free it back
         # every request -- cheap relative to a ~30s generation call, and keeps
         # memory bounded for an 80-task run instead of trending toward OOM.
-        await loop.run_in_executor(None, torch.cuda.empty_cache)
+        if not _state.get("reserve_gb"):
+            await loop.run_in_executor(None, torch.cuda.empty_cache)
 
     # Strip the model's plain-text reasoning down to the action JSON so the
     # harness parses cleanly; if a complete action object is present, accept it
@@ -615,6 +646,7 @@ def main():
     _state["model"] = model
     _state["tok"] = tok
     _state["eos_ids"] = eos_ids
+    _reserve_gpu_memory()
     _state["model_name"] = args.model_name
     _state["exit_threshold"] = args.early_exit_threshold
     # Wire the threshold into the model's decode-time TRUE early exit when the
