@@ -15,7 +15,7 @@ while [ "$(date +%s)" -lt "$END" ]; do
     util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits -i "$g" | tr -d ' ')
     if [ "${free:-0}" -ge "$MINFREE" ] && [ "${util:-100}" -le 5 ]; then
       echo "card $g free: running epochs [$EPOCHS_LIST] on it $(date '+%m-%d %H:%M')" | tee -a "$TMP/train75_grab.log"
-      if GPU=$g EPOCHS_LIST="$EPOCHS_LIST" bash epoch_train75_chain.sh; then
+      if GPU=$g EPOCHS_LIST="$EPOCHS_LIST" bash epoch_train75_chain2.sh; then
         exit 0
       fi
       echo "card $g: the chain could not start (card taken again); keep looking $(date '+%m-%d %H:%M')" | tee -a "$TMP/train75_grab.log"
