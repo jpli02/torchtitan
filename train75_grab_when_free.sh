@@ -13,7 +13,12 @@ while [ "$(date +%s)" -lt "$END" ]; do
   for g in $CANDS; do
     free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i "$g" | tr -d ' ')
     util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits -i "$g" | tr -d ' ')
-    if [ "${free:-0}" -ge "$MINFREE" ] && [ "${util:-100}" -le 5 ]; then
+    # a card with any process of ours on it is busy even when it looks free (a serving run shrinks to 8 GB between tasks)
+    ours=0
+    for p in $(nvidia-smi --query-compute-apps=pid --format=csv,noheader -i "$g" 2>/dev/null); do
+      [ "$(ps -o user= -p "$p" 2>/dev/null)" = "$(id -un)" ] && ours=1
+    done
+    if [ "${free:-0}" -ge "$MINFREE" ] && [ "${util:-100}" -le 5 ] && [ "$ours" -eq 0 ]; then
       echo "card $g free: running epochs [$EPOCHS_LIST] on it $(date '+%m-%d %H:%M')" | tee -a "$TMP/train75_grab.log"
       if GPU=$g EPOCHS_LIST="$EPOCHS_LIST" bash epoch_train75_chain2.sh; then
         exit 0
