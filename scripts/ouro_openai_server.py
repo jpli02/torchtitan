@@ -89,7 +89,7 @@ def _repeated_ngram_block(new_ids: list[int], n: int) -> set[int]:
 # spec) and the most recent turns (current terminal state), drop the stale
 # middle. Bounds KV so prompt(<=SEQ_CAP) + max_new fits with margin on 48GB.
 SEQ_CAP = int(os.environ.get("OURO_SEQ_CAP", "16000"))
-RESERVE_GB = os.environ.get("OURO_RESERVE_GB")  # unset = automatic: 34 GB when the card has 40 GB free, else none
+RESERVE_GB = os.environ.get("OURO_RESERVE_GB")  # unset = automatic: what is free after the model load minus 1.5 GB, if that is 28 GB or more
 
 
 def _reserve_gpu_memory():
@@ -102,7 +102,7 @@ def _reserve_gpu_memory():
         return 0.0
     free, _total = torch.cuda.mem_get_info()
     free_gb = free / 2**30
-    gb = float(RESERVE_GB) if RESERVE_GB is not None else (min(34.0, free_gb - 4.0) if free_gb >= 40 else 0.0)
+    gb = float(RESERVE_GB) if RESERVE_GB is not None else ((free_gb - 1.5) if free_gb >= 28 else 0.0)
     if gb <= 0:
         print(f"[ouro-server] no memory reservation (free {free_gb:.1f} GB)", flush=True)
         _state["reserve_gb"] = 0.0

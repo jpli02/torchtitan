@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl", "ifb"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl", "ifb", "lcbt", "tot", "tbench"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -129,8 +129,23 @@ def build_prompt(r):
                 "function) inside a single ```python code block.")
     if args.task == "crux":
         return ("Here is a Python function and an input. Determine the exact output of calling the function on this input.\n\n"
-                f"```python\n{r['code']}\n```\n\nInput: `f({r['input']})`\n\n"
+                f"```python\n{r['code']}\n```\n\nInput: `{r.get('call') or 'f(' + r['input'] + ')'}`\n\n"
                 "Reason step by step, then give the exact output as a Python literal within \\boxed{}.")
+    if args.task == "lcbt":  # LiveCodeBench test-output prediction (ICLR 2025)
+        return ("You are helping to write a test case for the following programming problem.\n\n### Problem\n" + r["question"].rstrip()
+                + "\n\n### Signature\n```python\n" + r["starter_code"].rstrip() + "\n```\n\nWhat is the correct output of the call below?\n\n"
+                f"`{r['call']}`\n\nReason step by step, then give the expected output as a Python literal within \\boxed{{}}.")
+    if args.task == "tot":  # Test of Time (ICLR 2025): the dataset prompt already specifies the JSON answer format
+        return r["prompt"].rstrip()
+    if args.task == "tbench":  # TableBench (AAAI 2025), official direct-prompting instruction
+        return ("You are a table analyst. Your task is to answer questions based on the table content.\n\n"
+                "The answer should follow the format below:\n[Answer Format]\nFinal Answer: AnswerName1, AnswerName2...\n\n"
+                "Ensure the final answer format is the last output line and can only be in the \"Final Answer: AnswerName1, AnswerName2...\" form, "
+                "no other form. Ensure the \"AnswerName\" is a number or entity name, as short as possible, without any explanation.\n\n"
+                + ("Give the final answer to the question directly without any explanation." if args.assistant_prefix else
+                   "Let's think step by step and then give the final answer to the question.")
+                + "\n\nRead the table below in JSON format:\n[TABLE]\n"
+                + r["table"] + "\n\nLet's get start!\nQuestion: " + r["question"])
     if args.task == "lbr":  # LiveBench reasoning: the official prompt asks for the answer in **bold**; we also accept \boxed{}
         return r["question"].rstrip() + "\n\nAfter your reasoning, also give the final answer within \\boxed{}."
     if args.task in ("lbm", "lbd", "lbl"):  # LiveBench math / data analysis / language: the official prompt as is
@@ -205,9 +220,102 @@ def zebra_cells(pred, gold):
     return ok, total
 
 
+def tot_json(gen):
+    """Last JSON-looking object of the response (Test of Time answers are JSON objects)."""
+    g = gen.split("</think>")[-1]
+    for m in reversed(list(re.finditer(r"\{", g))):
+        depth = 0
+        for k in range(m.start(), len(g)):
+            if g[k] == "{":
+                depth += 1
+            elif g[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    cand = g[m.start():k + 1]
+                    for load in (json.loads, lambda x: __import__("ast").literal_eval(x)):
+                        try:
+                            d = load(cand)
+                            if isinstance(d, dict):
+                                return d
+                        except Exception:
+                            pass
+                    break
+    return None
+
+
+def tot_norm(v):
+    if isinstance(v, (list, tuple)):
+        return [tot_norm(x) for x in v]
+    s = str(v).strip().strip("'\"").lower()
+    try:
+        f = float(s.replace(",", ""))
+        return str(int(f)) if f == int(f) else str(round(f, 4))
+    except Exception:
+        return re.sub(r"\s+", " ", s)
+
+
+def tot_correct(pred, label):
+    if not isinstance(pred, dict):
+        return False
+    import ast
+    try:
+        lab = ast.literal_eval(label) if str(label).strip().startswith("{") else {"answer": label}
+    except Exception:
+        try:
+            lab = json.loads(label)
+        except Exception:
+            lab = {"answer": label}
+    for k, v in lab.items():
+        if k == "explanation":
+            continue
+        pv = pred.get(k)
+        if pv is None and k == "unordered_list":
+            pv = pred.get("unorered_list")  # the dataset's own prompt spells the key this way
+        if pv is None:
+            return False
+        if k == "unordered_list" or k == "unorered_list":
+            if not isinstance(pv, (list, tuple)) or sorted(tot_norm(pv)) != sorted(tot_norm(v)):
+                return False
+        elif isinstance(v, (list, tuple)):
+            if not isinstance(pv, (list, tuple)) or tot_norm(pv) != tot_norm(v):
+                return False
+        else:
+            a, b = tot_norm(pv), tot_norm(v)
+            if a != b and a.replace(" ", "") != b.replace(" ", ""):
+                return False
+    return True
+
+
+def tbench_norm(s):
+    s = str(s).strip().strip(".").lower().replace("%", "").replace("$", "").replace(",", " , ")
+    parts = [x.strip() for x in s.split(",") if x.strip()]
+    out = []
+    for x in parts:
+        try:
+            f = float(x.replace(" ", ""))
+            out.append(str(int(f)) if f == int(f) else str(round(f, 2)))
+        except Exception:
+            out.append(re.sub(r"\s+", " ", x))
+    return out
+
+
+def tbench_correct(pred, gold):
+    if pred is None:
+        return False
+    a, b = tbench_norm(pred), tbench_norm(gold)
+    if a == b:
+        return True
+    return len(b) > 1 and "".join(a).replace(" ", "") == "".join(b).replace(" ", "")  # thousands separators split one number
+
+
 def extract(gen, r=None):
     if args.task in ("lcb", "bcb", "codepro"):
         return last_code_block(gen)
+    if args.task == "tot":
+        return tot_json(gen)
+    if args.task == "tbench":
+        m = re.findall(r"Final Answer:\s*(.+)", gen.split("</think>")[-1])
+        return m[-1].strip() if m else None
     if args.task == "ifb":  # the response after the reasoning block; an unclosed (truncated) block stays as is
         g = (gen.split("</think>")[-1] if "</think>" in gen else gen).strip()
         return g or None
@@ -465,6 +573,17 @@ def correct(pred, gold, r=None):
         return bool(m) and m[-1] == str(gold).strip().upper()
     if args.task == "crux":
         return pred is not None and crux_equal(pred, gold)
+    if args.task == "lcbt":  # expected outputs are JSON literals (true/false/null) or Python literals
+        if pred is None:
+            return False
+        g = str(gold)
+        for a, b in (("true", "True"), ("false", "False"), ("null", "None")):
+            g = re.sub(rf"\b{a}\b", b, g)
+        return crux_equal(pred, g) or crux_equal(re.sub(r"\btrue\b", "True", re.sub(r"\bfalse\b", "False", pred)), g)
+    if args.task == "tot":
+        return tot_correct(pred, gold)
+    if args.task == "tbench":
+        return tbench_correct(pred, gold)
     if args.task == "gsm8k":
         p, g = norm_num(pred), norm_num(gold)
         return p is not None and g is not None and abs(p - g) < 1e-6
@@ -524,7 +643,7 @@ n_ok = n_trunc = n_parse = 0
 recs = []
 for i, r in enumerate(rows):
     pred = extract(gens[i], r)
-    gold = {"crux": r.get("output"), "zebra": r.get("solution")}.get(args.task, r.get("answer"))
+    gold = {"crux": r.get("output"), "lcbt": r.get("output"), "tot": r.get("label"), "zebra": r.get("solution")}.get(args.task, r.get("answer"))
     ok = correct(pred, gold, r)
     trunc = ntoks[i] >= args.max_new
     n_ok += ok
@@ -542,7 +661,7 @@ for i, r in enumerate(rows):
     if args.task == "zebra":
         c_ok, c_tot = zebra_cells(pred, gold)
         rec.update({"id": r.get("id"), "size": r.get("size"), "cell_acc": c_ok / max(c_tot, 1)})
-    if args.task in ("lbr", "lbm", "lbd", "lbl"):
+    if args.task in ("lbr", "lbm", "lbd", "lbl", "lcbt", "tot", "tbench") or (args.task == "crux" and r.get("task")):
         rec.update({"question_id": r.get("question_id"), "subtask": r.get("task")})
     recs.append(rec)
 acc = n_ok / len(rows)
@@ -560,7 +679,7 @@ if args.task == "zebra":
         d[0] += rec["correct"]
         d[1] += 1
     summary["by_size"] = {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_size.items())}
-if args.task in ("lbr", "lbm", "lbd", "lbl"):
+if args.task in ("lbr", "lbm", "lbd", "lbl", "lcbt", "tot", "tbench") or (args.task == "crux" and recs and recs[0].get("subtask")):
     by_t = {}
     for rec in recs:
         d = by_t.setdefault(rec["subtask"], [0, 0])
