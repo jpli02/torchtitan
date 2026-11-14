@@ -199,7 +199,7 @@ def cont_block():
         if s_n and s_oom:
             sub += _sm(f" {s_oom} of {s_turns} turns out of memory: card shared, rerun")
         if f_n and f_oom:
-            full += _sm(f" {f_oom} of {f_turns} turns out of memory: card shared, rerun")
+            full += _sm(f" {f_oom} of {f_turns} turns out of memory" + (": card shared, rerun" if f_oom > 0.05 * max(1, f_turns) else " (1 %, during a few hours of card sharing)"))
         staged = bool(glob.glob(f"{CONT_DUMP}_ep{k}_clean/model*.safetensors"))
         note = "" if not done_epoch else ("done" if f_n >= 75 else ("evaluating on all 75 tasks" if f_n else ("staged, queued for a free card" if staged else "checkpoint saved, queued")))
         rows.append(f'<tr><td>epoch {k}</td><td class="n">{2144 + CONT_SPE * (k - 4):,}</td><td class="n">{loss_mean}</td><td class="n">{loss_end}</td><td class="n">{full}</td><td class="n">{sub}</td><td class="n">{test}</td><td class="st">{_sm(note)}</td></tr>')
@@ -210,11 +210,13 @@ def cont_block():
     else:
         status = "training on GPU 5 since 2026-11-09 19:33; the evaluation chains on GPUs 3 and 4 stage and score each epoch as it lands"
     if trained and not all_done:
-        status += ("; per the user's ask the measure is now every epoch on ALL 75 training tasks (one card runs epochs 6 then 5; epochs 7 and 8 start on the first card another user releases, about 25 hours per epoch per card); the first test evaluations of epochs 6 and 7 are discarded: the evaluation chain had left out the 12k-token context cap that every "
-                   "epoch 1 to 4 evaluation used, so contexts grew to 16k tokens and 13 % of the turns failed in the prefill; epoch 7's first training-subset "
-                   "run is discarded too (its card was half-filled by another user's job and 99 % of its turns ran out of memory at the cap). Everything is "
-                   "being re-run with the cap on the one card we hold entirely (GPU 1), epochs 6, 7, 5, 8 in that order, about 27 hours; epoch 6's "
-                   "training-subset run was clean and stands")
+        status += ("; the measure is every epoch on ALL 75 training tasks (the protocol of the ep4 and r1 rows). Epochs 5 and 7 are complete; the epoch 6 "
+                   "re-run follows epoch 5 on GPU 1 and epoch 8 runs on GPU 0, about 28 hours each. Earlier attempts on cards borrowed from another user were "
+                   "discarded: that user's jobs took the memory back mid-run and serving turns ran out of memory, so the server now reserves its card at start and "
+                   "only GPUs 0 and 1 are used for these evaluations. Reading so far: continuing past ep4 does not raise the training-task pass rate "
+                   "(epoch 5 falls to 7 %, epoch 7 recovers to 39 % against 44 % for ep4): the restarted learning-rate schedule first disturbs the weights and "
+                   "the later epochs only climb back. The test-set column for the new epochs is not filled yet; the first test runs were discarded because the "
+                   "evaluation chain had left out the 12k-token context cap")
     return f'''<div class="sub-head"><h3>Continuing ep4: four more epochs on the same data {_chip("good", "trained") if trained else _chip("info", "running")}</h3><p>Test of the under-fitting hypothesis: ep4 is continued on the same shuffled 1:1 mixture (112 take-turns r1 rows + 112 v3 replay rows) for four more true epochs (536 packed steps each), weights-only load as in every continuation here, a checkpoint at every epoch boundary. Each checkpoint is scored on the 11-task test set (2 attempts, the protocol of the epoch 1 to 4 rows above) and on a fixed 25-task subset of the 75 training tasks (every third task; 1 attempt, 1,800 s), where ep4 solves 8 and r1 7. If the training-subset score keeps rising while the test score does not, the training-task gap is execution, not fit.</p></div>
 <div class="tablewrap">
     <table>

@@ -43,6 +43,15 @@ for pt in ${POINTS:-plain_k4 direct_k4 direct_k2 direct_k1 direct_q0.3}; do
     direct_k1) run direct_k1 256 "[" --steps 1 ;;
     direct_q0.5) run direct_q0.5 256 "[" --steps 4 --threshold 0.5 ;;
     direct_q0.3) run direct_q0.3 256 "[" --steps 4 --threshold 0.3 ;;
+    direct_q0.2) run direct_q0.2 256 "[" --steps 4 --threshold 0.2 ;;
+    direct_q0.1) run direct_q0.1 256 "[" --steps 4 --threshold 0.1 ;;
+    direct_steps0.1-0.5-0.5) run direct_steps0.1-0.5-0.5 256 "[" --steps 4 --threshold_steps 0.1,0.5,0.5 ;;
+    # real decode-time early exit (skipped loops are not computed): batch 1, wall clock
+    true_full) BATCH=1 run true_full 256 "[" --steps 4 ;;
+    true_q0.7) BATCH=1 run true_q0.7 256 "[" --steps 4 --cfg decode_early_exit_threshold=0.7 ;;
+    true_q0.5) BATCH=1 run true_q0.5 256 "[" --steps 4 --cfg decode_early_exit_threshold=0.5 ;;
+    true_q0.3) BATCH=1 run true_q0.3 256 "[" --steps 4 --cfg decode_early_exit_threshold=0.3 ;;
+    true_q0.2) BATCH=1 run true_q0.2 256 "[" --steps 4 --cfg decode_early_exit_threshold=0.2 ;;
     direct_steps0.3-0.5-0.5) run direct_steps0.3-0.5-0.5 256 "[" --steps 4 --threshold_steps 0.3,0.5,0.5 ;;
     *) echo "unknown point $pt" | tee -a "$REP" ;;
   esac

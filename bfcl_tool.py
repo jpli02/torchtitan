@@ -50,8 +50,9 @@ def prep(raw, out, per_cat=None):
             msgs = mu.system_prompt_pre_processing_chat_model([dict(m) for m in e["question"][0]], functions, e["id"])
             merged = mu.convert_system_prompt_into_user_prompt(msgs)
             users = [m["content"] for m in merged if m["role"] == "user"]
+            # the prompt shows the language-specific docs (Java / JavaScript types as annotated strings); the checker needs the original ones
             rows.append({"id": e["id"], "category": cat, "v4_category": v4cat, "language": lang, "prompt": "\n\n".join(users),
-                         "function": functions, "possible_answer": answers[e["id"]]})
+                         "function": e["function"], "function_prompt": functions, "possible_answer": answers[e["id"]]})
     with open(out, "w") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
