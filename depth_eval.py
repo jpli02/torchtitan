@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl", "ifb", "lcbt", "tot", "tbench", "bfcl"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl", "ifb", "lcbt", "tot", "tbench", "bfcl", "nupa"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -136,6 +136,8 @@ def build_prompt(r):
                 + "\n\n### Signature\n```python\n" + r["starter_code"].rstrip() + "\n```\n\nWhat is the correct output of the call below?\n\n"
                 f"`{r['call']}`\n\nReason step by step, then give the expected output as a Python literal within \\boxed{{}}.")
     if args.task == "bfcl":  # BFCL (ICML 2025): the official prompt-mode prompt, built by bfcl_tool.py prep
+        return r["prompt"].rstrip()
+    if args.task == "nupa":  # NUPA (ICLR 2025): the dataset prompt ends with "=" and asks for the bare number
         return r["prompt"].rstrip()
     if args.task == "tot":  # Test of Time (ICLR 2025): the dataset prompt already specifies the JSON answer format
         return r["prompt"].rstrip()
@@ -315,6 +317,10 @@ def extract(gen, r=None):
         return last_code_block(gen)
     if args.task == "tot":
         return tot_json(gen)
+    if args.task == "nupa":  # the first number-like chunk of the answer
+        g = gen.split("</think>")[-1].strip().replace(",", "")
+        m = re.search(r"-?\d[\d./eE+\-]*", g)
+        return m.group(0).rstrip(".") if m else None
     if args.task == "bfcl":  # the function-call list; checked by the official AST checker (bfcl_tool.py grade)
         g = gen.split("</think>")[-1].strip()
         return g or None
@@ -587,6 +593,19 @@ def correct(pred, gold, r=None):
         return crux_equal(pred, g) or crux_equal(re.sub(r"\btrue\b", "True", re.sub(r"\bfalse\b", "False", pred)), g)
     if args.task == "tot":
         return tot_correct(pred, gold)
+    if args.task == "nupa":
+        if pred is None:
+            return False
+        a, b = pred.strip(), str(gold).strip().replace(",", "")
+        if a == b:
+            return True
+        if "/" in a or "/" in b:
+            return False
+        try:
+            from decimal import Decimal
+            return Decimal(a) == Decimal(b)
+        except Exception:
+            return False
     if args.task == "tbench":
         return tbench_correct(pred, gold)
     if args.task == "gsm8k":
@@ -668,7 +687,7 @@ for i, r in enumerate(rows):
     if args.task == "zebra":
         c_ok, c_tot = zebra_cells(pred, gold)
         rec.update({"id": r.get("id"), "size": r.get("size"), "cell_acc": c_ok / max(c_tot, 1)})
-    if args.task in ("lbr", "lbm", "lbd", "lbl", "lcbt", "tot", "tbench") or (args.task == "crux" and r.get("task")):
+    if args.task in ("lbr", "lbm", "lbd", "lbl", "lcbt", "tot", "tbench", "nupa") or (args.task == "crux" and r.get("task")):
         rec.update({"question_id": r.get("question_id"), "subtask": r.get("task")})
     recs.append(rec)
 acc = n_ok / len(rows)
@@ -686,7 +705,7 @@ if args.task == "zebra":
         d[0] += rec["correct"]
         d[1] += 1
     summary["by_size"] = {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_size.items())}
-if args.task in ("lbr", "lbm", "lbd", "lbl", "lcbt", "tot", "tbench") or (args.task == "crux" and recs and recs[0].get("subtask")):
+if args.task in ("lbr", "lbm", "lbd", "lbl", "lcbt", "tot", "tbench", "nupa") or (args.task == "crux" and recs and recs[0].get("subtask")):
     by_t = {}
     for rec in recs:
         d = by_t.setdefault(rec["subtask"], [0, 0])

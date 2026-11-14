@@ -26,6 +26,11 @@ from bfcl_eval.eval_checker.ast_eval.ast_checker import ast_checker
 CATS = [("simple", "BFCL_v3_simple.json", "python", "simple_python"), ("java", "BFCL_v3_java.json", "java", "simple_java"),
         ("javascript", "BFCL_v3_javascript.json", "javascript", "simple_javascript"), ("multiple", "BFCL_v3_multiple.json", "python", "multiple"),
         ("parallel", "BFCL_v3_parallel.json", "python", "parallel"), ("parallel_multiple", "BFCL_v3_parallel_multiple.json", "python", "parallel_multiple")]
+# the "live" half of the leaderboard (user-contributed functions; same AST checker): 258 + 1,053 + 16 + 24 = 1,351 items
+LIVE_CATS = [("live_simple", "BFCL_v3_live_simple.json", "python", "live_simple"), ("live_multiple", "BFCL_v3_live_multiple.json", "python", "live_multiple"),
+             ("live_parallel", "BFCL_v3_live_parallel.json", "python", "live_parallel"),
+             ("live_parallel_multiple", "BFCL_v3_live_parallel_multiple.json", "python", "live_parallel_multiple")]
+LIVE_SAMPLE = {"live_simple": 100, "live_multiple": 260, "live_parallel": 16, "live_parallel_multiple": 24}  # a 400-item sample
 LANG = {"python": Language.PYTHON, "java": Language.JAVA, "javascript": Language.JAVASCRIPT}
 RET = {"python": ReturnFormat.PYTHON, "java": ReturnFormat.JAVA, "javascript": ReturnFormat.JAVASCRIPT}
 
@@ -34,18 +39,22 @@ def load(path):
     return [json.loads(l) for l in open(path) if l.strip()]
 
 
-def prep(raw, out, per_cat=None):
+def prep(raw, out, per_cat=None, which="nonlive"):
     rng = random.Random(0)
     rows = []
     share = {"simple": 8 / 11, "java": 2 / 11, "javascript": 1 / 11}  # 400 : 100 : 50
-    for cat, fname, lang, v4cat in CATS:
+    cats = LIVE_CATS if which == "live" else CATS
+    for cat, fname, lang, v4cat in cats:
         tests = load(f"{raw}/{fname}")
         answers = {a["id"]: a["ground_truth"] for a in load(f"{raw}/possible_answer/{fname}")}
         if per_cat:
-            k = round(per_cat * share[cat]) if cat in share else per_cat
+            k = LIVE_SAMPLE[cat] if which == "live" else (round(per_cat * share[cat]) if cat in share else per_cat)
             rng.shuffle(tests)
             tests = tests[:k]
         for e in tests:
+            if e["id"] not in answers:  # a few live entries have no answer key in the v3 files
+                print("no answer key, skipped:", e["id"])
+                continue
             functions = bu._func_doc_language_specific_pre_processing(json.loads(json.dumps(e["function"])), v4cat)
             msgs = mu.system_prompt_pre_processing_chat_model([dict(m) for m in e["question"][0]], functions, e["id"])
             merged = mu.convert_system_prompt_into_user_prompt(msgs)
@@ -56,7 +65,7 @@ def prep(raw, out, per_cat=None):
     with open(out, "w") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
-    print(f"prep: {len(rows)} rows ->", out, {c: sum(1 for r in rows if r["category"] == c) for c, *_ in CATS})
+    print(f"prep: {len(rows)} rows ->", out, {c: sum(1 for r in rows if r["category"] == c) for c, *_ in cats})
 
 
 def pick_model_name():
@@ -110,21 +119,26 @@ def grade(prep_path, gen_path, out_path):
         d[1] += 1
         details.append({"id": r["id"], "category": r["category"], "ok": ok, "err": err, "response": text[:300]})
     acc = {c: (v[0] / v[1]) for c, v in per.items()}
+    live = any(c.startswith("live_") for c in acc)
     simple_parts = [acc[c] for c in ("simple", "java", "javascript") if c in acc]
-    simple = sum(simple_parts) / len(simple_parts) if simple_parts else None
-    four = [x for x in (simple, acc.get("multiple"), acc.get("parallel"), acc.get("parallel_multiple")) if x is not None]
-    overall = sum(four) / len(four) if four else 0.0
+    simple = sum(simple_parts) / len(simple_parts) if simple_parts else acc.get("live_simple")
+    pre = "live_" if live else ""
+    four = [x for x in (simple, acc.get(pre + "multiple"), acc.get(pre + "parallel"), acc.get(pre + "parallel_multiple")) if x is not None]
     micro = sum(v[0] for v in per.values()) / max(1, sum(v[1] for v in per.values()))
+    # non-live: the leaderboard's unweighted mean over the four categories; live: weighted by items (two of its categories hold 16 and 24 items)
+    overall = micro if live else (sum(four) / len(four) if four else 0.0)
     out = {"summary": summary, "n": len(gens), "overall": overall, "micro": micro, "simple": simple, "by_category": {c: f"{v[0]}/{v[1]}" for c, v in per.items()},
            "decode_fail": fails, "model_name_for_checker": model_name, "details": details}
     json.dump(out, open(out_path, "w"))
     loops = f" loops={summary['mean_loops']:.3f}" if summary and "mean_loops" in summary else ""
     print(f"GRADED n={len(gens)} overall={overall:.4f} micro={micro:.4f} simple={simple if simple is None else round(simple, 4)} "
-          + " ".join(f"{c}={acc[c]:.4f}" for c in ("multiple", "parallel", "parallel_multiple") if c in acc) + f" decode_fail={fails} lenient_micro={lenient / max(1, len(gens)):.4f}{loops}", flush=True)
+          + " ".join(f"{c}={acc[pre + c]:.4f}" for c in ("multiple", "parallel", "parallel_multiple") if pre + c in acc)
+          + f" decode_fail={fails} lenient_micro={lenient / max(1, len(gens)):.4f}{loops}", flush=True)
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "prep":
-        prep(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else None)
+    if sys.argv[1] == "prep":  # prep RAW OUT [PER_CAT or 0] [nonlive|live]
+        n = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+        prep(sys.argv[2], sys.argv[3], n or None, sys.argv[5] if len(sys.argv) > 5 else "nonlive")
     else:
         grade(sys.argv[2], sys.argv[3], sys.argv[4])
