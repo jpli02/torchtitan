@@ -17,7 +17,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 ap = argparse.ArgumentParser()
 ap.add_argument("ckpt")
 ap.add_argument("data")
-ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl", "ifb", "lcbt", "tot", "tbench"], required=True)
+ap.add_argument("--task", choices=["gsm8k", "math", "crux", "lcb", "mc", "bcb", "zebra", "codepro", "lbr", "lbm", "lbd", "lbl", "ifb", "lcbt", "tot", "tbench", "bfcl"], required=True)
 ap.add_argument("--steps", type=int, default=4)
 ap.add_argument("--threshold", type=float, default=None)
 ap.add_argument("--threshold_steps", default=None, help="per-step CDF thresholds q1,q2,q3 (last step always exits), gather mode")
@@ -135,6 +135,8 @@ def build_prompt(r):
         return ("You are helping to write a test case for the following programming problem.\n\n### Problem\n" + r["question"].rstrip()
                 + "\n\n### Signature\n```python\n" + r["starter_code"].rstrip() + "\n```\n\nWhat is the correct output of the call below?\n\n"
                 f"`{r['call']}`\n\nReason step by step, then give the expected output as a Python literal within \\boxed{{}}.")
+    if args.task == "bfcl":  # BFCL (ICML 2025): the official prompt-mode prompt, built by bfcl_tool.py prep
+        return r["prompt"].rstrip()
     if args.task == "tot":  # Test of Time (ICLR 2025): the dataset prompt already specifies the JSON answer format
         return r["prompt"].rstrip()
     if args.task == "tbench":  # TableBench (AAAI 2025), official direct-prompting instruction
@@ -313,6 +315,9 @@ def extract(gen, r=None):
         return last_code_block(gen)
     if args.task == "tot":
         return tot_json(gen)
+    if args.task == "bfcl":  # the function-call list; checked by the official AST checker (bfcl_tool.py grade)
+        g = gen.split("</think>")[-1].strip()
+        return g or None
     if args.task == "tbench":
         m = re.findall(r"Final Answer:\s*(.+)", gen.split("</think>")[-1])
         return m[-1].strip() if m else None
@@ -545,7 +550,7 @@ def crux_equal(pred, gold):
 
 
 def correct(pred, gold, r=None):
-    if args.task in ("lcb", "bcb", "codepro", "ifb"):
+    if args.task in ("lcb", "bcb", "codepro", "ifb", "bfcl"):
         return False  # graded separately in a sandbox (lcb_grade.py / bcb_grade.py / codepro_grade.py)
     if args.task == "lbd":
         return lbd_correct(pred, gold, r.get("task"), r.get("question", ""))
@@ -656,6 +661,8 @@ for i, r in enumerate(rows):
         rec.update({"task_id": r.get("task_id")})
     if args.task == "ifb":
         rec.update({"key": r.get("key"), "instruction_id_list": r.get("instruction_id_list")})
+    if args.task == "bfcl":
+        rec.update({"id": r.get("id"), "category": r.get("category")})
     if args.task == "codepro":
         rec.update({"task_id": r.get("task_id"), "source": r.get("source")})
     if args.task == "zebra":
