@@ -237,6 +237,10 @@ rep("                    if last_step_idx >= 0:\n"
     "                        self._exit_loops_prefill_sum = getattr(self, \"_exit_loops_prefill_sum\", 0.0) + float(_all.sum())\n"
     "                        self._exit_loops_prefill_n = getattr(self, \"_exit_loops_prefill_n\", 0) + int(_all.numel())\n")
 
+# exact executed-loop counter for decode-time early exit (boptim_lcb/patch_exec_counter.py)
+rep('        return (\n            BaseModelOutputWithPast(\n                last_hidden_state=hidden_states,',
+    '        if do_dee:\n            # exact accounting: recurrence loops actually executed for this decoded token (current_ut is the exit step)\n            self._dee_exec_sum = getattr(self, "_dee_exec_sum", 0) + (current_ut + 1)\n            self._dee_exec_n = getattr(self, "_dee_exec_n", 0) + 1\n\n        return (\n            BaseModelOutputWithPast(\n                last_hidden_state=hidden_states,')
+
 for out, weights in OUT.items():
     os.makedirs(out, exist_ok=True)
     open(f"{out}/modeling_ouro.py", "w", encoding="utf-8").write(src)

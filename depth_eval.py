@@ -697,6 +697,10 @@ summary = {"ckpt": args.ckpt, "task": args.task, "steps": args.steps, "threshold
            "mean_loops": mean_loops,
            "parse_rate": n_parse / len(rows), "trunc_rate": n_trunc / len(rows), "mean_tokens": total_tok / len(rows),
            "wall_s": dt, "tok_s": total_tok / dt, "max_new": args.max_new}
+_inner = getattr(model, "model", None)  # exact executed-loop count under decode-time early exit (see boptim_lcb/patch_exec_counter.py)
+if getattr(_inner, "_dee_exec_n", 0):
+    summary["exec_loops"] = _inner._dee_exec_sum / _inner._dee_exec_n
+    summary["exec_n"] = _inner._dee_exec_n
 if args.task == "zebra":
     summary["cell_acc"] = sum(rec["cell_acc"] for rec in recs) / len(recs)
     by_size = {}
