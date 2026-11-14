@@ -61,8 +61,8 @@ for t,(s,c) in sorted(per.items()): print(f"   {'SOLVED' if s else '  --  '} {t}
 print("failure_modes:", dict(fm))
 PYEOF
   # (b) training subset (skipped when 25 results already exist from a clean run)
-  if [ "$(find $OUT/train25_ep${k}_1800 -name results.json 2>/dev/null | wc -l)" -ge 25 ]; then
-    echo "epoch $k training-subset eval already complete; skipping" | tee -a "$REP"
+  if [ -n "${SKIP_SUBSET:-}" ] || [ "$(find $OUT/train25_ep${k}_1800 -name results.json 2>/dev/null | wc -l)" -ge 25 ]; then
+    echo "epoch $k training-subset eval skipped (SKIP_SUBSET set or already complete)" | tee -a "$REP"
   else
   OURO_SEQ_CAP=12000 GPU=$GPU GATE=0 MAXTOK=2048 TBTIMEOUT=64800 CKPT="$clean" NAME=train25_ep${k}_1800 PORT=$((8170 + k)) ATT=1 MINFREE=${MINFREE:-38000} \
     DATASET=$POOL OUTROOT=$OUT AGENT_TIMEOUT=1800 TASKS="$SUB25" bash eval_gated.sh > "$TMP/train25_ep${k}_1800.log" 2>&1
