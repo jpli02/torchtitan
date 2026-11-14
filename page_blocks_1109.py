@@ -47,17 +47,60 @@ def lcb_bo_pooled_block():
                     f'<td class="n">{e["value"]:.2f}</td><td class="n">{e["wall_s"] / 3600:.1f} h · GPU {e["gpu"]}</td></tr>')
     if not rows:
         rows.append('<tr><td colspan="8">evaluations running (restarted 2026-11-10 12:30 with calibrated speed; the four accuracies already measured are reused)</td></tr>')
-    log = sorted(glob.glob(f"{TMP}/lcb_bo_pooled*.log"))[-1] if glob.glob(f"{TMP}/lcb_bo_pooled*.log") else ""
-    finished = bool(log) and "Completed 1 experiment" in open(log, errors="replace").read()
+    logs = sorted(glob.glob(f"{TMP}/lcb_bo_pooled*.log"), key=os.path.getmtime)
     refs = [(d, _pooled342(k)) for k, d in (("full", "full depth"), ("gate0.5", "released gate q = 0.5"), ("gate0.3", "released gate q = 0.3"))]
     ref_txt = "; ".join(f'{d} {_pct(r["acc"])} % at {r["tok_s"]:.1f} tokens/s' for d, r in refs if r)
-    running = bool(glob.glob("/proc/[0-9]*/cmdline")) and any(
+    running = any(
         "bo_lcb_router_pooled" in open(c, errors="replace").read() and "main.py" in open(c, errors="replace").read()
         for c in glob.glob("/proc/[0-9]*/cmdline") if os.access(c, os.R_OK))
-    status = f'{"finished" if finished else ("running" if running else "paused until a card is entirely free (other users hold cards 0 and 2 to 5; card 1 runs the epoch evaluations); resumes automatically")}: {len(evs)} of 20 evaluations done'
+    finished = (not running) and any("Completed 1 experiment" in open(l, errors="replace").read() for l in logs)
+    status = (f'{"finished 2026-11-13 23:10" if finished else ("running" if running else "paused; resumes automatically")}: {len(evs)} measured evaluations '
+              f'on top of 7 warm-start points')
     if best:
         t = best["thresholds"][:3]
-        status += f'; best so far ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}): {best["pass1_pct"]:.1f} % at {best["tok_s"]:.2f} tokens/s, objective {best["value"]:.2f}'
+        status += f'; best ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}): {best["pass1_pct"]:.1f} % at {best["speedup"]:.2f}× (objective {best["value"]:.2f})'
+    # the warm-start reference for the released gate on the same protocol (stratified calibration)
+    recal_path = "/home/jli199/boptim_scratch/bo_lcb_router_pooled/recal_speeds.json"
+    reading = ""
+    if finished and best and os.path.exists(recal_path):
+        recal = {tuple(round(v, 3) for v in d["x"]): d for d in json.load(open(recal_path)).values()}
+        g3, g5 = recal.get((0.3, 0.3, 0.3)), recal.get((0.5, 0.5, 0.5))
+        acc = {k: _pooled342(k) for k in ("gate0.3", "gate0.5", "full")}
+        if g3 and acc["gate0.3"]:
+            fulls = sorted(e["tok_s_full_cal"] for e in evs if e.get("tok_s_full_cal"))
+            shard = [e for e in evs if (e.get("tok_s_gen") or 0) >= 14]  # evaluations generated as three concurrent processes
+
+            def fam(lo, hi):
+                xs = [e for e in shard if all(a <= v <= b for v, a, b in zip(e["thresholds"][:3], lo, hi))]
+                if not xs:
+                    return None
+                return (min(e["tok_s_gen"] for e in xs), max(e["tok_s_gen"] for e in xs), min(e["pass1_pct"] for e in xs), max(e["pass1_pct"] for e in xs), len(xs))
+
+            def ft(f):
+                if not f:
+                    return "n/a"
+                sp = f"{f[0]:.1f} to {f[1]:.1f}" if f[1] - f[0] >= 0.05 else f"{f[0]:.1f}"
+                ac = f"{f[2]:.1f} to {f[3]:.1f}" if f[3] - f[2] >= 0.05 else f"{f[2]:.1f}"
+                return f"{sp} tokens/s at {ac} %"
+
+            f_best = fam((0.99, 0.37, 0.29), (1.0, 0.42, 0.32))      # first-loop exits off, around the nominal best
+            f_mid = fam((0.45, 0.36, 0.29), (0.91, 0.39, 0.32))      # same later thresholds, first-loop exits allowed
+            f_fast = fam((0.47, 0.29, 0.20), (0.56, 0.34, 0.28))     # lower third threshold
+            f_slow = fam((0.99, 0.55, 0.04), (1.0, 1.0, 0.06))       # exit only after loop 3
+            reading = (f'<p class="src">Reading: the search ends level with the released gate, and its nominal winner does not survive a look at the speed measurement. '
+                       f'The objective ranks ({best["thresholds"][0]:.2f}, {best["thresholds"][1]:.2f}, {best["thresholds"][2]:.2f}) first at {best["pass1_pct"]:.1f} % and '
+                       f'{best["speedup"]:.2f}×, against the released gate at q = 0.3 with {_pct(acc["gate0.3"]["acc"])} % at {g3["speedup"]:.2f}× and at q = 0.5 with '
+                       f'{_pct(acc["gate0.5"]["acc"])} % at {g5["speedup"]:.2f}×. But the full-depth reference that each speed-up divides by, which should be one number, '
+                       f'ranged from {fulls[0]:.1f} to {fulls[-1]:.1f} tokens/s across the calibrations (contention from other users&#39; jobs that the per-process monitor did not show), '
+                       f'so near-identical routers received speed-ups from 1.42× to 1.84×. The steadier measure in the same logs is the throughput of the three-process generation over '
+                       f'all 342 problems: there the nominal winner&#39;s family (first-loop exits switched off) runs at {ft(f_best)}, the same later thresholds with first-loop exits allowed at '
+                       f'{ft(f_mid)}, routers with a lower third threshold at {ft(f_fast)} (below the 18.3 % floor), and routers that exit only after the third loop at {ft(f_slow)}. '
+                       f'The two fast families that hold the floor differ by about 4 % in speed and by at most four problems of 342 in accuracy, which is noise. Per-loop thresholds therefore add no '
+                       f'measurable headroom over the one-knob gate on this benchmark under real execution, in agreement with the wall-clock tables above. Two protocol lessons for the '
+                       f'next search: take the speed term from the long generation (or a deterministic count of executed loops), not from a short calibration ratio, and treat differences '
+                       f'under about 5 % in speed or 2 points in pass@1 as ties. The machinery (pooled objective, warm start, exact batch-1 shards, a trajectory for every evaluation) carries over '
+                       f'to benchmarks with more depth sensitivity, such as MMLU-Redux and BFCL below.</p>')
+    status_html = f'<p class="src">Reference points over the same 342 problems: {ref_txt}. Objective = −tokens/s + 2 × max(0, 18.3 − pass@1 %). {status}.</p>'
     return f'''<div class="sub-head"><h3>Second BO run: pooled objective over all 342 problems {_chip("good", "finished") if finished else _chip("info", "running")}</h3><p>The corrected protocol after the held-out failure above: every evaluation serves all 342 LiveCodeBench problems under real decode-time early exit (batch 1, greedy, 1,024 tokens, sandbox grading), so there is no unseen slice to overfit against; the accuracy floor is the measured full-depth pass@1 over the 342 (20.5 %) minus one standard error at this size (2.2 points), i.e. 18.3 %. Speed is no longer read off the long generation: the first attempt lost 28 % of one router's tokens/s to a neighbour's job on the shared card, so each point's tokens/s now comes from a calibration run on a stratified set of 32 problems (every 11th of the 342: the first 30 problems under-read early-exit speed-ups by a third, being prefill-heavy) whose card is checked for other users' compute before and after and repeated if it was shared (flagged in the table if it stayed shared); the full-depth speed is calibrated right after it on the same card, and the speed term is that speed-up times 6.25 tokens/s so cards of different speed cancel out. Every point measured before the stratified set, and the warm-start points, were re-calibrated on it on 2026-11-11 before the search continued. A failed generation is retried once on another card. gp_hedge over (q1, q2, q3). Two further changes on 2026-11-11: the run is warm-started through the optimizer's resume state with 7 routers whose pooled accuracy was already known (full depth, the released gates at 0.7 / 0.5 / 0.3, and the three slice-run routers, with their held-out accuracies pooled over the 342 and their quiet-card speed-ups), so the surrogate starts from 12 points instead of 4 random ones; and the accuracy generation runs as three concurrent batch-1 processes on the card (batched decoding under true early exit changes the outputs, 23 of 24 problems diverged, so it cannot be used; batch 1 itself is exactly reproducible, 24 of 24 generations identical across runs), which cuts a point from 3 to 7 hours to roughly 1.5 to 3. Cards join as the Terminal-Bench evaluations release them.</p></div>
 <div class="tablewrap">
     <table>
@@ -66,7 +109,8 @@ def lcb_bo_pooled_block():
         {chr(10).join("        " + r for r in rows).strip()}
       </tbody>
     </table>
-    <p class="src">Reference points over the same 342 problems: {ref_txt}. Objective = −tokens/s + 2 × max(0, 18.3 − pass@1 %). {status}.</p>
+    {status_html}
+    {reading}
   </div>
 '''
 
