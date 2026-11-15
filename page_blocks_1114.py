@@ -44,7 +44,7 @@ def _frontier(pts):
 
 def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend_xy,
          xlabel="speed-up over full depth (higher is faster)", ylabel="pass@1, %", floor_right=False,
-         best_label="the run&#39;s best by its objective", label_props=True):
+         best_label="the run&#39;s best by its objective", label_props=True, legend_names=None, id_prefix="#"):
     x0, x1 = xr
     y0, y1 = yr
     pw, ph = W - ML - MR, H - MT - MB
@@ -101,7 +101,7 @@ def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend
         o.append(f'<g><title>{p["tip"]}</title><circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" style="{style}"/></g>')
         if label_props and (p["id"] in fr_ids or p["id"] == best_id):
             dx, dy, anchor = label_dx.get(p["id"], (8, -7, "start"))
-            o.append(f'<text x="{cx + dx:.1f}" y="{cy + dy:.1f}" text-anchor="{anchor}" style="fill:var(--text);font-size:11.5px">#{p["id"]}</text>')
+            o.append(f'<text x="{cx + dx:.1f}" y="{cy + dy:.1f}" text-anchor="{anchor}" style="fill:var(--text);font-size:11.5px">{id_prefix}{p["id"]}</text>')
     # first-run routers re-scored (warm start), if any
     for p in extra:
         cx, cy = X(p["x"]), Y(p["y"])
@@ -115,8 +115,9 @@ def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend
         o.append(f'<text x="{cx + dx:.1f}" y="{cy + dy:.1f}" text-anchor="{anchor}" style="fill:var(--text);font-size:11.5px;font-weight:600">{p["name"]}</text>')
     # legend
     lx, ly = legend_xy
-    items = [("rect", "var(--base)", "released gate and full depth (baseline)"), ("dot", "var(--s1)", "BO proposal that holds the accuracy floor"),
-             ("ring", "var(--s1)", "BO proposal below the floor" + (" or with a shared-card speed reading" if any(not p.get("clean", True) for p in bo) else "")),
+    names = legend_names or ("released gate and full depth (baseline)", "BO proposal that holds the accuracy floor", "BO proposal below the floor")
+    items = [("rect", "var(--base)", names[0]), ("dot", "var(--s1)", names[1]),
+             ("ring", "var(--s1)", names[2] + (" or with a shared-card speed reading" if any(not p.get("clean", True) for p in bo) else "")),
              ("best", "var(--s2)", best_label)]
     if extra:
         items.append(("diamond", "var(--s3)", "first-run routers, re-scored on all 342 (warm start)"))

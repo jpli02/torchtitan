@@ -442,6 +442,97 @@ def bfcl_gate_block():
 '''
 
 
+# ---------------------------------------------------------------- router search with the corrected cache entries (third search)
+FILL = "/home/jli199/boptim_scratch/bo_bfcl_router_fill"
+FILL_DESIGN = {(0.3, 0.3, 0.3): "gate 0.3", (0.25, 0.25, 0.25): "gate 0.25", (0.2443, 0.2443, 0.2443): "gate 0.2443", (0.2, 0.2, 0.2): "gate 0.2"}
+
+
+def bfcl_fill_search_block():
+    evs = [e for e in _load_ok(f"{FILL}/evaluations.jsonl") if (e.get("extra_cfg") or {}).get("decode_fill_maps")]
+    plain = _evals()
+    full = next((e for e in plain if e["key"] == (1.0, 1.0, 1.0)), None)
+    gates = sorted((e for e in plain if e["key"] in GATES), key=lambda e: e["exec_loops"])
+    if not evs or not full or len(gates) < 2:
+        return ""
+    floor = full["acc_pct"] - TOL
+    log = f"{TMP}/bfcl_bo3.log"
+    text = open(log, errors="replace").read() if os.path.exists(log) else ""
+    finished = "BO3 finished with code 0" in text
+
+    def curve(L):  # plain released-gate accuracy at L executed loops (straight line between its two points around L)
+        lo = max((g for g in gates if g["exec_loops"] <= L), key=lambda g: g["exec_loops"], default=gates[0])
+        hi = min((g for g in gates if g["exec_loops"] >= L), key=lambda g: g["exec_loops"], default=gates[-1])
+        span = hi["exec_loops"] - lo["exec_loops"]
+        return lo["acc_pct"] if span <= 0 else lo["acc_pct"] + (L - lo["exec_loops"]) / span * (hi["acc_pct"] - lo["acc_pct"])
+
+    seen, uniq = set(), []
+    for e in evs:
+        if e["key"] not in seen:
+            seen.add(e["key"])
+            uniq.append(e)
+    k = 0
+    for e in uniq:
+        if e["key"] in FILL_DESIGN:
+            e["name"] = f'<b>{FILL_DESIGN[e["key"]]}, corrected</b>'
+            e["short"] = FILL_DESIGN[e["key"]]
+        else:
+            k += 1
+            e["id"] = k
+            e["name"] = f'BO #{k} {_fmt(e["key"])}'
+            e["short"] = f"#{k}"
+    holds = [e for e in uniq if e["acc_pct"] >= floor]
+    best = min(holds, key=lambda e: (round(e["exec_loops"], 3), -e["acc_pct"]), default=None)
+    best_gate = min((g for g in gates if g["key"] != (1.0, 1.0, 1.0) and g["acc_pct"] >= floor), key=lambda g: g["exec_loops"], default=None)
+    rows = []
+    for e in sorted((e for e in uniq if e["key"] in FILL_DESIGN), key=lambda e: -e["key"][0]) + [e for e in uniq if e["key"] not in FILL_DESIGN]:
+        sh = _exit_shares(e["thresholds"][:3])
+        shares = " / ".join(f"{100 * v:.0f}" for v in sh) if sh else "—"
+        d = round((e["acc_pct"] - curve(e["exec_loops"])) * 5.75)
+        rows.append(f'<tr{" class=\"best\"" if e is best else ""}><td>{e["name"]}</td><td class="n">{e["acc_pct"]:.1f}{" ↓" if e["acc_pct"] < floor else ""}</td>'
+                    f'<td class="n">{e["exec_loops"]:.2f}</td><td class="n">{4 / e["exec_loops"]:.2f}×</td><td class="n">{shares}</td>'
+                    f'<td class="n">{"+" if d > 0 else ""}{d}</td></tr>')
+    n_bo = sum(1 for e in uniq if e["key"] not in FILL_DESIGN)
+    status = f'{sum(1 for e in uniq if e["key"] in FILL_DESIGN)} of {len(FILL_DESIGN)} design points and {n_bo} of {N_BO} proposals evaluated'
+    if best and best_gate:
+        dl = 100 * (1 - best["exec_loops"] / best_gate["exec_loops"])
+        status += (f'; the cheapest router that holds the floor so far is {best["short"] if best["key"] in FILL_DESIGN else "BO " + best["short"]} at {best["exec_loops"]:.2f} loops, '
+                   f'{abs(dl):.0f} % {"fewer" if dl > 0 else "more"} than the plain {GATES[best_gate["key"]]} ({best_gate["exec_loops"]:.2f} loops)')
+    # chart: plain gate curve (squares) against the corrected routers (circles)
+    ymin = floor - 6
+    pts_b = [{"x": 4 / g["exec_loops"], "y": g["acc_pct"], "name": GATES[g["key"]], "lab": ((-8, 16, "end") if floor - 0.9 < g["acc_pct"] < floor + 0.3 else (0, -10, "middle")),
+              "tip": f'plain {GATES[g["key"]]}: {g["acc_pct"]:.1f} % at {g["exec_loops"]:.2f} loops'} for g in sorted(gates, key=lambda g: -g["exec_loops"]) if g["acc_pct"] >= ymin]
+    for e in uniq:  # chart labels: "g0.25" = the gate pattern at 0.25 with the correction, "#3" = the third proposal
+        e["pid"] = ("g" + FILL_DESIGN[e["key"]].split()[1]) if e["key"] in FILL_DESIGN else e["short"]
+    pts_p = [{"x": 4 / e["exec_loops"], "y": e["acc_pct"], "id": e["pid"],
+              "tip": f'{e["short"]} corrected {_fmt(e["key"])}: {e["acc_pct"]:.1f} % at {e["exec_loops"]:.2f} loops'} for e in uniq if e["acc_pct"] >= ymin]
+    best_id = best["pid"] if best else None
+    pts_p.sort(key=lambda p: p["id"] == best_id)
+    xs, ys = [p["x"] for p in pts_b + pts_p], [p["y"] for p in pts_b + pts_p]
+    x1 = max(2.0, 0.5 * (int(max(xs) / 0.5) + 1))
+    y0, y1 = int(min(min(ys), floor) - 1), int(max(ys) + 2)
+    svg = pb4._svg((0.9, x1), (y0, y1), [1 + 0.5 * i for i in range(int((x1 - 1) / 0.5) + 1)], list(range(y0, y1 + 1, 1 if y1 - y0 <= 8 else 2)),
+                   pts_p, pts_b, [], round(floor, 2), best_id, {p["id"]: (9, 15, "start") for p in pts_p},
+                   "Accuracy against decode compute on the search set: routers with corrected cache entries against the plain released-gate curve",
+                   (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel="decode compute saved: 4 / executed loops (higher is cheaper)",
+                   ylabel="accuracy on the 575 search items, %", floor_right=True, best_label="cheapest corrected router that holds the floor", id_prefix="",
+                   legend_names=("plain released gate and full depth", "corrected router that holds the accuracy floor", "corrected router below the floor"))
+    chip = _chip("good", "finished") if finished else _chip("info", "running")
+    return f'''<div class="sub-head"><h3>Router search with corrected cache entries {chip}</h3><p>The third search on BFCL changes what an early exit leaves behind, not only when a token leaves. A token that leaves early no longer leaves plain copies of its keys and values in the cache slots of the loops it skips, but corrected ones: one linear map per layer, head and loop pair, fitted once on full-depth answers (the evidence is in the block above). The released gate still decides the exits. With that, the region below two loops, where the plain gate collapses, is worth searching. Search variables are the exit shares: f1, the share of all answer tokens released after loop 1 (0 to 70 %); f2, the share of the remaining tokens released after loop 2 (60 to 100 %); f3, the share of the still remaining tokens released after loop 3 (50 to 100 %). Each proposal becomes thresholds placed between two neighbouring values of the gate. Same objective, floor ({floor:.1f} %), search items and checker as the first search; the released-gate patterns with the correction seed the optimiser, four grid points follow, then sixteen model-based proposals.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>router (corrected cache entries)</th><th class="n">accuracy %</th><th class="n">loops</th><th class="n">compute saved</th><th class="n">leaving after loop 1/2/3/4, %</th><th class="n">items vs plain gate curve</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in rows).strip()}
+      </tbody>
+    </table>
+    <p class="src">↓ marks accuracy below the floor. The last column compares each router with the plain released gate at the same executed loops (straight line between its two points around it). The correction costs one small matrix product per skipped cache slot and is not counted in the loops. Status: {status}. Trajectories: <code>{FILL}/evaluations.jsonl</code>.</p>
+    <p style="margin:18px 0 6px;font-weight:600">Accuracy against decode compute, search set</p>
+    {svg}
+    <p class="src">Squares: the plain released gate (no correction), joined in threshold order. Circles: routers with corrected cache entries; the labelled ones are on their frontier ("g0.25" is the gate pattern at 0.25 with the correction, "#3" the third proposal). The plain gate falls off to the right of threshold 0.25; the corrected routers hold up further.</p>
+  </div>
+'''
+
+
 # ---------------------------------------------------------------- what limits real early exit below two loops (exit lab)
 def _lab_label(gate, conf, maps, skip):
     parts = []
