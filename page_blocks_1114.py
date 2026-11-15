@@ -44,7 +44,7 @@ def _frontier(pts):
 
 def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend_xy,
          xlabel="speed-up over full depth (higher is faster)", ylabel="pass@1, %", floor_right=False,
-         best_label="the run&#39;s best by its objective"):
+         best_label="the run&#39;s best by its objective", label_props=True):
     x0, x1 = xr
     y0, y1 = yr
     pw, ph = W - ML - MR, H - MT - MB
@@ -99,7 +99,7 @@ def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend
             style = "fill:var(--surface);stroke:var(--s1);stroke-width:1.4;stroke-opacity:.6"
             r = 4.5
         o.append(f'<g><title>{p["tip"]}</title><circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" style="{style}"/></g>')
-        if p["id"] in fr_ids or p["id"] == best_id:
+        if label_props and (p["id"] in fr_ids or p["id"] == best_id):
             dx, dy, anchor = label_dx.get(p["id"], (8, -7, "start"))
             o.append(f'<text x="{cx + dx:.1f}" y="{cy + dy:.1f}" text-anchor="{anchor}" style="fill:var(--text);font-size:11.5px">#{p["id"]}</text>')
     # first-run routers re-scored (warm start), if any

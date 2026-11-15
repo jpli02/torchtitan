@@ -56,9 +56,21 @@ def value(e, fl=floor):
 # proposals to validate: first the ones that hold the search-set floor, cheapest first (the claim is "baseline accuracy at less
 # compute"), then, if fewer than TOP hold it, the best of the rest by the objective
 cands = [e for k, e in search.items() if k not in GATES]
-feasible = sorted((e for e in cands if e["acc_pct"] >= floor), key=lambda e: e["exec_loops"])
+feasible = sorted((e for e in cands if e["acc_pct"] >= floor), key=lambda e: (round(e["exec_loops"], 3), -e["acc_pct"]))
 others = sorted((e for e in cands if e["acc_pct"] < floor), key=value)
-props = (feasible + others)[:TOP]
+# the optimiser refines around its best point, so the cheapest proposals are near-copies of one router; validate DISTINCT ones:
+# at least 0.05 apart in q1 or in q2 from every router already chosen (q3 barely matters, see the search table), and never two
+# with the same outcome
+props, outcomes = [], set()
+for e in feasible + others:
+    q1, q2 = e["thresholds"][0], e["thresholds"][1]
+    outcome = (round(e["exec_loops"], 4), round(e["acc_pct"], 2))
+    if outcome in outcomes or any(abs(q1 - p["thresholds"][0]) < 0.05 and abs(q2 - p["thresholds"][1]) < 0.05 for p in props):
+        continue
+    outcomes.add(outcome)
+    props.append(e)
+    if len(props) >= TOP:
+        break
 # order of work: the baseline that matters most first, then proposals and gate points interleaved
 order = [(1.0, 1.0, 1.0), (0.3, 0.3, 0.3)]
 rest_gates = [(0.25, 0.25, 0.25), (0.2, 0.2, 0.2), (0.5, 0.5, 0.5), (0.7, 0.7, 0.7)]
@@ -68,10 +80,13 @@ for i in range(max(len(props), len(rest_gates))):
     if i < len(rest_gates):
         order.append(rest_gates[i])
 names = dict(GATES)
-for i, e in enumerate(props, 1):
+prop_no = {k: i for i, k in enumerate((k for k in search if k not in GATES), 1)}  # the proposal numbers the page uses (order of evaluation)
+for e in props:
     k = key(e["thresholds"])
-    names[k] = f"BO best #{i} ({k[0]:.2f}, {k[1]:.2f}, {k[2]:.2f})"
+    names[k] = f"BO #{prop_no[k]} ({k[0]:.2f}, {k[1]:.2f}, {k[2]:.2f})"
 print("validating:", [names[k] for k in order], flush=True)
+if os.environ.get("DRY"):
+    sys.exit(0)
 
 
 def write_report():

@@ -55,7 +55,8 @@ def bfcl_bo_block():
     # the claim is "baseline accuracy at less compute": among routers that hold the floor, the fewest executed loops wins
     holds = (lambda e: floor is not None and e["acc_pct"] >= floor)
     best_base = min((e for e in base if e is not full and holds(e)), key=lambda e: e["exec_loops"], default=None)
-    best_prop = min((e for e in props if holds(e)), key=lambda e: e["exec_loops"], default=None)
+    # same tie-break as the validation driver: loops to three decimals, then accuracy, then order of evaluation
+    best_prop = min((e for e in props if holds(e)), key=lambda e: (round(e["exec_loops"], 3), -e["acc_pct"]), default=None)
     rows = []
     for e in sorted(base, key=lambda e: -e["key"][0]) + props:
         name = f'<b>{"released " if e is not full else ""}{GATES[e["key"]]}</b>' if e["key"] in GATES else f'BO #{e["id"]} {_fmt(e["key"])}'
@@ -82,6 +83,17 @@ def bfcl_bo_block():
     elif props:
         status += '; no proposal holds the floor yet'
     chip = _chip("good", "finished") if finished else _chip("info", "running")
+    reading = ""
+    if finished and best_prop and best_base:
+        d = 100 * (1 - best_prop["exec_loops"] / best_base["exec_loops"])
+        items = round((best_prop["acc_pct"] - best_base["acc_pct"]) * 5.75)
+        n_hold = sum(1 for e in props if holds(e))
+        n_cheaper = sum(1 for e in props if holds(e) and e["exec_loops"] < best_base["exec_loops"])
+        reading = (f'<p class="src"><b>Reading of the search.</b> {n_hold} of the {len(props)} proposals hold the accuracy floor and {n_cheaper} of those need fewer '
+                   f'loops than {GATES[best_base["key"]]}, the gate&#39;s cheapest point above the floor. The cheapest, #{best_prop["id"]} {_fmt(best_prop["key"])}, runs '
+                   f'{best_prop["exec_loops"]:.2f} loops against {best_base["exec_loops"]:.2f}: {abs(d):.0f} % {"fewer" if d > 0 else "more"} loops, with '
+                   f'{abs(items)} item{"s" if abs(items) != 1 else ""} of 575 {"fewer" if items < 0 else "more"} answered correctly. That gap in accuracy is inside the '
+                   f'noise the gate curve itself shows, so the search set cannot tell a better router from a fit to these 575 items; the held-out table decides.</p>')
 
     chart = ""
     if full and len(evs) >= 4:
@@ -120,14 +132,36 @@ def bfcl_bo_block():
         y0, y1 = int(min(min(ys), floor) - 1), int(max(ys) + 2)
         xt = [1 + 0.5 * i for i in range(int((x1 - 1) / 0.5) + 1)]
         yt = list(range(y0, y1 + 1, 1 if y1 - y0 <= 8 else 2))
+        pts_p.sort(key=lambda p: p["id"] == best_pid)  # the best point is drawn last, on top of its neighbours
+        xl, yl = "decode compute saved: 4 / executed loops (higher is cheaper)", "accuracy on the 575 search items, %"
         svg = pb4._svg((0.9, x1), (y0, y1), xt, yt, pts_p, pts_b, [], round(floor, 2), best_pid, label_dx,
                        "Pareto view of the BFCL router search: accuracy against decode compute saved, proposals and the released-gate curve",
-                       (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel="decode compute saved: 4 / executed loops (higher is cheaper)", ylabel="accuracy on the 575 search items, %",
-                       floor_right=True, best_label="cheapest proposal that holds the floor")
+                       (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel=xl, ylabel=yl, floor_right=True, best_label="cheapest proposal that holds the floor",
+                       label_props=len(pts_p) <= 4)
         chart = (f'<p style="margin:18px 0 6px;font-weight:600">Accuracy against decode compute, search set</p>\n    {svg}\n'
                  f'    <p class="src">Squares: full depth and the released gate at each threshold, joined in threshold order. Circles: the optimiser&#39;s proposals '
                  f'(hover for thresholds). A proposal beats the gate only if it lies above and to the right of the gate curve{noise_note}'
                  + (f'; {hidden} point{"s" if hidden != 1 else ""} below {ymin:.0f} % not drawn' if hidden else "") + '.</p>')
+        # zoom on the region the search works in: the proposals near the floor and the gate points next to them
+        # window: from just left of the gate's cheapest point above the floor to just right of the next cheaper gate point
+        near = []
+        if best_base is not None:
+            gx = 4 / best_base["exec_loops"]
+            nxt = min((4 / e["exec_loops"] for e in base if 4 / e["exec_loops"] > gx + 1e-9), default=gx + 0.2)
+            zx0, zx1 = round(0.05 * int((gx - 0.08) / 0.05), 2), round(0.05 * (int((nxt + 0.04) / 0.05) + 1), 2)
+            near = [p for p in pts_p if zx0 <= p["x"] <= zx1 and p["y"] >= floor - 1.5]
+        if len(near) >= 3:
+            zb = [p for p in pts_b if zx0 <= p["x"] <= zx1 and p["y"] >= floor - 1.5]
+            zys = [p["y"] for p in near + zb]
+            zy0, zy1 = int(min(min(zys), floor)), int(max(zys)) + 1
+            zxt = [round(zx0 + 0.05 * i, 2) for i in range(int(round((zx1 - zx0) / 0.05)) + 1)]
+            zyt = [zy0 + 0.5 * i for i in range(int((zy1 - zy0) / 0.5) + 1)]
+            zoom = pb4._svg((zx0, zx1), (zy0, zy1), zxt, zyt, [p for p in near if zx0 <= p["x"] <= zx1], zb, [], round(floor, 2), best_pid, label_dx,
+                            "Zoom of the BFCL router search around the accuracy floor: proposals against the nearest released-gate points",
+                            (pb4.W - pb4.MR - 238, pb4.MT + 16), xlabel=xl, ylabel=yl, floor_right=False, best_label="cheapest proposal that holds the floor")
+            chart += (f'\n    <p style="margin:18px 0 6px;font-weight:600">The same, zoomed on the region around the floor</p>\n    {zoom}\n'
+                      f'    <p class="src">Numbers next to the circles are the proposal numbers of the table; proposals with identical outcomes share one circle. '
+                      f'One accuracy point on this axis is 5.75 items.</p>')
 
     held = ""
     if os.path.exists(HELD):
@@ -159,6 +193,7 @@ def bfcl_bo_block():
       </tbody>
     </table>
     <p class="src">↓ marks accuracy below the floor. "Leaderboard-style" is BFCL&#39;s unweighted mean over its four categories. Status: {status}. Trajectories: <code>{EVALS}</code>.</p>
+    {reading}
     {chart}
     {held}
   </div>
