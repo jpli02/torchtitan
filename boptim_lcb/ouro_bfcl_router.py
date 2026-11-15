@@ -63,6 +63,7 @@ class OuroBFCLRouterObjective(BaseObjective):
         shards: int = 2,
         work_dir: str | None = None,
         seed: int | None = None,
+        gate_probs: str | None = None,
     ):
         self.worktree, self.python_exe, self.ckpt = Path(worktree), python_exe, ckpt
         self.stage_dir, self.data_name = Path(stage_dir), data_name
@@ -80,6 +81,13 @@ class OuroBFCLRouterObjective(BaseObjective):
         self._gpu_free = list(self.gpus)
         names = ["q"] if mode == "scalar" else ["q1", "q2", "q3"]
         self.params = [ObjectiveParam(n, (0.05, 1.0)) for n in names]
+        self._gate = None
+        if mode == "shares":
+            # search in exit shares: f1 = share of all answer tokens released after loop 1, f2 = share of the remaining ones released
+            # after loop 2, f3 = share of the still remaining ones released after loop 3 (the rest run loop 4). Thresholds are the
+            # matching quantiles of the gate's cumulative exit probabilities, measured once on the search set (bfcl_gate_dump.py).
+            self._gate = self._load_gate(gate_probs or str(self.work_dir / "gate_probs.jsonl"))
+            self.params = [ObjectiveParam("f1", (0.0, 0.25)), ObjectiveParam("f2", (0.7, 1.0)), ObjectiveParam("f3", (0.5, 1.0))]
 
     # ------------------------------------------------------------------ metadata
     @property
@@ -97,7 +105,63 @@ class OuroBFCLRouterObjective(BaseObjective):
         floor = self.acc_floor if self.acc_floor is not None else -1e9
         return 100.0 * exec_loops / 4.0 + self.penalty_per_pt * max(0.0, floor - acc_pct)
 
+    @staticmethod
+    def _load_gate(path: str):
+        """[tokens, 3] array of the cumulative exit probabilities after loops 1, 2, 3 for every answer token of the search set."""
+        import numpy as np
+        rows = []
+        for line in open(path):
+            rows.extend(json.loads(line)["P"])
+        return np.asarray(rows, dtype=float)
+
+    def shares_to_thresholds(self, shares) -> list[float]:
+        """(f1, f2, f3) -> (q1, q2, q3): the thresholds that release these shares of tokens on the search-set gate statistics."""
+        import numpy as np
+        f1, f2, f3 = (min(1.0, max(0.0, float(v))) for v in shares[:3])
+
+        def thr(vals, share):
+            """Threshold that releases the achievable share nearest to `share` (vals >= threshold). The gate's output is a 16-bit
+            float, so the probabilities take a limited set of values and each value holds whole groups of tokens (near 0.25 one
+            value holds about 5 % of all tokens): the cut is placed midway between two neighbouring values, never on one."""
+            n = len(vals)
+            if n == 0 or share <= 0.0:
+                return 1.0
+            u, c = np.unique(np.round(vals, 4), return_counts=True)       # ascending distinct values
+            tail = np.cumsum(c[::-1])[::-1] / n                           # tail[i]: share released by a cut just below u[i]
+            cand = np.concatenate([tail, [0.0]])                          # last candidate: release nothing
+            i = int(np.argmin(np.abs(cand - share)))
+            if i == len(u):
+                return 1.0
+            if i == 0:
+                return 0.0
+            return round(float((u[i - 1] + u[i]) / 2.0), 5)
+
+        P = self._gate
+        q1 = thr(P[:, 0], f1)
+        rest = P[P[:, 0] < q1]
+        q2 = thr(rest[:, 1], f2)
+        rest = rest[rest[:, 1] < q2]
+        q3 = thr(rest[:, 2], f3)
+        return [q1, q2, q3]
+
+    def thresholds_to_shares(self, thr) -> list[float]:
+        """(q1, q2, q3) -> (f1, f2, f3) on the same statistics (the inverse view, for warm starts and reports)."""
+        P = self._gate
+        e1 = P[:, 0] >= thr[0]
+        rest = P[~e1]
+        e2 = rest[:, 1] >= thr[1]
+        rest2 = rest[~e2]
+        e3 = rest2[:, 2] >= thr[2]
+        return [float(e1.mean()), float(e2.mean()) if len(rest) else 1.0, float(e3.mean()) if len(rest2) else 1.0]
+
+    @staticmethod
+    def loops_of_shares(shares) -> float:
+        f1, f2, f3 = shares[:3]
+        return f1 + (1.0 - f1) * (2.0 * f2 + (1.0 - f2) * (3.0 * f3 + 4.0 * (1.0 - f3)))
+
     def _thresholds(self, params) -> list[float]:
+        if self.mode == "shares":
+            return self.shares_to_thresholds(params) + [1.0]
         vals = [min(1.0, max(0.05, float(v))) for v in params]
         return ([vals[0]] * 3 if self.mode == "scalar" else vals[:3]) + [1.0]
 
