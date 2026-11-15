@@ -93,9 +93,21 @@ def bfcl_bo_block():
         pts_b = [{"x": 4 / e["exec_loops"], "y": e["acc_pct"], "name": GATES[e["key"]], "lab": lab(e),
                   "tip": f'{GATES[e["key"]]}: {e["acc_pct"]:.1f} % at {e["exec_loops"]:.2f} loops ({4 / e["exec_loops"]:.2f}× less decode compute)'}
                  for e in sorted(base, key=lambda e: -e["key"][0]) if e["acc_pct"] >= ymin]
-        pts_p = [{"x": 4 / e["exec_loops"], "y": e["acc_pct"], "id": e["id"],
-                  "tip": f'#{e["id"]} {_fmt(e["key"])}: {e["acc_pct"]:.1f} % at {e["exec_loops"]:.2f} loops ({4 / e["exec_loops"]:.2f}×), objective {val(e):.1f}'}
-                 for e in props if e["acc_pct"] >= ymin]
+        # proposals with identical outcomes (thresholds that no token falls between) are drawn as one point
+        groups = {}
+        for e in props:
+            if e["acc_pct"] >= ymin:
+                groups.setdefault((round(e["exec_loops"], 4), round(e["acc_pct"], 2)), []).append(e)
+        pts_p, best_pid = [], None
+        for g in groups.values():
+            pid = ", ".join(str(e["id"]) for e in g)
+            if best_prop is not None and any(e is best_prop for e in g):
+                best_pid = pid
+            pts_p.append({"x": 4 / g[0]["exec_loops"], "y": g[0]["acc_pct"], "id": pid,
+                          "tip": "; ".join(f'#{e["id"]} {_fmt(e["key"])}' for e in g)
+                                 + f': {g[0]["acc_pct"]:.1f} % at {g[0]["exec_loops"]:.2f} loops ({4 / g[0]["exec_loops"]:.2f}×), objective {val(g[0]):.1f}'})
+        # proposal labels go below and to the right of their circle; the gate labels sit above their squares
+        label_dx = {p["id"]: (9, 15, "start") for p in pts_p}
         hidden = sum(1 for e in evs if e["acc_pct"] < ymin)
         g5, g3 = next((e for e in base if e["key"] == (0.5, 0.5, 0.5)), None), next((e for e in base if e["key"] == (0.3, 0.3, 0.3)), None)
         noise_note = ""
@@ -108,7 +120,7 @@ def bfcl_bo_block():
         y0, y1 = int(min(min(ys), floor) - 1), int(max(ys) + 2)
         xt = [1 + 0.5 * i for i in range(int((x1 - 1) / 0.5) + 1)]
         yt = list(range(y0, y1 + 1, 1 if y1 - y0 <= 8 else 2))
-        svg = pb4._svg((0.9, x1), (y0, y1), xt, yt, pts_p, pts_b, [], round(floor, 1), best_prop["id"] if best_prop else None, {},
+        svg = pb4._svg((0.9, x1), (y0, y1), xt, yt, pts_p, pts_b, [], round(floor, 2), best_pid, label_dx,
                        "Pareto view of the BFCL router search: accuracy against decode compute saved, proposals and the released-gate curve",
                        (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel="decode compute saved: 4 / executed loops (higher is cheaper)", ylabel="accuracy on the 575 search items, %",
                        floor_right=True, best_label="cheapest proposal that holds the floor")
