@@ -166,7 +166,9 @@ class OuroBFCLRouterObjective(BaseObjective):
     def _thresholds(self, params) -> list[float]:
         if self.mode == "shares":
             return self.shares_to_thresholds(params) + [1.0]
-        vals = [min(1.0, max(0.05, float(v))) for v in params]
+        # thresholds are taken as given between 0 and 1 (0 releases every token at that loop): routers found in share space
+        # use values below the 0.05 lower bound of the threshold-space search box and must be re-evaluated exactly
+        vals = [min(1.0, max(0.0, float(v))) for v in params]
         return ([vals[0]] * 3 if self.mode == "scalar" else vals[:3]) + [1.0]
 
     @staticmethod
