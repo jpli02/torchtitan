@@ -7,8 +7,9 @@ token. With the exact-cache predictions of bfcl_signal_dump.py for the same toke
   * selection: the head was already wrong after that loop even with an exact cache (the token should not have left there);
   * cache: the head is right after that loop with an exact cache, and wrong here, where earlier tokens left early.
 
-A router is "q1,q2,q3" (gate thresholds), optionally followed by "|conf=t1,t2,t3" (head-confidence exits) and "|maps=path"
-(calibrated cache fill); the last two need the exit-lab model directory (make_exitlab_modeling.py).
+A router is "q1,q2,q3" (gate thresholds), optionally followed by "|conf=t1,t2,t3" (head-confidence exits), "|maps=path"
+(calibrated cache fill) and "|skip=n1,n2,n3" (no cache entry in the first n layers of the skipped loops); the last three need
+the exit-lab model directory (make_exitlab_modeling.py).
 
   CUDA_VISIBLE_DEVICES=0 [CKPT=dir] python boptim_lcb/bfcl_tf_exit.py [step] [routers separated by ';'] [out.jsonl]
 """
@@ -27,10 +28,10 @@ DEFAULT_ROUTERS = "0.2,0.2,0.2;0.25,0.25,0.25;0.3,0.3,0.3"
 
 def parse_router(spec):
     parts = spec.split("|")
-    r = {"gate": [float(v) for v in parts[0].split(",")], "conf": None, "maps": None, "spec": spec}
+    r = {"gate": [float(v) for v in parts[0].split(",")], "conf": None, "maps": None, "skip": None, "spec": spec}
     for p in parts[1:]:
         k, v = p.split("=", 1)
-        r[k] = [float(x) for x in v.split(",")] if k == "conf" else v
+        r[k] = [float(x) for x in v.split(",")] if k == "conf" else ([int(x) for x in v.split(",")] if k == "skip" else v)
     return r
 
 
@@ -50,8 +51,9 @@ def run(model, tok, routers, step=4, out_path=f"{WORK}/tf_exit.jsonl", log=print
         for router in routers:
             q = router["spec"]
             inner.decode_early_exit_threshold = router["gate"] + [1.0]
-            inner.decode_exit_conf = router["conf"]           # ignored by the deployed model file
+            inner.decode_exit_conf = router["conf"]           # these three are ignored by the deployed model file
             inner.decode_fill_maps = router["maps"]
+            inner.decode_fill_skip = router["skip"]
             t0 = time.time()
             n_tok = n_wrong = n_sel = n_cache = n_fixed = bad_items = loops_sum = 0
             by_loop = {1: [0, 0, 0], 2: [0, 0, 0], 3: [0, 0, 0], 4: [0, 0, 0]}  # exit loop -> [tokens, wrong, wrong by cache]
@@ -104,6 +106,7 @@ def run(model, tok, routers, step=4, out_path=f"{WORK}/tf_exit.jsonl", log=print
             results.append(rec)
     inner.decode_exit_conf = None
     inner.decode_fill_maps = None
+    inner.decode_fill_skip = None
     return results
 
 

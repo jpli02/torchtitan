@@ -41,7 +41,7 @@ if os.environ.get("WAIT", "1") == "1":
     log(f"waiting for an evaluation boundary ({shards_alive()} validation shards alive)")
     while True:
         free = torch.cuda.mem_get_info()[0] / 2 ** 30
-        if shards_alive() == 0 or free >= RESERVE_GB + 9.5:
+        if shards_alive() == 0 or free >= RESERVE_GB + float(os.environ.get("START_MARGIN_GB", "6")):
             try:
                 hold = torch.empty(int(RESERVE_GB * 2 ** 30), dtype=torch.uint8, device="cuda")
                 break

@@ -7,6 +7,12 @@ file is not touched). Same released weights (symlink), two additions to the deco
   decode_fill_maps  = path.pt        "calibrated fill": the cache slots of the loops a token skips are filled with affine maps
                                      of its exit-loop keys and values (fitted by kv_fill_fit.py on full-depth answers) instead
                                      of plain copies. Keys are mapped in the unrotated space (rotary rotation undone and redone).
+  decode_fill_skip  = [n1, n2, n3]   "no stand-in": for a token that leaves after loop s, the first n_s layers of every skipped
+                                     loop get NO cache entry, so later tokens running those loops do not attend to it there
+                                     (48 = all layers). A loop-1 key copied into a deeper loop's slot is worse than no key in
+                                     the lower layers (kv_fill_fit.py: up to 46 times the variance at layer 0). Cached keys
+                                     carry their own rotary position, so slots of different lengths stay consistent; batch 1
+                                     decoding passes no attention mask.
 
 Gate thresholds keep working as before; to route on confidence alone give the gate thresholds [0.999, 0.999, 0.999, 1.0].
   python boptim_lcb/make_exitlab_modeling.py            (idempotent; compiles the result before it is put in place)
@@ -45,7 +51,10 @@ rep("""                if bool(dee_cumulative >= (dee_list[current_ut] if dee_li
 # 2. cache fill of the skipped loops: calibrated maps when given, plain copies otherwise
 rep("""                                kc[dst] = torch.cat([kc[dst], kc[src][:, :, -1:, :]], dim=2)
                                 vc[dst] = torch.cat([vc[dst], vc[src][:, :, -1:, :]], dim=2)""",
-    """                                k_new, v_new = kc[src][:, :, -1:, :], vc[src][:, :, -1:, :]
+    """                                _sk = getattr(self, "decode_fill_skip", None)
+                                if _sk is not None and l < (int(_sk[current_ut]) if isinstance(_sk, (list, tuple)) else int(_sk)):
+                                    continue  # exit lab: at this layer the deeper loops do not see this token at all
+                                k_new, v_new = kc[src][:, :, -1:, :], vc[src][:, :, -1:, :]
                                 fm = self._exitlab_maps()
                                 if fm is not None and (current_ut, s) in fm[0]:
                                     k_new, v_new = self._exitlab_fill(fm, current_ut, s, l, k_new, v_new, position_embeddings)
@@ -61,6 +70,7 @@ rep("""        self.kv_collapse_prefill = bool(getattr(self.config, "kv_collapse
         # exit lab (boptim_lcb/make_exitlab_modeling.py): confidence exits and calibrated cache fill, both off by default
         self.decode_exit_conf = getattr(self.config, "decode_exit_conf", None)
         self.decode_fill_maps = getattr(self.config, "decode_fill_maps", None)
+        self.decode_fill_skip = getattr(self.config, "decode_fill_skip", None)
         self._fill_cache = None
         # Initialize weights and apply final processing
         self.post_init()
