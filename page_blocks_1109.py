@@ -220,6 +220,65 @@ def _ep8_partial_note():
             "floor and a first hint that the end of the schedule passes ep4; the clean run on all 75 tasks decides.")
 
 
+def _train75(names, root="/srv/scratch/jli199/tb_runs"):
+    """(resolved, finished tasks, agent timeouts) of a 75-task training-set run spread over several run names and their resume roots."""
+    seen = {}
+    for name in names:
+        for pattern in (f"{root}/{name}/*/*/results.json", f"{root}/resume_{name}/{name}/*/*/results.json"):
+            for f in sorted(glob.glob(pattern)):
+                try:
+                    d = json.load(open(f))
+                except Exception:
+                    continue
+                seen.setdefault(d.get("task_id"), d)
+    return (sum(1 for d in seen.values() if d.get("is_resolved")), len(seen), sum(1 for d in seen.values() if d.get("failure_mode") == "agent_timeout"))
+
+
+def ckpt_table_block():
+    """One row per checkpoint: pass rate on the full training set (75 tasks) and on the full test set (11 tasks x 2 attempts)."""
+    S4 = lambda tag: [f"train75_{tag}_1800_s{i}" for i in range(1, 5)]  # noqa: E731
+    # checkpoint, training so far, training-set run names, test-set score known from the earlier evaluations (None = read live)
+    ckpts = [("v3 (starting checkpoint)", "before take-turns training", ["train75_v3_1800"], "8/22 (36 %)", None),
+             ("take-turns r1", "1.67 epochs, separate run", S4("r1"), "9/22 (41 %)", None),
+             ("epoch 1", "1 epoch", ["train75_ep1_1800"], "6/22 (27 %)" + _sm(" measured under node load"), None),
+             ("epoch 2", "2 epochs", ["train75_ep2_1800"], "4/20 (20 %)" + _sm(" clean re-run; 6/22 under node load"), None),
+             ("epoch 3", "3 epochs", ["train75_ep3_1800"], None, ("/tmp/tb_runs", "tvary_r1_4ep_ep3_eval")),
+             ("epoch 4 (ep4)", "4 epochs", S4("ep4"), "5/21 (24 %)", None)]
+    ckpts += [(f"epoch {k}", f"{k} epochs (continued from ep4)", [f"train75_ep{k}_1800"], None, ("/tmp/tb_runs", f"tvary_r1_8ep_ep{k}_eval")) for k in range(5, 9)]
+    rows, done = [], 0
+    for label, trained, names, test_static, test_live in ckpts:
+        ok, n, to = _train75(names)
+        live = any(_run_live(nm) for nm in names)
+        if n >= 74:  # r1 has one task whose trial left no result; it counts as unsolved
+            done += 1
+            train = f'<b>{ok}/75 ({100 * ok / 75:.0f} %)</b>'
+            status = "final" + ("" if n >= 75 else "; one trial left no result, counted unsolved")
+        elif n:
+            train = f'{ok}/{n} so far'
+            status = "running" if live else "paused"
+        else:
+            train = "running" if live else "queued"
+            status = "running" if live else "queued"
+        tcell = f'{to}' if n else "—"
+        if test_static is not None:
+            test = test_static
+        else:
+            t_ok, t_n, _ = _tb_counts(*test_live)
+            test = (f'{t_ok}/{t_n}' + (f' ({100 * t_ok / t_n:.0f} %)' if t_n >= 20 else " so far")) if t_n else "queued"
+        rows.append(f'<tr><td>{label}</td><td>{_sm(trained)}</td><td class="n">{train}</td><td class="n">{tcell}</td><td class="n">{test}</td><td class="st">{_sm(status)}</td></tr>')
+    return f'''<div class="sub-head"><h3>Pass rate on the full problem sets, by checkpoint {_chip("good", "complete") if done == len(ckpts) else _chip("info", f"{done} of {len(ckpts)} training-set rows final")}</h3><p>Every checkpoint of the take-turns r1 line on the two full sets. Training set: all 75 variant tasks the take-turns r1 data came from, one attempt per task, 1,800 seconds, the same serving for every row. Test set: the 11 held-out tasks, two attempts each. The runs share one card and take about 28 hours each, so the open rows fill in one after another.</p></div>
+<div class="tablewrap">
+    <table>
+      <thead><tr><th>Checkpoint</th><th>Training so far</th><th class="n">training set, solved of 75</th><th class="n">timed out</th><th class="n">test set, solved of 22</th><th class="st">Training-set run</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in rows).strip()}
+      </tbody>
+    </table>
+    <p class="src">"Timed out" counts trials that hit the 1,800-second limit among the finished ones. Epochs 1 to 4 are one run from v3; epochs 5 to 8 continue it from ep4 with a restarted learning-rate schedule, the likely reason for the drop at epoch 5.</p>
+  </div>
+'''
+
+
 def cont_block():
     losses = _cont_losses()
     rows = ['<tr class="dim"><td>r1 (1.67 epochs, reference)</td><td class="n">890</td><td class="n">0.351 → 0.093</td><td class="n">0.093</td><td class="n">23/75 (31 %)</td><td class="n">7/25</td><td class="n">9/22 · 6 tasks</td><td class="st"><span class="sm">best test checkpoint</span></td></tr>',
