@@ -43,6 +43,7 @@ class OuroBFCLRouterObjective(BaseObjective):
     MIN_FREE_MIB = 12000
     MAX_ATTEMPTS = 4   # tries per evaluation before the failure value is reported to the optimizer
     SHARD_MIB = 9500   # one batch-1 process with a 2k-token prompt: model 5.5 GB + cache
+    PREFILL_TOKEN_EQUIV = 8.0  # prompt prefill of one item, in units of one decoded token (shard balancing only)
 
     def __init__(
         self,
@@ -164,6 +165,40 @@ class OuroBFCLRouterObjective(BaseObjective):
                 return rec
         return None
 
+    def _bounds(self, k: int):
+        """Contiguous shard ranges with about equal work. The items are ordered by category and the later categories need several
+        calls per answer, so equal counts leave the last shard with twice the work of the first. When <work_dir>/item_cost.json
+        exists (generated tokens per item of a finished evaluation, written below) the cut points equalise cumulative cost instead.
+        Batch-1 greedy outputs do not depend on where the cuts fall."""
+        n = self.n_items
+        equal = [((n * j) // k, (n * (j + 1)) // k) for j in range(k)]
+        try:
+            cost = json.loads((self.work_dir / "item_cost.json").read_text())
+        except Exception:
+            return equal
+        if k < 2 or len(cost) != n:
+            return equal
+        total, run, cuts = float(sum(cost)), 0.0, [0]
+        for i, c in enumerate(cost):
+            run += c
+            if len(cuts) < k and run >= total * len(cuts) / k:
+                cuts.append(i + 1)
+        cuts = cuts[:k] + [n]
+        bounds = [(cuts[j], cuts[j + 1]) for j in range(len(cuts) - 1)]
+        return bounds if len(bounds) == k and all(hi > lo for lo, hi in bounds) else equal
+
+    def _save_item_cost(self, run_dir) -> None:
+        """Per-item cost for _bounds from a finished evaluation: generated tokens plus a constant for the prompt prefill."""
+        p = self.work_dir / "item_cost.json"
+        if p.exists():
+            return
+        try:
+            cost = [float(json.loads(line)["ntok"]) + self.PREFILL_TOKEN_EQUIV for line in open(run_dir / "gen.jsonl") if line.strip() and '"summary"' not in line[:12]]
+            if len(cost) == self.n_items:
+                p.write_text(json.dumps(cost))
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------ evaluation
     def evaluate(self, params) -> float:
         thr = self._thresholds(params)
@@ -218,7 +253,7 @@ class OuroBFCLRouterObjective(BaseObjective):
         run_dir.mkdir(parents=True, exist_ok=True)
         t0 = time.time()
         k = max(1, min(self.shards, self._free_mib(gpu) // self.SHARD_MIB))
-        bounds = [((self.n_items * j) // k, (self.n_items * (j + 1)) // k) for j in range(k)]
+        bounds = self._bounds(k)
         cfg = "decode_early_exit_threshold=" + json.dumps(thr)
         procs = []
         for j, (lo, hi) in enumerate(bounds):
@@ -273,6 +308,7 @@ class OuroBFCLRouterObjective(BaseObjective):
                "trunc_rate": sum(r["trunc_rate"] * r["n"] for r in results) / self.n_items, "shards": k, "wall_s": wall, "gpu": gpu,
                "acc_floor_pct": self.acc_floor, "value": value, "status": "ok", "run_dir": str(run_dir)}
         self._eval_records.append(rec)
+        self._save_item_cost(run_dir)
         json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
         with self._lock:
             with open(self.work_dir / "evaluations.jsonl", "a") as f:

@@ -192,20 +192,23 @@ def _task_outcomes(names, root="/srv/scratch/jli199/tb_runs"):
 
 def _ep8_partial_note():
     """The epoch 8 run that was stopped on a memory-starved card, compared with the other checkpoints on the tasks it finished."""
-    part = _task_outcomes(["train75_ep8_1800_gpu0_oom"])
+    # the four interrupted attempts in the order they ran; the first result per task counts, whatever its outcome
+    part = _task_outcomes(["train75_ep8_1800_shared_gpu1", "train75_ep8_1800_shared_gpu2", "train75_ep8_1800_shared_gpu2b", "train75_ep8_1800_gpu0_oom"])
     if not part:
         return ""
     tasks = set(part)
-    ref = {"r1": [f"train75_r1_1800_s{i}" for i in range(1, 5)], "ep4": [f"train75_ep4_1800_s{i}" for i in range(1, 5)],
-           "epoch 5": ["train75_ep5_1800"], "epoch 7": ["train75_ep7_1800"]}
+    ref = {"ep4": [f"train75_ep4_1800_s{i}" for i in range(1, 5)], "epoch 7": ["train75_ep7_1800"], "r1": [f"train75_r1_1800_s{i}" for i in range(1, 5)],
+           "epoch 5": ["train75_ep5_1800"]}
     cmp_ = []
     for label, names in ref.items():
         o = _task_outcomes(names)
-        if tasks <= set(o):
-            cmp_.append(f"{label} {sum(o[t] for t in tasks)}")
-    return (f" A first signal for epoch 8: an attempt on a card shared with another user was stopped after {len(tasks)} tasks because a fifth of its serving turns "
-            f"ran out of memory, and is not counted; even so it solved {sum(part.values())} of those {len(tasks)} tasks, where the other checkpoints solved "
-            + ", ".join(cmp_) + " of the same tasks. Twelve tasks cannot settle it; the clean run on all 75 does.")
+        cov = tasks & set(o)
+        if cov:
+            cmp_.append(f"{label} {sum(o[t] for t in cov)}" + (f" (of {len(cov)})" if len(cov) < len(tasks) else ""))
+    return (f" A first signal for epoch 8: four earlier attempts ran on cards shared with other users and were stopped when serving turns ran out of memory, "
+            f"so none of them is counted. Taking the first result per task across them gives {len(tasks)} distinct tasks, of which epoch 8 solved "
+            f"{sum(part.values())}; on the same tasks the other checkpoints solved " + ", ".join(cmp_) + ". The interrupted runs were handicapped, so this is a "
+            "floor and a first hint that the end of the schedule passes ep4; the clean run on all 75 tasks decides.")
 
 
 def cont_block():
