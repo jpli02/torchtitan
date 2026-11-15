@@ -62,6 +62,43 @@ def _exit_shares(thr):
     return s + [max(0.0, 1.0 - sum(s))]
 
 
+def _unseen_reading(rows, key, n_items, label):
+    """What an unseen set says about the searched routers: each against the released gate's own curve at the same executed loops
+    (straight line between the two gate points around it), in items. Empty until the set has full depth, two gate points and a router."""
+    have = [r for r in rows if r.get(key) is not None]
+    full = next((r for r in have if r["name"] == "full depth"), None)
+    gates = sorted((r for r in have if r["name"].startswith("released gate")), key=lambda r: r[key + "_loops"])
+    routers = [r for r in have if r["name"].startswith("BO #")]
+    if not full or len(gates) < 2 or not routers:
+        return ""
+    floor = full[key] - TOL
+    curve = gates + [full]
+    parts, diffs = [], []
+    for r in routers:
+        L = r[key + "_loops"]
+        lo = max((g for g in curve if g[key + "_loops"] <= L), key=lambda g: g[key + "_loops"], default=None)
+        hi = min((g for g in curve if g[key + "_loops"] >= L), key=lambda g: g[key + "_loops"], default=None)
+        if lo is None or hi is None:
+            continue
+        span = hi[key + "_loops"] - lo[key + "_loops"]
+        line = lo[key] if span <= 0 else lo[key] + (L - lo[key + "_loops"]) / span * (hi[key] - lo[key])
+        d = round((r[key] - line) * n_items / 100.0)
+        diffs.append(d)
+        parts.append(f'{r["name"].split(" (")[0]} {r[key]:.1f} % at {L:.2f} loops, {abs(d)} item{"s" if abs(d) != 1 else ""} {"above" if d > 0 else "below"} the gate curve' if d else
+                     f'{r["name"].split(" (")[0]} {r[key]:.1f} % at {L:.2f} loops, on the gate curve')
+    if not parts:
+        return ""
+    ok_gates = [g for g in gates if g[key] >= floor]
+    ok_routers = [r for r in routers if r[key] >= floor]
+    cheapest = min(ok_gates + ok_routers, key=lambda r: r[key + "_loops"], default=None)
+    noise = max(2, round(0.006 * n_items))  # about half a point: what a paired difference between two close routers moves by chance
+    verdict = ("The advantage seen on the search set did not carry over: on these unseen items the searched routers sit on the released gate&#39;s own curve."
+               if all(d <= noise for d in diffs) else "Some of the advantage seen on the search set carries over to these unseen items.")
+    return (f'<p class="src"><b>Result on {label}.</b> Full depth scores {full[key]:.1f} %, which puts the floor at {floor:.1f} %. ' + "; ".join(parts) + ". "
+            + (f'The cheapest router that holds this floor is {cheapest["name"].split(" (")[0]} ({cheapest[key]:.1f} % at {cheapest[key + "_loops"]:.2f} loops). ' if cheapest else "")
+            + verdict + '</p>')
+
+
 def bfcl_bo_block():
     evs = _evals()
     log = f"{TMP}/bfcl_bo.log"
@@ -84,7 +121,9 @@ def bfcl_bo_block():
     best_prop = min((e for e in props if holds(e)), key=lambda e: (round(e["exec_loops"], 3), -e["acc_pct"]), default=None)
     log2 = f"{TMP}/bfcl_bo2.log"
     text2 = open(log2, errors="replace").read() if os.path.exists(log2) else ""
-    started2, finished2 = bool(text2), "BO2 finished with code 0" in text2
+    # the second search (exit shares) only shows once it has results of its own; it was stopped before its first evaluation
+    # on 2026-11-15, after the held-out result of the first search
+    started2, finished2 = len(props) > N_BO, "BO2 finished with code 0" in text2
     rows = []
     for e in sorted(base, key=lambda e: -e["key"][0]) + props:
         if e.get("id") == N_BO + 1:
@@ -100,9 +139,9 @@ def bfcl_bo_block():
     if not rows:
         rows.append('<tr><td colspan="7">the full-depth baseline is running</td></tr>')
     done_b, done_p = len(base), len(props)
-    status = f'{done_b} of {N_DESIGN} baseline points and {min(done_p, N_BO)} of {N_BO} proposals of the first search evaluated'
+    status = f'{done_b} of {N_DESIGN} baseline points and {min(done_p, N_BO)} of {N_BO} proposals evaluated'
     if started2:
-        status += f', {max(0, done_p - N_BO)} of {N_BO} of the second'
+        status += f' in the first search, {max(0, done_p - N_BO)} of {N_BO} in the second'
     if full:
         status += f'; full depth scores {full["acc_pct"]:.1f} % on the search set, so the floor is {floor:.1f} %'
     if best_base:
@@ -117,9 +156,9 @@ def bfcl_bo_block():
     elif props:
         status += '; no proposal holds the floor yet'
     chip = (_chip("good", "finished") if finished2 else _chip("info", "second search running")) if started2 else (
-        _chip("good", "first search finished") if finished else _chip("info", "running"))
+        _chip("good", "search finished") if finished else _chip("info", "running"))
     second = ""
-    if finished:
+    if finished and started2:
         second = ('<p class="src"><b>Second search, in exit shares.</b> The gate statistics below show why a cube of thresholds is a poor search space: most '
                   'of it changes nothing, and inside the narrow band where loop-1 exits are decided the gate offers only a few discrete settings. The second '
                   'search therefore works in the shares themselves: f1, the share of all answer tokens released after loop 1 (0 to 25 %); f2, the share of '
@@ -226,7 +265,9 @@ def bfcl_bo_block():
         {chr(10).join("        " + r for r in hr).strip()}
       </tbody>
     </table>
-    <p class="src">{h.get("note", "")}</p>'''
+    <p class="src">{h.get("note", "")}</p>
+    {_unseen_reading(h["rows"], "heldout", 575, "the 575 unseen non-live items")}
+    {_unseen_reading(h["rows"], "live", 1350, "the 1,350 live items")}'''
 
     return f'''<div class="sub-head"><h3>BO on BFCL function calling, the benchmark where depth matters {chip}</h3><p>The third search, on the benchmark the probes singled out (ICML 2025; depth 1 / 2 / 4 score 0 / 51 / 78 %, and real early exit gives a smooth curve, not a cliff). It applies what the two LiveCodeBench runs taught. <b>Search and held-out sets are disjoint</b>: the optimiser sees 575 of the 1,150 non-live items (every second item of each category); the other 575 and the 1,350 live items are kept for validation. <b>Compute is counted, not timed</b>: the model reports the loops it executed for every decoded token, which is deterministic, where tokens per second on this shared machine moved by 10 to 30 % between identical runs. <b>The released gate is measured first</b> on the same items (full depth, then thresholds 0.7, 0.5, 0.3, 0.25, 0.2) and seeds the optimiser. Objective, minimised: 100 × executed loops / 4, plus 15 for every accuracy point below the floor (full depth minus 1.7 points, one standard error at this size); full depth scores 100 and a router that halves decode compute for free scores 50. Along the gate&#39;s own curve one accuracy point buys about 0.14 loops; the penalty lets a router give up a point only for more than 0.6 loops, so the optimum sits at the floor. Every evaluation runs real early exit at batch 1 and is graded by the official AST checker in a sandbox; accuracy is the share of items passed. <b>The search box comes from the gate curve</b>: accuracy holds at threshold 0.3, slips at 0.25 and collapses at 0.2, and the mean can go below two loops only if tokens may leave after loop 1, so the optimiser searches q1 in 0.2 to 0.6 and q2, q3 in 0.05 to 0.5. Optimiser: gp_hedge, two proposals per iteration, ten iterations (four grid points, then sixteen model-based proposals); the four gate points inside the box seed it.</p></div>
 <div class="tablewrap">
@@ -243,6 +284,44 @@ def bfcl_bo_block():
     {held}
   </div>
 '''
+
+
+def bfcl_answer_bullet():
+    """One answer bullet for the router question, written from the search and held-out results (empty until both exist)."""
+    evs = _evals()
+    full = next((e for e in evs if e["key"] == (1.0, 1.0, 1.0)), None)
+    if not full or not os.path.exists(HELD):
+        return ""
+    try:
+        rows = json.load(open(HELD))["rows"]
+    except Exception:
+        return ""
+    floor = full["acc_pct"] - TOL
+    gates = [e for e in evs if e["key"] in GATES and e is not full and e["acc_pct"] >= floor]
+    props = [e for e in evs if e["key"] not in GATES and e["acc_pct"] >= floor]
+    hfull = next((r for r in rows if r["name"] == "full depth" and r.get("heldout") is not None), None)
+    hrouters = [r for r in rows if r["name"].startswith("BO #") and r.get("heldout") is not None]
+    hgates = [r for r in rows if r["name"].startswith("released gate") and r.get("heldout") is not None]
+    if not gates or not props or not hfull or not hrouters or not hgates:
+        return ""
+    g = min(gates, key=lambda e: e["exec_loops"])
+    p = min(props, key=lambda e: (round(e["exec_loops"], 3), -e["acc_pct"]))
+    hfloor = hfull["heldout"] - TOL
+    hg = min((r for r in hgates if r["heldout"] >= hfloor), key=lambda r: r["heldout_loops"], default=None)
+    hp = min((r for r in hrouters if r["heldout"] >= hfloor), key=lambda r: r["heldout_loops"], default=None)
+    if hg is None:
+        return ""
+    wins = hp is not None and hp["heldout_loops"] < hg["heldout_loops"]
+    head = ("On BFCL a searched router keeps its advantage on unseen items." if wins else
+            "On BFCL the searched routers land on the released gate&#39;s own curve.")
+    unseen = (f'on 575 unseen items the cheapest router above the floor is {"the searched " + hp["name"].split(" (")[0] if wins else hg["name"]} '
+              f'({(hp if wins else hg)["heldout"]:.1f} % at {(hp if wins else hg)["heldout_loops"]:.2f} loops'
+              + ("" if wins or hp is None else f'; the best searched router needs {hp["heldout_loops"]:.2f} loops for {hp["heldout"]:.1f} %') + ')')
+    return (f'\n      <li><b>{head}</b> Function calling is the benchmark where depth matters most (depth 1 / 2 / 4: 0 / 51 / 78 %), and the released gate already '
+            f'keeps full-depth accuracy at {g["exec_loops"]:.2f} of 4 loops. On the 575 search items the best searched router held the accuracy floor at '
+            f'{p["exec_loops"]:.2f} loops; {unseen}. The reason is in the gate: its cumulative exit probabilities sit near 0.25, 0.5 and 0.75 and take only a few '
+            f'distinct values, so a threshold chooses how many tokens leave after each loop, not which ones. Finer thresholds on this gate are unlikely to help; a '
+            f'better router needs a signal that tells tokens apart.</li>')
 
 
 # ---------------------------------------------------------------- the gate's exit probabilities on BFCL answers
