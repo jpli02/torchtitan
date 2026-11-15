@@ -52,13 +52,15 @@ def bfcl_bo_block():
     props = [e for e in evs if e["key"] not in GATES]
     for k, e in enumerate(props, 1):
         e["id"] = k
-    best_base = min((e for e in base if e is not full), key=val, default=None)
-    best_prop = min(props, key=val, default=None)
+    # the claim is "baseline accuracy at less compute": among routers that hold the floor, the fewest executed loops wins
+    holds = (lambda e: floor is not None and e["acc_pct"] >= floor)
+    best_base = min((e for e in base if e is not full and holds(e)), key=lambda e: e["exec_loops"], default=None)
+    best_prop = min((e for e in props if holds(e)), key=lambda e: e["exec_loops"], default=None)
     rows = []
     for e in sorted(base, key=lambda e: -e["key"][0]) + props:
         name = f'<b>{"released " if e is not full else ""}{GATES[e["key"]]}</b>' if e["key"] in GATES else f'BO #{e["id"]} {_fmt(e["key"])}'
         below = floor is not None and e["acc_pct"] < floor
-        cls = ' class="best"' if e is best_prop and best_base is not None and val(e) < val(best_base) else ""
+        cls = ' class="best"' if e is best_prop and best_base is not None and e["exec_loops"] < best_base["exec_loops"] else ""
         rows.append(f'<tr{cls}><td>{name}</td><td class="n">{e["acc_pct"]:.1f}{" ↓" if below else ""}</td><td class="n">{e.get("overall_unweighted_pct", 0):.1f}</td>'
                     f'<td class="n">{e["exec_loops"]:.2f}</td><td class="n">{100 * e["exec_loops"] / 4:.0f} %</td><td class="n">{4 / e["exec_loops"]:.2f}×</td>'
                     f'<td class="n">{val(e):.1f}</td></tr>')
@@ -69,10 +71,16 @@ def bfcl_bo_block():
     if full:
         status += f'; full depth scores {full["acc_pct"]:.1f} % on the search set, so the floor is {floor:.1f} %'
     if best_base:
-        status += f'; the best released-gate point so far is {GATES[best_base["key"]]} with objective {val(best_base):.1f}'
+        status += (f'; the cheapest released-gate point that holds the floor so far is {GATES[best_base["key"]]}: {best_base["acc_pct"]:.1f} % at '
+                   f'{best_base["exec_loops"]:.2f} loops')
     if best_prop:
-        status += (f'; the best proposal so far is #{best_prop["id"]} {_fmt(best_prop["key"])}: {best_prop["acc_pct"]:.1f} % at {best_prop["exec_loops"]:.2f} loops, '
-                   f'objective {val(best_prop):.1f}')
+        status += (f'; the cheapest proposal that holds the floor so far is #{best_prop["id"]} {_fmt(best_prop["key"])}: {best_prop["acc_pct"]:.1f} % at '
+                   f'{best_prop["exec_loops"]:.2f} loops')
+        if best_base:
+            d = 100 * (1 - best_prop["exec_loops"] / best_base["exec_loops"])
+            status += f' ({abs(d):.0f} % {"fewer" if d > 0 else "more"} loops than that gate point, on the search set)'
+    elif props:
+        status += '; no proposal holds the floor yet'
     chip = _chip("good", "finished") if finished else _chip("info", "running")
 
     chart = ""

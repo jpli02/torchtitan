@@ -1,6 +1,7 @@
 """Held-out validation of the BFCL router search. Scores, under the same real early exit and official checker as the search:
   * full depth and the released gate (0.7, 0.5, 0.3, 0.25, 0.2), and
-  * the search's best proposals by its objective (TOP of them, default 3)
+  * the search's best proposals (TOP of them, default 3): the cheapest ones that hold the search-set accuracy floor, then the best
+    of the rest by the objective
 on the two sets the optimiser never saw: bfcl_heldout.jsonl (the other 575 non-live items) and bfcl_live_all.jsonl (the 1,350
 live items). Evaluations are cached per set (<work>/heldout, <work>/live), so the script can be restarted; after every evaluation
 it rewrites <work>/heldout_validation.json, which the experiments page reads.
@@ -52,7 +53,12 @@ def value(e, fl=floor):
     return 100.0 * e["exec_loops"] / 4.0 + PENALTY * max(0.0, fl - e["acc_pct"])
 
 
-props = sorted((e for k, e in search.items() if k not in GATES), key=value)[:TOP]
+# proposals to validate: first the ones that hold the search-set floor, cheapest first (the claim is "baseline accuracy at less
+# compute"), then, if fewer than TOP hold it, the best of the rest by the objective
+cands = [e for k, e in search.items() if k not in GATES]
+feasible = sorted((e for e in cands if e["acc_pct"] >= floor), key=lambda e: e["exec_loops"])
+others = sorted((e for e in cands if e["acc_pct"] < floor), key=value)
+props = (feasible + others)[:TOP]
 # order of work: the baseline that matters most first, then proposals and gate points interleaved
 order = [(1.0, 1.0, 1.0), (0.3, 0.3, 0.3)]
 rest_gates = [(0.25, 0.25, 0.25), (0.2, 0.2, 0.2), (0.5, 0.5, 0.5), (0.7, 0.7, 0.7)]
