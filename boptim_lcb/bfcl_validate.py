@@ -19,7 +19,7 @@ WORK = "/home/jli199/boptim_scratch/bo_bfcl_router"
 GPUS = os.environ.get("BFCL_BO_GPUS", "0")
 SHARDS = int(os.environ.get("BFCL_SHARDS", "4"))
 TOP = int(os.environ.get("TOP", "3"))
-TOL, PENALTY = 1.7, 5.0
+TOL, PENALTY = 1.7, float(os.environ.get("BFCL_PENALTY", "15.0"))  # as in bfcl_bo_run.py
 SETS = {"heldout": ("bfcl_heldout.jsonl", 575), "live": ("bfcl_live_all.jsonl", 1350)}
 GATES = {(1.0, 1.0, 1.0): "full depth", (0.7, 0.7, 0.7): "released gate 0.7", (0.5, 0.5, 0.5): "released gate 0.5",
          (0.3, 0.3, 0.3): "released gate 0.3", (0.25, 0.25, 0.25): "released gate 0.25", (0.2, 0.2, 0.2): "released gate 0.2"}

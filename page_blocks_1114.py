@@ -43,7 +43,8 @@ def _frontier(pts):
 
 
 def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend_xy,
-         xlabel="speed-up over full depth (higher is faster)", ylabel="pass@1, %"):
+         xlabel="speed-up over full depth (higher is faster)", ylabel="pass@1, %", floor_right=False,
+         best_label="the run&#39;s best by its objective"):
     x0, x1 = xr
     y0, y1 = yr
     pw, ph = W - ML - MR, H - MT - MB
@@ -68,7 +69,10 @@ def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend
     o.append(f'<text transform="translate(15 {MT + ph / 2:.0f}) rotate(-90)" text-anchor="middle" style="fill:var(--text-2);font-size:12.5px">{ylabel}</text>')
     # accuracy floor of the objective
     o.append(f'<line x1="{ML}" x2="{W - MR}" y1="{Y(floor):.1f}" y2="{Y(floor):.1f}" style="stroke:var(--text-3);stroke-width:1.2;stroke-dasharray:5 4"/>')
-    o.append(f'<text x="{ML + 7}" y="{Y(floor) + 14:.1f}" text-anchor="start" style="fill:var(--text-3);font-size:11.5px">accuracy floor of the objective, {floor:g} %</text>')
+    if floor_right:  # label at the right end, for charts whose points crowd the left end of the floor line
+        o.append(f'<text x="{W - MR - 7}" y="{Y(floor) - 6:.1f}" text-anchor="end" style="fill:var(--text-3);font-size:11.5px">accuracy floor of the objective, {floor:g} %</text>')
+    else:
+        o.append(f'<text x="{ML + 7}" y="{Y(floor) + 14:.1f}" text-anchor="start" style="fill:var(--text-3);font-size:11.5px">accuracy floor of the objective, {floor:g} %</text>')
     # released-gate curve (in threshold order) and the BO frontier
     o.append('<polyline points="' + " ".join(f'{X(p["x"]):.1f},{Y(p["y"]):.1f}' for p in base if p.get("curve", True))
              + '" style="fill:none;stroke:var(--base);stroke-width:1.6"/>')
@@ -113,7 +117,7 @@ def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend
     lx, ly = legend_xy
     items = [("rect", "var(--base)", "released gate and full depth (baseline)"), ("dot", "var(--s1)", "BO proposal that holds the accuracy floor"),
              ("ring", "var(--s1)", "BO proposal below the floor" + (" or with a shared-card speed reading" if any(not p.get("clean", True) for p in bo) else "")),
-             ("best", "var(--s2)", "the run&#39;s best by its objective")]
+             ("best", "var(--s2)", best_label)]
     if extra:
         items.append(("diamond", "var(--s3)", "first-run routers, re-scored on all 342 (warm start)"))
     for i, (kind, col, text) in enumerate(items):

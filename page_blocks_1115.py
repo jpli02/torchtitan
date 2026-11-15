@@ -10,7 +10,7 @@ from page_blocks_1107 import TMP, _chip
 WORK = "/home/jli199/boptim_scratch/bo_bfcl_router"
 EVALS = f"{WORK}/evaluations.jsonl"
 HELD = f"{WORK}/heldout_validation.json"
-TOL, PENALTY, N_DESIGN, N_BO = 1.7, 5.0, 6, 20
+TOL, PENALTY, N_DESIGN, N_BO = 1.7, 15.0, 6, 20  # as in boptim_lcb/bfcl_bo_run.py
 GATES = {(1.0, 1.0, 1.0): "full depth", (0.7, 0.7, 0.7): "gate 0.7", (0.5, 0.5, 0.5): "gate 0.5", (0.3, 0.3, 0.3): "gate 0.3",
          (0.25, 0.25, 0.25): "gate 0.25", (0.2, 0.2, 0.2): "gate 0.2"}
 
@@ -86,13 +86,22 @@ def bfcl_bo_block():
     chart = ""
     if full and len(evs) >= 4:
         ymin = floor - 6
-        pts_b = [{"x": 4 / e["exec_loops"], "y": e["acc_pct"], "name": GATES[e["key"]], "lab": (0, -10, "middle"),
+        def lab(e):
+            """Direct label above the square, or below and to the left when the square sits on the dashed floor line."""
+            return (-8, 16, "end") if floor - 0.9 < e["acc_pct"] < floor + 0.3 else (0, -10, "middle")
+
+        pts_b = [{"x": 4 / e["exec_loops"], "y": e["acc_pct"], "name": GATES[e["key"]], "lab": lab(e),
                   "tip": f'{GATES[e["key"]]}: {e["acc_pct"]:.1f} % at {e["exec_loops"]:.2f} loops ({4 / e["exec_loops"]:.2f}× less decode compute)'}
                  for e in sorted(base, key=lambda e: -e["key"][0]) if e["acc_pct"] >= ymin]
         pts_p = [{"x": 4 / e["exec_loops"], "y": e["acc_pct"], "id": e["id"],
                   "tip": f'#{e["id"]} {_fmt(e["key"])}: {e["acc_pct"]:.1f} % at {e["exec_loops"]:.2f} loops ({4 / e["exec_loops"]:.2f}×), objective {val(e):.1f}'}
                  for e in props if e["acc_pct"] >= ymin]
         hidden = sum(1 for e in evs if e["acc_pct"] < ymin)
+        g5, g3 = next((e for e in base if e["key"] == (0.5, 0.5, 0.5)), None), next((e for e in base if e["key"] == (0.3, 0.3, 0.3)), None)
+        noise_note = ""
+        if g5 and g3 and g5["acc_pct"] < g3["acc_pct"]:
+            noise_note = (f'. The curve is not smooth: gate 0.5 scores below gate 0.3 by {round((g3["acc_pct"] - g5["acc_pct"]) * 5.75)} items of 575, '
+                          'which is the size of the sampling noise a single point carries here')
         xs = [p["x"] for p in pts_b + pts_p]
         ys = [p["y"] for p in pts_b + pts_p]
         x1 = max(2.0, 0.5 * (int(max(xs) / 0.5) + 1))
@@ -101,10 +110,11 @@ def bfcl_bo_block():
         yt = list(range(y0, y1 + 1, 1 if y1 - y0 <= 8 else 2))
         svg = pb4._svg((0.9, x1), (y0, y1), xt, yt, pts_p, pts_b, [], round(floor, 1), best_prop["id"] if best_prop else None, {},
                        "Pareto view of the BFCL router search: accuracy against decode compute saved, proposals and the released-gate curve",
-                       (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel="decode compute saved: 4 / executed loops (higher is cheaper)", ylabel="accuracy on the 575 search items, %")
+                       (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel="decode compute saved: 4 / executed loops (higher is cheaper)", ylabel="accuracy on the 575 search items, %",
+                       floor_right=True, best_label="cheapest proposal that holds the floor")
         chart = (f'<p style="margin:18px 0 6px;font-weight:600">Accuracy against decode compute, search set</p>\n    {svg}\n'
                  f'    <p class="src">Squares: full depth and the released gate at each threshold, joined in threshold order. Circles: the optimiser&#39;s proposals '
-                 f'(hover for thresholds). A proposal beats the gate only if it lies above and to the right of the gate curve'
+                 f'(hover for thresholds). A proposal beats the gate only if it lies above and to the right of the gate curve{noise_note}'
                  + (f'; {hidden} point{"s" if hidden != 1 else ""} below {ymin:.0f} % not drawn' if hidden else "") + '.</p>')
 
     held = ""
@@ -128,7 +138,7 @@ def bfcl_bo_block():
     </table>
     <p class="src">{h.get("note", "")}</p>'''
 
-    return f'''<div class="sub-head"><h3>BO on BFCL function calling, the benchmark where depth matters {chip}</h3><p>The third search, on the benchmark the probes singled out (ICML 2025; depth 1 / 2 / 4 score 0 / 51 / 78 %, and real early exit gives a smooth curve, not a cliff). It applies what the two LiveCodeBench runs taught. <b>Search and held-out sets are disjoint</b>: the optimiser sees 575 of the 1,150 non-live items (every second item of each category); the other 575 and the 1,350 live items are kept for validation. <b>Compute is counted, not timed</b>: the model reports the loops it executed for every decoded token, which is deterministic, where tokens per second on this shared machine moved by 10 to 30 % between identical runs. <b>The released gate is measured first</b> on the same items (full depth, then thresholds 0.7, 0.5, 0.3, 0.25, 0.2) and seeds the optimiser. Objective, minimised: 100 × executed loops / 4, plus 5 for every accuracy point below the floor (full depth minus 1.7 points, one standard error at this size); full depth scores 100 and a router that halves decode compute for free scores 50. Every evaluation runs real early exit at batch 1 and is graded by the official AST checker in a sandbox; accuracy is the share of items passed. Optimiser: gp_hedge over the three per-loop thresholds, two proposals per iteration, ten iterations.</p></div>
+    return f'''<div class="sub-head"><h3>BO on BFCL function calling, the benchmark where depth matters {chip}</h3><p>The third search, on the benchmark the probes singled out (ICML 2025; depth 1 / 2 / 4 score 0 / 51 / 78 %, and real early exit gives a smooth curve, not a cliff). It applies what the two LiveCodeBench runs taught. <b>Search and held-out sets are disjoint</b>: the optimiser sees 575 of the 1,150 non-live items (every second item of each category); the other 575 and the 1,350 live items are kept for validation. <b>Compute is counted, not timed</b>: the model reports the loops it executed for every decoded token, which is deterministic, where tokens per second on this shared machine moved by 10 to 30 % between identical runs. <b>The released gate is measured first</b> on the same items (full depth, then thresholds 0.7, 0.5, 0.3, 0.25, 0.2) and seeds the optimiser. Objective, minimised: 100 × executed loops / 4, plus 15 for every accuracy point below the floor (full depth minus 1.7 points, one standard error at this size); full depth scores 100 and a router that halves decode compute for free scores 50. Along the gate&#39;s own curve one accuracy point buys about 0.14 loops; the penalty lets a router give up a point only for more than 0.6 loops, so the optimum sits at the floor. Every evaluation runs real early exit at batch 1 and is graded by the official AST checker in a sandbox; accuracy is the share of items passed. <b>The search box comes from the gate curve</b>: accuracy holds at threshold 0.3, slips at 0.25 and collapses at 0.2, and the mean can go below two loops only if tokens may leave after loop 1, so the optimiser searches q1 in 0.2 to 0.6 and q2, q3 in 0.05 to 0.5. Optimiser: gp_hedge, two proposals per iteration, ten iterations (four grid points, then sixteen model-based proposals); the four gate points inside the box seed it.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>router (q1, q2, q3)</th><th class="n">accuracy % (575)</th><th class="n">leaderboard-style %</th><th class="n">executed loops</th><th class="n">decode compute</th><th class="n">compute saved</th><th class="n">objective</th></tr></thead>
