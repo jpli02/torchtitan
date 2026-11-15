@@ -314,7 +314,24 @@ def cont_block():
         status = "training finished; evaluations " + ("done" if all_done else "in progress")
     else:
         status = "training on GPU 5 since 2026-11-09 19:33; the evaluation chains on GPUs 3 and 4 stage and score each epoch as it lands"
-    if trained and not all_done:
+    e8 = _task_outcomes(["train75_ep8_1800"])
+    if trained and len(e8) >= 75:
+        # epoch 8 is final: paired comparison with ep4 on the same 75 tasks (exact two-sided sign test on the tasks only one solves)
+        from math import comb
+        e4 = _task_outcomes([f"train75_ep4_1800_s{i}" for i in range(1, 5)])
+        common = set(e8) & set(e4)
+        up, down = sum(e8[t] and not e4[t] for t in common), sum(e4[t] and not e8[t] for t in common)
+        n, k = up + down, min(up, down)
+        p = min(1.0, 2 * sum(comb(n, i) for i in range(k + 1)) / 2 ** n) if n else 1.0
+        s8, s4 = sum(e8.values()), sum(e4.values())
+        status += (f"; the measure is every epoch on ALL 75 training tasks (the protocol of the ep4 and r1 rows). <b>Epoch 8, the end of the continued schedule, "
+                   f"solves {s8} of 75 ({100 * s8 / 75:.0f} %) against {s4} ({100 * s4 / 75:.0f} %) for ep4</b>: {up} tasks only epoch 8 solves, {down} only ep4 "
+                   f"(exact sign test p = {p:.2f}). Epochs 5 and 7 sit below ep4 (7 % and 39 %), probably because the restarted learning-rate schedule first disturbs the weights; "
+                   "the gain appears once the rate has decayed again. So the pass rate on the training tasks was still rising with training: in this sense "
+                   "ep4 was under-fitted. Whether the gain reaches the test tasks is what the epoch 8 test evaluation, running now, shows; the rest of epoch 6 "
+                   "and the test sets of epochs 7, 6 and 5 follow. Four epoch 8 trials had started in containers left by interrupted attempts and were redone in "
+                   "fresh ones (two of them flipped to solved)")
+    elif trained and not all_done:
         status += ("; the measure is every epoch on ALL 75 training tasks (the protocol of the ep4 and r1 rows). Epochs 5 and 7 are complete. Epoch 8, the "
                    "end of the schedule and the lowest loss, now runs on GPU 1, the one whole card; epoch 6 is paused at its finished tasks and resumes after it. "
                    "Runs on cards shared with other users were discarded (serving turns ran out of memory), so these evaluations use only the whole card."
