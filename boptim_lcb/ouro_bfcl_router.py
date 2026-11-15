@@ -41,6 +41,7 @@ class OuroBFCLRouterObjective(BaseObjective):
     FAIL_VALUE = 200.0
     GEN_TIMEOUT_S = 5 * 3600
     MIN_FREE_MIB = 12000
+    MAX_ATTEMPTS = 4   # tries per evaluation before the failure value is reported to the optimizer
     SHARD_MIB = 9500   # one batch-1 process with a 2k-token prompt: model 5.5 GB + cache
 
     def __init__(
@@ -173,7 +174,7 @@ class OuroBFCLRouterObjective(BaseObjective):
             print(f"[bfcl-router] thr={['%.3f' % v for v in thr[:3]]} cached: acc={hit['acc_pct']:.1f}% loops={hit['exec_loops']:.3f} value={value:.2f}", flush=True)
             return value
         value, ok, gpu = self.FAIL_VALUE, False, "?"
-        for attempt in range(2):
+        for attempt in range(self.MAX_ATTEMPTS):
             gpu = self._acquire_gpu()
             try:
                 value, ok = self._evaluate_on(thr, gpu)
@@ -184,12 +185,13 @@ class OuroBFCLRouterObjective(BaseObjective):
                 self._release_gpu(gpu)
             if ok:
                 return value
-            if attempt == 0:
+            if attempt < self.MAX_ATTEMPTS - 1:
+                # a failure here is the shared machine (a card taken mid-run, a killed process), not the router: wait and try again
                 with self._lock:
                     if len(self._gpu_free) > 1 and self._gpu_free[0] == gpu:
                         self._gpu_free.append(self._gpu_free.pop(0))
-                print(f"[bfcl-router] evaluation failed on gpu {gpu}; retrying once", flush=True)
-                time.sleep(60)
+                print(f"[bfcl-router] evaluation failed on gpu {gpu}; retry {attempt + 1} of {self.MAX_ATTEMPTS - 1}", flush=True)
+                time.sleep(120 * (attempt + 1))
         self._eval_records.append({"thresholds": thr, "status": "generation_failed", "value": value, "gpu": gpu})
         return value
 

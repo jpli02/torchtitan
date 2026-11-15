@@ -42,7 +42,8 @@ def _frontier(pts):
     return sorted(out, key=lambda p: (p["x"], -p["y"]))
 
 
-def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend_xy):
+def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend_xy,
+         xlabel="speed-up over full depth (higher is faster)", ylabel="pass@1, %"):
     x0, x1 = xr
     y0, y1 = yr
     pw, ph = W - ML - MR, H - MT - MB
@@ -63,8 +64,8 @@ def _svg(xr, yr, xt, yt, bo, base, extra, floor, best_id, label_dx, aria, legend
         o.append(f'<text x="{X(v):.1f}" y="{H - MB + 17}" text-anchor="middle" style="fill:var(--text-2);font-size:12px">{v:g}×</text>')
     o.append(f'<line x1="{ML}" x2="{W - MR}" y1="{H - MB}" y2="{H - MB}" style="stroke:var(--line-2);stroke-width:1.2"/>')
     o.append(f'<line x1="{ML}" x2="{ML}" y1="{MT}" y2="{H - MB}" style="stroke:var(--line-2);stroke-width:1.2"/>')
-    o.append(f'<text x="{ML + pw / 2:.0f}" y="{H - 10}" text-anchor="middle" style="fill:var(--text-2);font-size:12.5px">speed-up over full depth (higher is faster)</text>')
-    o.append(f'<text transform="translate(15 {MT + ph / 2:.0f}) rotate(-90)" text-anchor="middle" style="fill:var(--text-2);font-size:12.5px">pass@1, %</text>')
+    o.append(f'<text x="{ML + pw / 2:.0f}" y="{H - 10}" text-anchor="middle" style="fill:var(--text-2);font-size:12.5px">{xlabel}</text>')
+    o.append(f'<text transform="translate(15 {MT + ph / 2:.0f}) rotate(-90)" text-anchor="middle" style="fill:var(--text-2);font-size:12.5px">{ylabel}</text>')
     # accuracy floor of the objective
     o.append(f'<line x1="{ML}" x2="{W - MR}" y1="{Y(floor):.1f}" y2="{Y(floor):.1f}" style="stroke:var(--text-3);stroke-width:1.2;stroke-dasharray:5 4"/>')
     o.append(f'<text x="{ML + 7}" y="{Y(floor) + 14:.1f}" text-anchor="start" style="fill:var(--text-3);font-size:11.5px">accuracy floor of the objective, {floor:g} %</text>')

@@ -176,6 +176,38 @@ def _oom_turns(name):
     return oom, turns
 
 
+def _task_outcomes(names, root="/srv/scratch/jli199/tb_runs"):
+    """task -> resolved? over several run names (main and resume roots), first result per task wins."""
+    out = {}
+    for name in names:
+        for pattern in (f"{root}/{name}/*/*/results.json", f"{root}/resume_{name}/{name}/*/*/results.json"):
+            for f in sorted(glob.glob(pattern)):
+                try:
+                    d = json.load(open(f))
+                except Exception:
+                    continue
+                out.setdefault(d.get("task_id"), bool(d.get("is_resolved")))
+    return out
+
+
+def _ep8_partial_note():
+    """The epoch 8 run that was stopped on a memory-starved card, compared with the other checkpoints on the tasks it finished."""
+    part = _task_outcomes(["train75_ep8_1800_gpu0_oom"])
+    if not part:
+        return ""
+    tasks = set(part)
+    ref = {"r1": [f"train75_r1_1800_s{i}" for i in range(1, 5)], "ep4": [f"train75_ep4_1800_s{i}" for i in range(1, 5)],
+           "epoch 5": ["train75_ep5_1800"], "epoch 7": ["train75_ep7_1800"]}
+    cmp_ = []
+    for label, names in ref.items():
+        o = _task_outcomes(names)
+        if tasks <= set(o):
+            cmp_.append(f"{label} {sum(o[t] for t in tasks)}")
+    return (f" A first signal for epoch 8: an attempt on a card shared with another user was stopped after {len(tasks)} tasks because a fifth of its serving turns "
+            f"ran out of memory, and is not counted; even so it solved {sum(part.values())} of those {len(tasks)} tasks, where the other checkpoints solved "
+            + ", ".join(cmp_) + " of the same tasks. Twelve tasks cannot settle it; the clean run on all 75 does.")
+
+
 def cont_block():
     losses = _cont_losses()
     rows = ['<tr class="dim"><td>r1 (1.67 epochs, reference)</td><td class="n">890</td><td class="n">0.351 → 0.093</td><td class="n">0.093</td><td class="n">23/75 (31 %)</td><td class="n">7/25</td><td class="n">9/22 · 6 tasks</td><td class="st"><span class="sm">best test checkpoint</span></td></tr>',
@@ -210,13 +242,13 @@ def cont_block():
     else:
         status = "training on GPU 5 since 2026-11-09 19:33; the evaluation chains on GPUs 3 and 4 stage and score each epoch as it lands"
     if trained and not all_done:
-        status += ("; the measure is every epoch on ALL 75 training tasks (the protocol of the ep4 and r1 rows). Epochs 5 and 7 are complete; the epoch 6 "
-                   "re-run follows epoch 5 on GPU 1 and epoch 8 runs on GPU 0, about 28 hours each. Earlier attempts on cards borrowed from another user were "
-                   "discarded: that user's jobs took the memory back mid-run and serving turns ran out of memory, so the server now reserves its card at start and "
-                   "only GPUs 0 and 1 are used for these evaluations. Reading so far: continuing past ep4 does not raise the training-task pass rate "
-                   "(epoch 5 falls to 7 %, epoch 7 recovers to 39 % against 44 % for ep4): the restarted learning-rate schedule first disturbs the weights and "
-                   "the later epochs only climb back. The test-set column for the new epochs is not filled yet; the first test runs were discarded because the "
-                   "evaluation chain had left out the 12k-token context cap")
+        status += ("; the measure is every epoch on ALL 75 training tasks (the protocol of the ep4 and r1 rows). Epochs 5 and 7 are complete. Epoch 8, the "
+                   "end of the schedule and the lowest loss, now runs on GPU 1, the one whole card; epoch 6 is paused at its finished tasks and resumes after it. "
+                   "Runs on cards shared with other users were discarded (serving turns ran out of memory), so these evaluations use only the whole card."
+                   + _ep8_partial_note() +
+                   " Reading so far: epochs 5 to 7 do not raise the training-task pass rate (epoch 5 falls to 7 %, epoch 7 recovers to 39 % against 44 % for ep4): "
+                   "the restarted learning-rate schedule first disturbs the weights and the later epochs climb back; whether the end of the schedule goes past "
+                   "ep4 is what the epoch 8 run decides. The test-set column for the new epochs follows the training-set runs")
     return f'''<div class="sub-head"><h3>Continuing ep4: four more epochs on the same data {_chip("good", "trained") if trained else _chip("info", "running")}</h3><p>Test of the under-fitting hypothesis: ep4 is continued on the same shuffled 1:1 mixture (112 take-turns r1 rows + 112 v3 replay rows) for four more true epochs (536 packed steps each), weights-only load as in every continuation here, a checkpoint at every epoch boundary. Each checkpoint is scored on the 11-task test set (2 attempts, the protocol of the epoch 1 to 4 rows above) and on a fixed 25-task subset of the 75 training tasks (every third task; 1 attempt, 1,800 s), where ep4 solves 8 and r1 7. If the training-subset score keeps rising while the test score does not, the training-task gap is execution, not fit.</p></div>
 <div class="tablewrap">
     <table>

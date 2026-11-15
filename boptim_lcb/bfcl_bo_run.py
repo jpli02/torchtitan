@@ -19,7 +19,8 @@ from objective import OBJECTIVE_REGISTRY  # noqa: E402
 
 WORK = "/home/jli199/boptim_scratch/bo_bfcl_router"
 GPUS = os.environ.get("BFCL_BO_GPUS", "5")
-TOL, PENALTY, N, SHARDS, SEED = 1.7, 5.0, 575, 2, 11
+TOL, PENALTY, N, SEED = 1.7, 5.0, 575, 11
+SHARDS = int(os.environ.get("BFCL_SHARDS", "2"))  # batch-1 processes per evaluation (outputs do not depend on it)
 BO_ITERS = int(os.environ.get("BO_ITERS", "10"))
 DESIGN = [[1.0, 1.0, 1.0], [0.7, 0.7, 0.7], [0.5, 0.5, 0.5], [0.3, 0.3, 0.3], [0.25, 0.25, 0.25], [0.2, 0.2, 0.2]]
 
