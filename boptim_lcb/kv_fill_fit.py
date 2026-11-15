@@ -22,8 +22,11 @@ PAIRS = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]  # (source loop, target
 RIDGE = 1e-2
 
 
-def fit(model, tok, n_fit=120, n_test=40, save=None, log=print):
+def fit(model, tok, n_fit=120, n_test=40, save=None, log=print, min_conf=None):
+    """min_conf: fit and test only on the answer tokens whose head confidence after loop 1 is at least this value, i.e. on the
+    tokens a confidence router would actually release (their deeper states are harder to predict than the average token's)."""
     rows = [json.loads(l) for l in open(DATA) if l.strip()]
+    sig = [json.loads(l) for l in open(f"{WORK}/signal_probs.jsonl")] if min_conf is not None else None
     full_dir = None
     for rec in sorted(glob.glob(f"{WORK}/q1.000-1.000-1.000_*/record.json")):
         if json.load(open(rec)).get("status") == "ok":
@@ -63,6 +66,13 @@ def fit(model, tok, n_fit=120, n_test=40, save=None, log=print):
         K = torch.stack([torch.stack([unrot(pk.key_cache[s * NL + l][0, :, lo:, :]) for l in range(NL)]) for s in range(4)]).double().cpu()
         V = torch.stack([torch.stack([pk.value_cache[s * NL + l][0, :, lo:, :].float() for l in range(NL)]) for s in range(4)]).double().cpu()
         del pk, out
+        if sig is not None:
+            # answer token j is released (or not) on the confidence of the prediction made when it is fed: index j + 1 of the dump
+            c = sig[i]["conf"][0]
+            keep = torch.tensor([c[j + 1] >= min_conf if j + 1 < len(c) else False for j in range(K.shape[3])])
+            if not bool(keep.any()):
+                return None
+            K, V = K[:, :, :, keep], V[:, :, :, keep]
         return K, V
 
     acc = None
