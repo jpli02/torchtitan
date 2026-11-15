@@ -286,6 +286,24 @@ def bfcl_bo_block():
 '''
 
 
+def _fill_sentence(evs):
+    """What the exit-lab runs add to the answer bullet: the cost below two loops is the cache of early leavers; the correction."""
+    plain = {e["key"]: e for e in evs if e["key"] in GATES}
+    corr = {e["key"]: e for e in _load_ok(f"{WORK}/lab_search/evaluations.jsonl")
+            if (e.get("extra_cfg") or {}).get("decode_fill_maps") and not (e.get("extra_cfg") or {}).get("decode_exit_conf")}
+    k = (0.2, 0.2, 0.2)
+    if k not in plain or k not in corr:
+        return " Finer thresholds on this gate are unlikely to help."
+    s = (f' Below two loops the cost is not which tokens leave but the cache entries they leave behind for the tokens that keep going: correcting those entries '
+         f'lifts the gate at 0.2 from {plain[k]["acc_pct"]:.1f} to {corr[k]["acc_pct"]:.1f} % on the search items at the same {corr[k]["exec_loops"]:.2f} loops')
+    hp = {e["key"]: e for e in _load_ok(f"{WORK}/heldout/evaluations.jsonl") if not e.get("extra_cfg")}
+    hc = {e["key"]: e for e in _load_ok(f"{WORK}/lab_heldout/evaluations.jsonl")
+          if (e.get("extra_cfg") or {}).get("decode_fill_maps") and not (e.get("extra_cfg") or {}).get("decode_exit_conf")}
+    if k in hp and k in hc:
+        s += f', and from {hp[k]["acc_pct"]:.1f} to {hc[k]["acc_pct"]:.1f} % on unseen items'
+    return s + ". Exiting on the head&#39;s confidence in place of the gate does not help."
+
+
 def bfcl_answer_bullet():
     """One answer bullet for the router question, written from the search and held-out results (empty until both exist)."""
     evs = _evals()
@@ -320,8 +338,7 @@ def bfcl_answer_bullet():
     return (f'\n      <li><b>{head}</b> Function calling is the benchmark where depth matters most (depth 1 / 2 / 4: 0 / 51 / 78 %), and the released gate already '
             f'keeps full-depth accuracy at {g["exec_loops"]:.2f} of 4 loops. On the 575 search items the best searched router held the accuracy floor at '
             f'{p["exec_loops"]:.2f} loops; {unseen}. The reason is in the gate: its cumulative exit probabilities sit near 0.25, 0.5 and 0.75 and take only a few '
-            f'distinct values, so a threshold chooses how many tokens leave after each loop, not which ones. Finer thresholds on this gate are unlikely to help; a '
-            f'better router needs a signal that tells tokens apart.</li>')
+            f'distinct values, so a threshold chooses how many tokens leave after each loop, not which ones.{_fill_sentence(evs)}</li>')
 
 
 # ---------------------------------------------------------------- the gate's exit probabilities on BFCL answers
@@ -444,6 +461,49 @@ def _lab_label(gate, conf, maps, skip):
     return ", ".join(parts) if parts else "full depth"
 
 
+def _load_ok(path):
+    out = []
+    if os.path.exists(path):
+        for line in open(path):
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            if e.get("status") == "ok":
+                e["key"] = tuple(round(v, 4) for v in e["thresholds"][:3])
+                out.append(e)
+    return out
+
+
+def _fill_heldout_rows():
+    """Held-out check of the corrected cache entries: the released gate's thresholds, plain against corrected, on the 575 unseen items."""
+    plain = {e["key"]: e for e in _load_ok(f"{WORK}/heldout/evaluations.jsonl") if not e.get("extra_cfg")}
+    corr = {e["key"]: e for e in _load_ok(f"{WORK}/lab_heldout/evaluations.jsonl")
+            if (e.get("extra_cfg") or {}).get("decode_fill_maps") and not (e.get("extra_cfg") or {}).get("decode_exit_conf")}
+    rows, gains = [], []
+    for k in sorted(corr, key=lambda k: -k[0]):
+        if k not in plain or k not in GATES:
+            continue
+        p, c = plain[k], corr[k]
+        d = round((c["acc_pct"] - p["acc_pct"]) * 5.75)
+        gains.append(d)
+        rows.append(f'<tr><td>released {GATES[k]}</td><td class="n">{p["acc_pct"]:.1f}</td><td class="n">{p["exec_loops"]:.2f}</td><td class="n">{c["acc_pct"]:.1f}</td>'
+                    f'<td class="n">{c["exec_loops"]:.2f}</td><td class="n">{"+" if d > 0 else ""}{d}</td></tr>')
+    if not rows:
+        return '<p class="src">Held-out check of the corrected cache entries: running.</p>'
+    full = plain.get((1.0, 1.0, 1.0))
+    verdict = ("The gain carries over to unseen items." if max(gains) >= 5 and min(gains) >= -2 else
+               "On unseen items the gain is within noise." if max(gains) >= 0 else "On unseen items the correction does not help.")
+    return f'''<p style="margin:18px 0 6px;font-weight:600">4. Held-out check: the same thresholds on the 575 unseen items, plain against corrected cache entries</p>
+    <table style="max-width:820px">
+      <thead><tr><th>router</th><th class="n">plain %</th><th class="n">loops</th><th class="n">corrected %</th><th class="n">loops</th><th class="n">items gained</th></tr></thead>
+      <tbody>
+        {"".join(rows)}
+      </tbody>
+    </table>
+    <p class="src">{verdict}{f" Full depth scores {full['acc_pct']:.1f} % on this set, so its floor is {full['acc_pct'] - TOL:.1f} %." if full else ""} None of these items was used to fit the correction or to choose thresholds.</p>'''
+
+
 def bfcl_lab_block():
     sig_p, tf_p, fit_p, lab_p = (f"{WORK}/signal_analysis.json", f"{WORK}/tf_exit_lab.jsonl", f"{WORK}/kv_fill_fit.json", f"{WORK}/lab_search/evaluations.jsonl")
     if not (os.path.exists(sig_p) and os.path.exists(tf_p) and os.path.exists(fit_p)):
@@ -485,7 +545,7 @@ def bfcl_lab_block():
     gates = sorted((e for e in evs if e["key"] in GATES), key=lambda e: e["exec_loops"])
     real = ""
     if os.path.exists(lab_p) and len(gates) >= 2:
-        rr = []
+        lab_rows = []
         for line in open(lab_p):
             try:
                 e = json.loads(line)
@@ -501,20 +561,28 @@ def bfcl_lab_block():
             span = hi["exec_loops"] - lo["exec_loops"]
             line_acc = lo["acc_pct"] if span <= 0 else lo["acc_pct"] + (L - lo["exec_loops"]) / span * (hi["acc_pct"] - lo["acc_pct"])
             d = round((e["acc_pct"] - line_acc) * 5.75)
-            rr.append(f'<tr><td>{lab}</td><td class="n">{e["acc_pct"]:.1f}</td><td class="n">{L:.2f}</td><td class="n">{line_acc:.1f}</td>'
-                      f'<td class="n">{"+" if d > 0 else ""}{d}</td></tr>')
+            lab_rows.append((not x.get("decode_exit_conf"), d, f'<tr><td>{lab}</td><td class="n">{e["acc_pct"]:.1f}</td><td class="n">{L:.2f}</td>'
+                             f'<td class="n">{line_acc:.1f}</td><td class="n">{"+" if d > 0 else ""}{d}</td></tr>'))
         base = "".join(f'<tr class="dim"><td>{"released " if g["key"] != (1.0, 1.0, 1.0) else ""}{GATES[g["key"]]}</td><td class="n">{g["acc_pct"]:.1f}</td>'
                        f'<td class="n">{g["exec_loops"]:.2f}</td><td class="n">—</td><td class="n">—</td></tr>' for g in sorted(gates, key=lambda g: -g["exec_loops"]))
+        rr = [r for _, _, r in sorted(lab_rows, key=lambda t: (not t[0], -t[1]))]            # gate routers first, best first
+        gate_gain = [d for is_gate, d, _ in lab_rows if is_gate]
+        conf_gain = [d for is_gate, d, _ in lab_rows if not is_gate]
+        helps = bool(gate_gain) and max(gate_gain) >= 6
+        title = ("3. In real generation the corrected cache entries lift the gate&#39;s own curve; confidence exits do not help" if helps
+                 else "3. In real generation neither idea beats the released gate")
+        held = _fill_heldout_rows()
         if rr:
-            real = f'''<p style="margin:18px 0 6px;font-weight:600">3. In real generation neither idea beats the released gate (575 search items, official checker)</p>
+            real = f'''<p style="margin:18px 0 6px;font-weight:600">{title} (575 search items, official checker)</p>
     <table>
-      <thead><tr><th>router</th><th class="n">accuracy %</th><th class="n">executed loops</th><th class="n">gate curve at the same loops, %</th><th class="n">items above (+) or below (−) it</th></tr></thead>
+      <thead><tr><th>router</th><th class="n">accuracy %</th><th class="n">executed loops</th><th class="n">plain gate curve at the same loops, %</th><th class="n">items above (+) or below (−) it</th></tr></thead>
       <tbody>
         {base}{"".join(rr)}
       </tbody>
     </table>
-    <p class="src">"Gate curve at the same loops" is the straight line between the two released-gate points around the router. The confidence router from loop 2 on agreed with the full-depth tokens more often than the gate at 0.3 in the forced test above, yet scores lower: agreeing with the full-depth output is not the same as being right, since full depth itself is right on {full_acc} % of the items, and routers near two loops differ by about a point and a half from one item sample to the next.</p>'''
-    return f'''<div class="sub-head"><h3>What limits real early exit below two loops: the cache left behind by tokens that leave after loop 1</h3><p>Function-call answers look like the ideal case for early exit. With an exact cache, the head&#39;s prediction after loop 1 already equals the full-depth token for {100 * sig["safe_share"][0]:.1f} % of the {sig["tokens"]:,} answer tokens, and after loop 2 for {100 * sig["safe_share"][1]:.1f} %; a router that always left at the first loop that is already right would run {sig["oracle_loops"]:.2f} loops. Real early exit does not get there: the released gate loses accuracy as soon as it releases tokens after loop 1 (threshold 0.25 and below). Three measurements say why, and what does not fix it.</p></div>
+    <p class="src">"Plain gate curve at the same loops" is the straight line between the two released-gate points around the router (below the last point, that point itself). {"With corrected cache entries the released gate&#39;s own routers gain up to " + str(max(gate_gain)) + " items of 575 at the same thresholds: the entries left by early leavers were costing accuracy, and a linear correction gives part of it back. " if helps else ""}{"Confidence routers stay " + str(-max(conf_gain)) + " to " + str(-min(conf_gain)) + " items below the gate curve. " if conf_gain and max(conf_gain) < 0 else ""}The confidence router from loop 2 on agreed with the full-depth tokens more often than the gate at 0.3 in the forced test above, yet scores lower: agreeing with the full-depth output is not the same as being right, since full depth itself is right on {full_acc} % of the items. The correction was fitted on the answers of a fifth of these search items, so the clean test is the held-out set.</p>
+    {held}'''
+    return f'''<div class="sub-head"><h3>What limits real early exit below two loops: the cache left behind by tokens that leave after loop 1</h3><p>Function-call answers look like the ideal case for early exit. With an exact cache, the head&#39;s prediction after loop 1 already equals the full-depth token for {100 * sig["safe_share"][0]:.1f} % of the {sig["tokens"]:,} answer tokens, and after loop 2 for {100 * sig["safe_share"][1]:.1f} %; a router that always left at the first loop that is already right would run {sig["oracle_loops"]:.2f} loops. Real early exit does not get there: the released gate loses accuracy as soon as it releases tokens after loop 1 (threshold 0.25 and below). The measurements below say why, what does not fix it, and what gives part of it back.</p></div>
 <div class="tablewrap" style="padding:14px 16px">
     <p style="margin:0 0 6px;font-weight:600">1. Under real early exit the errors land on the tokens that keep going</p>
     <table>
