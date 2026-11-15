@@ -18,11 +18,26 @@ import time
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-CKPT = "/home/jli199/boptim_scratch/ouro_base_kvshare"
+import os
+
+CKPT = os.environ.get("CKPT", "/home/jli199/boptim_scratch/ouro_base_kvshare")   # the exit-lab directory for conf / maps routers
 DATA = "/srv/scratch/jli199/bfcl_stage/bfcl_search.jsonl"
 WORK = "/home/jli199/boptim_scratch/bo_bfcl_router"
 STEP = int(sys.argv[1]) if len(sys.argv) > 1 else 4
-ROUTERS = [[float(v) for v in r.split(",")] for r in (sys.argv[2] if len(sys.argv) > 2 else "0.2,0.2,0.2;0.25,0.25,0.25;0.3,0.3,0.3").split(";")]
+# a router is "q1,q2,q3" (gate thresholds), optionally followed by "|conf=t1,t2,t3" (head-confidence exits) and "|maps=path"
+# (calibrated cache fill); the last two need the exit-lab model directory
+
+
+def parse_router(spec):
+    parts = spec.split("|")
+    r = {"gate": [float(v) for v in parts[0].split(",")], "conf": None, "maps": None, "spec": spec}
+    for p in parts[1:]:
+        k, v = p.split("=", 1)
+        r[k] = [float(x) for x in v.split(",")] if k == "conf" else v
+    return r
+
+
+ROUTERS = [parse_router(r) for r in (sys.argv[2] if len(sys.argv) > 2 else "0.2,0.2,0.2;0.25,0.25,0.25;0.3,0.3,0.3").split(";")]
 OUT = sys.argv[3] if len(sys.argv) > 3 else f"{WORK}/tf_exit.jsonl"
 
 rows = [json.loads(l) for l in open(DATA) if l.strip()]
@@ -40,11 +55,14 @@ config = AutoConfig.from_pretrained(CKPT, trust_remote_code=True)
 config.total_ut_steps = 4
 model = AutoModelForCausalLM.from_pretrained(CKPT, config=config, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda().eval()
 inner = model.model
-print(f"{len(pick)} items, routers {ROUTERS}", flush=True)
+print(f"{len(pick)} items, routers {[r['spec'] for r in ROUTERS]}, model {CKPT}", flush=True)
 
 with open(OUT, "a") as out, torch.inference_mode():
-    for q in ROUTERS:
-        inner.decode_early_exit_threshold = q + [1.0]
+    for router in ROUTERS:
+        q = router["spec"]
+        inner.decode_early_exit_threshold = router["gate"] + [1.0]
+        inner.decode_exit_conf = router["conf"]           # ignored by the deployed model file
+        inner.decode_fill_maps = router["maps"]
         t0 = time.time()
         n_tok = n_wrong = n_sel = n_cache = n_fixed = bad_items = 0
         loops_sum = 0
