@@ -64,7 +64,11 @@ class OuroBFCLRouterObjective(BaseObjective):
         work_dir: str | None = None,
         seed: int | None = None,
         gate_probs: str | None = None,
+        extra_cfg: dict | None = None,
     ):
+        # extra model settings for every evaluation (exit-lab options such as decode_exit_conf, decode_fill_maps); part of the
+        # cache key, so the same thresholds with different settings are different routers
+        self.extra_cfg = dict(extra_cfg) if extra_cfg else None
         self.worktree, self.python_exe, self.ckpt = Path(worktree), python_exe, ckpt
         self.stage_dir, self.data_name = Path(stage_dir), data_name
         self.data = str(self.stage_dir / data_name)
@@ -225,7 +229,7 @@ class OuroBFCLRouterObjective(BaseObjective):
                 rec = json.loads(line)
             except Exception:
                 continue
-            if rec.get("status") == "ok" and self._key(rec.get("thresholds", [])) == key:
+            if rec.get("status") == "ok" and self._key(rec.get("thresholds", [])) == key and rec.get("extra_cfg") == self.extra_cfg:
                 return rec
         return None
 
@@ -324,6 +328,8 @@ class OuroBFCLRouterObjective(BaseObjective):
             cmd = [self.python_exe, str(self.worktree / "depth_eval.py"), self.ckpt, self.data, "--task", "bfcl", "--steps", "4",
                    "--n", str(hi - lo), "--seed_offset", str(lo), "--batch", "1", "--max_new", str(self.max_new),
                    "--assistant_prefix", "[", "--cfg", cfg, "--out", str(run_dir / f"gen_{j}.jsonl")]
+            for kx, vx in (self.extra_cfg or {}).items():
+                cmd += ["--cfg", f"{kx}={json.dumps(vx) if isinstance(vx, (list, tuple)) else vx}"]
             env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, PYTORCH_ALLOC_CONF="expandable_segments:True")
             procs.append(subprocess.Popen(cmd, cwd=str(self.worktree), env=env, stdout=open(run_dir / f"gen_{j}.log", "w"), stderr=subprocess.STDOUT))
         for p in procs:
@@ -371,6 +377,8 @@ class OuroBFCLRouterObjective(BaseObjective):
                "tok_s_shards": sum(r["mean_tokens"] * r["n"] for r in results) / wall, "mean_tokens": sum(r["mean_tokens"] * r["n"] for r in results) / self.n_items,
                "trunc_rate": sum(r["trunc_rate"] * r["n"] for r in results) / self.n_items, "shards": k, "wall_s": wall, "gpu": gpu,
                "acc_floor_pct": self.acc_floor, "value": value, "status": "ok", "run_dir": str(run_dir)}
+        if self.extra_cfg:
+            rec["extra_cfg"] = self.extra_cfg
         self._eval_records.append(rec)
         self._save_item_cost(run_dir)
         json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
