@@ -176,6 +176,15 @@ def _oom_turns(name):
     return oom, turns
 
 
+def _run_live(name):
+    """True while a harness process of this run id is alive on this machine."""
+    import subprocess
+    try:
+        return subprocess.run(["pgrep", "-f", f"openai/{name} "], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    except Exception:
+        return False
+
+
 def _task_outcomes(names, root="/srv/scratch/jli199/tb_runs"):
     """task -> resolved? over several run names (main and resume roots), first result per task wins."""
     out = {}
@@ -228,7 +237,8 @@ def cont_block():
         f_oom, f_turns = _oom_turns(f"train75_ep{k}_1800")
         test = f'{t_ok}/{t_n} · {t_tasks} tasks' if t_n else ("not yet" if done_epoch else "—")
         sub = (f'{s_ok}/{s_n}' + ("" if s_n >= 25 else " so far")) if s_n else "—"
-        full = (f'{f_ok}/{f_n}' + (f" ({100 * f_ok / f_n:.0f} %)" if f_n >= 75 else " so far")) if f_n else ("queued" if done_epoch else "—")
+        live = _run_live(f"train75_ep{k}_1800")
+        full = (f'{f_ok}/{f_n}' + (f" ({100 * f_ok / f_n:.0f} %)" if f_n >= 75 else " so far")) if f_n else ("running" if live else ("queued" if done_epoch else "—"))
         if t_n and t_oom:
             test += _sm(f" {t_oom} of {t_turns} turns out of memory: card shared, rerun")
         if s_n and s_oom:
@@ -236,7 +246,8 @@ def cont_block():
         if f_n and f_oom:
             full += _sm(f" {f_oom} of {f_turns} turns out of memory" + (": card shared, rerun" if f_oom > 0.05 * max(1, f_turns) else " (1 %, during a few hours of card sharing)"))
         staged = bool(glob.glob(f"{CONT_DUMP}_ep{k}_clean/model*.safetensors"))
-        note = "" if not done_epoch else ("done" if f_n >= 75 else ("evaluating on all 75 tasks" if f_n else ("staged, queued for a free card" if staged else "checkpoint saved, queued")))
+        note = "" if not done_epoch else ("done" if f_n >= 75 else ("evaluating on all 75 tasks" if live else ("paused, resumes after the running epoch" if f_n else (
+            "staged, queued for a free card" if staged else "checkpoint saved, queued"))))
         rows.append(f'<tr><td>epoch {k}</td><td class="n">{2144 + CONT_SPE * (k - 4):,}</td><td class="n">{loss_mean}</td><td class="n">{loss_end}</td><td class="n">{full}</td><td class="n">{sub}</td><td class="n">{test}</td><td class="st">{_sm(note)}</td></tr>')
     trained = os.path.exists(f"{CONT_DUMP}/TRAIN_DONE")
     if trained:
