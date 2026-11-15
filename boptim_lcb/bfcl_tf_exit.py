@@ -28,7 +28,7 @@ DEFAULT_ROUTERS = "0.2,0.2,0.2;0.25,0.25,0.25;0.3,0.3,0.3"
 
 def parse_router(spec):
     parts = spec.split("|")
-    r = {"gate": [float(v) for v in parts[0].split(",")], "conf": None, "maps": None, "skip": None, "spec": spec}
+    r = {"gate": [float(v) for v in parts[0].split(",")], "conf": None, "maps": None, "skip": None, "stream": None, "spec": spec}
     for p in parts[1:]:
         k, v = p.split("=", 1)
         r[k] = [float(x) for x in v.split(",")] if k == "conf" else ([int(x) for x in v.split(",")] if k == "skip" else v)
@@ -54,6 +54,7 @@ def run(model, tok, routers, step=4, out_path=f"{WORK}/tf_exit.jsonl", log=print
             inner.decode_exit_conf = router["conf"]           # these three are ignored by the deployed model file
             inner.decode_fill_maps = router["maps"]
             inner.decode_fill_skip = router["skip"]
+            inner.decode_fill_stream = router["stream"]     # "|stream=path": stream fill for loop-1 exits (second exit-lab directory)
             t0 = time.time()
             n_tok = n_wrong = n_sel = n_cache = n_fixed = bad_items = loops_sum = 0
             by_loop = {1: [0, 0, 0], 2: [0, 0, 0], 3: [0, 0, 0], 4: [0, 0, 0]}  # exit loop -> [tokens, wrong, wrong by cache]
@@ -107,6 +108,7 @@ def run(model, tok, routers, step=4, out_path=f"{WORK}/tf_exit.jsonl", log=print
     inner.decode_exit_conf = None
     inner.decode_fill_maps = None
     inner.decode_fill_skip = None
+    inner.decode_fill_stream = None
     return results
 
 

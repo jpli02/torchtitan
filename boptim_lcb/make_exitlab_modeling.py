@@ -21,8 +21,12 @@ import os
 import py_compile
 import shutil
 
+import sys
+
 SRC = "/home/jli199/boptim_scratch/ouro_base_kvshare"
-DST = "/home/jli199/boptim_scratch/ouro_base_exitlab"
+# a second directory can be built for new options while a search keeps reading the first one:
+#   python boptim_lcb/make_exitlab_modeling.py /home/jli199/boptim_scratch/ouro_base_exitlab2
+DST = sys.argv[1] if len(sys.argv) > 1 else "/home/jli199/boptim_scratch/ouro_base_exitlab"
 
 s = open(f"{SRC}/modeling_ouro.py", encoding="utf-8").read()
 
@@ -56,7 +60,10 @@ rep("""                                kc[dst] = torch.cat([kc[dst], kc[src][:, 
                                     continue  # exit lab: at this layer the deeper loops do not see this token at all
                                 k_new, v_new = kc[src][:, :, -1:, :], vc[src][:, :, -1:, :]
                                 fm = self._exitlab_maps()
-                                if fm is not None and (current_ut, s) in fm[0]:
+                                sm = self._exitlab_stream_maps() if current_ut == 0 else None
+                                if sm is not None:
+                                    k_new, v_new = self._exitlab_stream_fill(sm, s, l, k_new, v_new, hidden_states, position_embeddings)
+                                elif fm is not None and (current_ut, s) in fm[0]:
                                     k_new, v_new = self._exitlab_fill(fm, current_ut, s, l, k_new, v_new, position_embeddings)
                                 kc[dst] = torch.cat([kc[dst], k_new], dim=2)
                                 vc[dst] = torch.cat([vc[dst], v_new], dim=2)""")
@@ -71,7 +78,9 @@ rep("""        self.kv_collapse_prefill = bool(getattr(self.config, "kv_collapse
         self.decode_exit_conf = getattr(self.config, "decode_exit_conf", None)
         self.decode_fill_maps = getattr(self.config, "decode_fill_maps", None)
         self.decode_fill_skip = getattr(self.config, "decode_fill_skip", None)
+        self.decode_fill_stream = getattr(self.config, "decode_fill_stream", None)
         self._fill_cache = None
+        self._stream_cache = None
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -107,6 +116,53 @@ rep("""        self.kv_collapse_prefill = bool(getattr(self.config, "kv_collapse
         k = k * cos + torch.cat((-k[..., half:], k[..., :half]), dim=-1) * sin
         B = vm[(e, s)][l]
         v = torch.einsum("bhtd,hde->bhte", v_new.float(), B[:, :-1, :]) + B[:, -1, :][None, :, None, :]
+        return k.to(dt), v.to(dt)
+
+    def _exitlab_stream_maps(self):
+        \"\"\"(key maps, value maps) of the stream fill for a token that left after loop 1, {target loop: [layers, heads, 2 * dim + 1,
+        dim]} over the features [stream, copy, 1] (kv_stream_fit.py), or None.\"\"\"
+        path = getattr(self, "decode_fill_stream", None)
+        if not path:
+            return None
+        if self._stream_cache is None or self._stream_cache[0] != path:
+            blob = torch.load(path, map_location="cpu")
+            dev = self.early_exit_gate.weight.device
+            km, vm = {}, {}
+            for name, m in blob["maps"].items():
+                kind, t = (int(x) for x in name.split(":"))
+                (km if kind == 0 else vm)[blob["targets"][t]] = m.to(dev, torch.float32)
+            self._stream_cache = (path, km, vm)
+        return self._stream_cache[1], self._stream_cache[2]
+
+    def _exitlab_stream_fill(self, sm, s, l, k_new, v_new, hidden_states, position_embeddings):
+        \"\"\"Stand-ins for the loop-s key and value of a token that left after loop 1, from two views of it: the copy (its loop-1
+        key/value of this layer) and the stream view (this layer's own projections applied to its finished loop-1 state, which is
+        what the next loop starts from: exact at layer 0). One affine map per layer and head over both. Costs a normalisation and
+        two projections per layer, once per exited token and layer (cached across the skipped loops).\"\"\"
+        km, vm = sm
+        st = getattr(self, "_stream_feats", None)
+        if st is None or st[0] is not hidden_states:
+            st = (hidden_states, {})
+            self._stream_feats = st
+            self._dee_stream_fills = getattr(self, "_dee_stream_fills", 0) + 1
+        if l not in st[1]:
+            layer = self.layers[l]
+            x = layer.input_layernorm(hidden_states[:, -1:, :])
+            nh = k_new.shape[1]
+            st[1][l] = (layer.self_attn.k_proj(x).view(1, 1, nh, -1).transpose(1, 2).float(),
+                        layer.self_attn.v_proj(x).view(1, 1, nh, -1).transpose(1, 2).float())
+        ks, vs = st[1][l]
+        cos, sin = position_embeddings
+        cos, sin = cos[:, None, -1:, :].float(), sin[:, None, -1:, :].float()
+        dt = k_new.dtype
+        k = k_new.float()
+        half = k.shape[-1] // 2
+        k = k * cos - torch.cat((-k[..., half:], k[..., :half]), dim=-1) * sin           # copy, unrotated
+        A = km[s][l]                                                                     # [heads, 2 * dim + 1, dim]
+        k = torch.einsum("bhtd,hde->bhte", torch.cat([ks, k], dim=-1), A[:, :-1, :]) + A[:, -1, :][None, :, None, :]
+        k = k * cos + torch.cat((-k[..., half:], k[..., :half]), dim=-1) * sin
+        B = vm[s][l]
+        v = torch.einsum("bhtd,hde->bhte", torch.cat([vs, v_new.float()], dim=-1), B[:, :-1, :]) + B[:, -1, :][None, :, None, :]
         return k.to(dt), v.to(dt)
 """)
 

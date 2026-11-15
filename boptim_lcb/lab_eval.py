@@ -36,7 +36,9 @@ for spec in os.environ.get("ROUTERS", "").split(";"):
         extra["decode_fill_maps"] = r["maps"]
     if r["skip"] is not None:
         extra["decode_fill_skip"] = r["skip"]
-    obj = OBJECTIVE_REGISTRY["ouro_bfcl_router"](ckpt=LAB, gpus=os.environ.get("BFCL_BO_GPUS", "0"), n_items=n, shards=int(os.environ.get("BFCL_SHARDS", "4")),
+    if r.get("stream"):
+        extra["decode_fill_stream"] = r["stream"]
+    obj = OBJECTIVE_REGISTRY["ouro_bfcl_router"](ckpt=os.environ.get("LAB_CKPT", LAB), gpus=os.environ.get("BFCL_BO_GPUS", "0"), n_items=n, shards=int(os.environ.get("BFCL_SHARDS", "4")),
                                                  data_name=data, work_dir=work, extra_cfg=extra or None)
     obj.evaluate(r["gate"])
     rec = obj._cached(obj._thresholds(r["gate"]))
