@@ -209,10 +209,13 @@ def _curve_section():
     return _grid(charts), arms
 
 
-def _tb_run(name, root="/tmp/tb_runs"):
+TB_ROOTS = ("/tmp/tb_runs", "/home/jli199/boptim_scratch/tb_runs")   # run directories moved to the large disk on 11-16
+
+
+def _tb_run(name):
     """Solved trials, trials, tasks with a solve, tasks, timeouts of one Terminal-Bench run (None if it has no results)."""
     per, to = collections.defaultdict(lambda: [0, 0]), 0
-    for f in glob.glob(f"{root}/{name}/*/*/results.json"):
+    for f in [f for root in TB_ROOTS for f in glob.glob(f"{root}/{name}/*/*/results.json")]:
         try:
             d = json.load(open(f))
         except Exception:
@@ -247,7 +250,7 @@ def _tb_section():
             rec = {r["group"]: (r["ce_final"], r["acc_final"]) for r in rows if r["step"] == last}
             rec["_step"] = last
     cands.append(("5e-6 with decay, 1.5 epochs", "5e-6 cosine to 5e-7, 804 steps" + (f' (at step {rec["_step"]})' if rec and rec["_step"] < 804 else ""),
-                  rec, None, "lr5e-6_cos804_eval"))
+                  rec, None, "lr5e-6_cos804_b_eval"))      # the first attempt (lr5e-6_cos804_eval) died after 2 trials when /tmp filled up
     out, res = [], {}
     for label, how, s, static, run in cands:
         r = static if static is not None else _tb_run(run)
@@ -269,7 +272,7 @@ def _tb_section():
         {chr(10).join("        " + r for r in out).strip()}
       </tbody>
     </table>
-    <p class="src">11 test tasks, two attempts each, the same serving and limits for every row (v3 and r1 from the earlier evaluations). 22 trials is a small sample: two identical runs differ by about two trials, so a difference of two is a direction, not a result. Losses on the 35-row subset.</p>'''
+    <p class="src">11 test tasks, two attempts each, the same serving and limits for every row (v3 and r1 from the earlier evaluations). 22 trials is a small sample: two identical runs differ by about two trials, so a difference of two is a direction, not a result. Losses on the 35-row subset. The first evaluation of the 5e-6 checkpoint stopped after 2 trials (one trial printed 4.5 GB to its terminal recording and filled the temporary disk); it is rerun with the run directories on the large disk.</p>'''
     return html, res
 
 
