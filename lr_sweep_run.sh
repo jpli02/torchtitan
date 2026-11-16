@@ -43,6 +43,6 @@ echo "lr sweep $TAG: lr $LR, $STEPS steps, decay_ratio $DECAY, warmup $WARMUP, g
   --dump_folder "$DUMP" --checkpoint.folder "$DUMP/checkpoint" \
   --training.steps "$STEPS" --training.seq_len 4096 \
   --optimizer.lr "$LR" --lr_scheduler.warmup_steps "$WARMUP" --lr_scheduler.decay_ratio "$DECAY" ${EXTRA_ARGS:-} \
-  --checkpoint.interval 1000000 --metrics.log_freq 10 --metrics.enable_wandb \
+  --checkpoint.interval "${CKPT_INTERVAL:-1000000}" --metrics.log_freq 10 --metrics.enable_wandb \
   > "$LOG" 2>&1
 echo "lr sweep $TAG exited $? $(date '+%m-%d %H:%M'); validation rows: $(wc -l < "$OURO_VAL_OUT")"

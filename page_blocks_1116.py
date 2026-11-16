@@ -207,6 +207,21 @@ def _curve_section():
     return _grid(charts), arms
 
 
+def _low_curve_sentence(low):
+    """What the 5e-6 curve does over the run: where the two generalisation losses bottom out and where they end."""
+    s0, last = min(low), max(low)
+    bo = min(low, key=lambda s: low[s]["oracle_test"]["ce_final"])
+    br = min(low, key=lambda s: low[s]["r2_unseen"]["ce_final"])
+    o = lambda s: low[s]["oracle_test"]["ce_final"]  # noqa: E731
+    r = lambda s: low[s]["r2_unseen"]["ce_final"]  # noqa: E731
+    if last < 1072:
+        return f'The run is at step {last} of 1,072; so far its test-task loss is lowest at step {bo} ({o(bo):.2f}, v3 {o(s0):.2f}).'
+    rising = o(last) > o(bo) * 1.03
+    return (f'Its test-task loss is lowest at step {bo} ({o(bo):.2f}, against {o(s0):.2f} for v3)'
+            + (f' and rises again in the second epoch ({o(last):.2f} at step {last}), so even at this rate about one epoch is the limit' if rising else f' and ends at {o(last):.2f}')
+            + f'; the loss on unseen runs of the training tasks is lowest at step {br} ({r(br):.2f}, against {r(s0):.2f} for v3).')
+
+
 def lr_debug_block():
     _collect()
     probe, rst = _probe_summary(), _restart_losses()
@@ -261,9 +276,8 @@ def lr_debug_block():
         bullets.insert(1, f'<li><b>{"The rate itself is too high, not only the number of steps." if better else "A lower rate changes the held-out picture."}</b> '
                           f'A run from v3 at a constant 5e-6, a quarter of the recipe&#39;s peak, scores {g4(d, "ce_final")} after {s} steps on test tasks / unseen runs / '
                           f'earlier rows / rows trained on; the recipe at 2e-5 after 536 steps (epoch 1) scores {g4(ref, 0)} on the same rows. '
-                          + (f'At a similar fit to the training rows the lower rate is better on all three held-out sets, and its test-task loss is below v3&#39;s '
-                             f'({low[min(low)]["oracle_test"]["ce_final"]:.2f}) instead of above it.' if better and d["oracle_test"]["ce_final"] < low[min(low)]["oracle_test"]["ce_final"]
-                             else '') + f' The run is at step {max(low)} of 1,072.</li>')
+                          + ('At a similar fit to the training rows the lower rate is better on all three held-out sets. ' if better else '')
+                          + _low_curve_sentence(low) + '</li>')
     elif arms:
         parts = []
         for tag, by in arms.items():
