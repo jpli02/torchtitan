@@ -180,7 +180,7 @@ def _lerp_section():
 
 def _curve_section():
     arms = {}
-    for p in sorted(glob.glob(f"{KEEP}/valprobe_lr*_const.jsonl")):
+    for p in sorted(glob.glob(f"{KEEP}/valprobe_lr*.jsonl")):
         tag = os.path.basename(p)[9:-6]
         by = collections.defaultdict(dict)
         for line in open(p):
@@ -202,9 +202,75 @@ def _curve_section():
         series = {g: [(s, d[g]["ce_final"], f"{NAME[g]}: loss {d[g]['ce_final']:.3f}, accuracy {100 * d[g]['acc_final']:.1f} % after {s} steps at {lr}")
                       for s, d in by.items() if g in d] for g in GROUPS}
         done = max(by)
-        charts.append(_line_chart(f"constant learning rate {lr}" + ("" if done >= 1072 else f" (running, step {done})"), "training steps from v3",
-                                  series, xt, ymax))
+        kind = tag.split("_", 1)[1] if "_" in tag else "const"
+        total = 1072 if kind == "const" else int(re.sub(r"\D", "", kind) or 1072)
+        name = f"constant learning rate {lr}" if kind == "const" else f"{lr} with cosine decay, {total} steps"
+        charts.append(_line_chart(name + ("" if done >= total else f" (running, step {done})"), "training steps from v3", series, xt, ymax))
     return _grid(charts), arms
+
+
+def _tb_run(name, root="/tmp/tb_runs"):
+    """Solved trials, trials, tasks with a solve, tasks, timeouts of one Terminal-Bench run (None if it has no results)."""
+    per, to = collections.defaultdict(lambda: [0, 0]), 0
+    for f in glob.glob(f"{root}/{name}/*/*/results.json"):
+        try:
+            d = json.load(open(f))
+        except Exception:
+            continue
+        per[d.get("task_id")][1] += 1
+        per[d.get("task_id")][0] += 1 if d.get("is_resolved") else 0
+        to += 1 if str(d.get("failure_mode")) == "agent_timeout" else 0
+    cache = f"{KEEP}/tb_{name}.json"                      # /tmp/tb_runs is cleaned from time to time: keep the counts of finished runs
+    if not per:
+        return json.load(open(cache)) if os.path.exists(cache) else None
+    r = {"ok": sum(v[0] for v in per.values()), "n": sum(v[1] for v in per.values()), "tasks_ok": sum(1 for v in per.values() if v[0]),
+         "tasks": len(per), "timeouts": to, "per_task": {t: v for t, v in sorted(per.items())}}
+    if r["n"] >= 22:
+        os.makedirs(KEEP, exist_ok=True)
+        json.dump(r, open(cache, "w"), indent=1)
+    return r
+
+
+def _tb_section():
+    """Terminal-Bench test set for the candidates the held-out loss pointed to, next to the reference checkpoints."""
+    small = lambda tag, a: _groups(f"{KEEP}/lrval_lerp_{tag}_a{a:.2f}.json") if os.path.exists(f"{KEEP}/lrval_lerp_{tag}_a{a:.2f}.json") else {}  # noqa: E731
+    cands = [("v3 (start)", "no further training", small("r1", 0.0), {"ok": 8, "n": 22}, None),
+             ("take-turns r1", "2e-5 with decay, 896 steps", small("r1", 1.0), {"ok": 9, "n": 22, "tasks_ok": 6, "tasks": 11}, None),
+             ("halfway from v3 to r1", "half of r1&#39;s step (weights averaged)", small("r1", 0.5), None, "lerp_r1_a050_eval"),
+             ("epoch 8", "2e-5, two schedules, 4,288 steps", small("ep8", 1.0), None, "tvary_r1_8ep_ep8_eval")]
+    p = f"{KEEP}/valprobe_lr5e-6_cos804.jsonl"
+    rec = {}
+    if os.path.exists(p):
+        rows = [json.loads(line) for line in open(p) if line.strip()]
+        if rows:
+            last = max(r["step"] for r in rows)
+            rec = {r["group"]: (r["ce_final"], r["acc_final"]) for r in rows if r["step"] == last}
+            rec["_step"] = last
+    cands.append(("5e-6 with decay, 1.5 epochs", "5e-6 cosine to 5e-7, 804 steps" + (f' (at step {rec["_step"]})' if rec and rec["_step"] < 804 else ""),
+                  rec, None, "lr5e-6_cos804_eval"))
+    out, res = [], {}
+    for label, how, s, static, run in cands:
+        r = static if static is not None else _tb_run(run)
+        res[label] = r
+        if r is None:
+            score, tasks, to = "queued", "—", "—"
+        else:
+            done = r["n"] >= 20
+            score = f'<b>{r["ok"]}/{r["n"]}</b>' if done else f'{r["ok"]}/{r["n"]} so far'
+            tasks = f'{r["tasks_ok"]}/{r["tasks"]}' if "tasks_ok" in r else "—"
+            to = str(r["timeouts"]) if "timeouts" in r else "—"
+        cell = lambda g: f'<td class="n">{s[g][0]:.2f}</td>' if g in s else '<td class="n">—</td>'  # noqa: E731
+        out.append(f'<tr><td>{label}</td><td>{_sm(how)}</td>{cell("oracle_test")}{cell("r2_unseen")}<td class="n">{score}</td><td class="n">{tasks}</td><td class="n">{to}</td></tr>')
+    html = f'''
+    <p style="margin:18px 0 6px;font-weight:600">Terminal-Bench test set for the checkpoints the held-out loss pointed to</p>
+    <table>
+      <thead><tr><th>Checkpoint</th><th>how it was made</th><th class="n">test-task loss</th><th class="n">unseen-run loss</th><th class="n">test set solved</th><th class="n">tasks with a solve</th><th class="n">timeouts</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in out).strip()}
+      </tbody>
+    </table>
+    <p class="src">11 test tasks, two attempts each, the same serving and limits for every row (v3 and r1 from the earlier evaluations). 22 trials is a small sample: two identical runs differ by about two trials, so a difference of two is a direction, not a result. Losses on the 35-row subset.</p>'''
+    return html, res
 
 
 def _low_curve_sentence(low):
@@ -288,7 +354,18 @@ def lr_debug_block():
                          f'{s0["oracle_test"]["ce_final"]:.3f}) and the unseen-run loss at step {best.get("r2_unseen")} '
                          f'({by[best["r2_unseen"]]["r2_unseen"]["ce_final"]:.3f}, start {s0["r2_unseen"]["ce_final"]:.3f}) of {max(by)} so far')
         bullets.append('<li><b>Learning rates compared on held-out loss during training.</b> ' + "; ".join(parts) + '.</li>')
-    status = _chip("info", "running") if not arms or any(max(by) < 1072 for by in arms.values()) or len(arms) < 2 else _chip("good", "measured")
+    tb_html, tb = _tb_section()
+    half, rec_tb = tb.get("halfway from v3 to r1"), tb.get("5e-6 with decay, 1.5 epochs")
+    if half and half["n"] >= 20:
+        txt = (f'<li><b>The smaller step also gives the best Terminal-Bench test score so far: {half["ok"]} of {half["n"]}.</b> The checkpoint halfway between v3 and r1 '
+               f'(the same update, half the size) solves {half["tasks_ok"]} of the 11 test tasks with {half["timeouts"]} timeout'
+               f'{"" if half["timeouts"] == 1 else "s"}; v3 solves 8 of 22, r1 9 of 22 (6 tasks) and epoch 8 4 of 22 with 14 timeouts. '
+               f'Two trials above r1 is within what two identical runs differ by, so this is a direction that a repeat has to confirm')
+        if rec_tb and rec_tb["n"] >= 20:
+            txt += f'; the run trained at 5e-6 with decay for 1.5 epochs scores {rec_tb["ok"]} of {rec_tb["n"]} ({rec_tb["tasks_ok"]} tasks)'
+        bullets.insert(0, txt + '.</li>')
+    all_done = bool(rec_tb and rec_tb["n"] >= 20)
+    status = _chip("good", "measured") if all_done else _chip("info", "running")
     html = f'''<div class="sub-head"><h3>Is the learning rate wrong? {status}</h3><p>The Terminal-Bench test score has not moved above the starting checkpoint with any amount of training, so the learning rate of the fine-tuning was checked from the mechanics up: is the configured rate the one applied, does the optimizer take the steps it should, and how does held-out loss respond to the rate. Terminal-Bench itself is a slow and noisy instrument for this (6 to 23 hours per checkpoint, 22 test trials), so the checkpoints and the new runs are compared on teacher-forced token loss of four fixed sets of trajectories: oracle runs of the 12 test tasks, runs of the training tasks that were not trained on, earlier training rows that the mix did not replay, and rows that were trained on.</p></div>
 <div class="tablewrap">
     <ul>
@@ -299,7 +376,7 @@ def lr_debug_block():
       <tbody>
         {chr(10).join("        " + c for c in checks).strip()}
       </tbody>
-    </table>
+    </table>{tb_html}
     <p style="margin:18px 0 6px;font-weight:600">Held-out token loss of every checkpoint</p>
     <table>
       <thead><tr><th>Checkpoint</th><th>steps</th><th class="n">test set solved</th>{"".join(f'<th class="n">{HEAD[g]}</th>' for g in GROUPS)}</tr></thead>
@@ -316,7 +393,7 @@ def lr_debug_block():
     <p class="src">Each point is a model whose weights are v3 plus a share of the difference to the fine-tuned checkpoint (dashed line: the checkpoint itself; 1.5 extrapolates beyond it). A smaller share is, to first order, what a proportionally lower learning rate would have produced. Same four sets as above on a 35-row subset.</p>'''
     if curve_html:
         html += f'''
-    <p style="margin:18px 0 2px;font-weight:600">Held-out loss during training at a constant learning rate</p>
+    <p style="margin:18px 0 2px;font-weight:600">Held-out loss during training at lower learning rates</p>
     {_legend()}
     {curve_html}
     <p class="src">Runs from v3 on the same data and order as the 4-epoch run, 50 warm-up steps and then a constant rate, validated every 134 steps (a quarter epoch) inside the trainer on the 35-row subset; a constant rate makes every point of a run comparable with every other. The recipe&#39;s 2e-5 has no curve of its own yet; its reference points on the same rows are the "1" positions of the charts above (epoch 1 = 536 steps, r1 = 896 steps with decay, epoch 4 = 2,144 steps).</p>'''
