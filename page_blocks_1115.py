@@ -459,6 +459,55 @@ def _fill_overhead(thr):
     return slot * (3 * sh[0] + 2 * sh[1] + 1 * sh[2])
 
 
+def _fill_unseen_table(key, n_items, label, names):
+    """Validation of corrected routers on an unseen set against the plain released gate measured on the same items."""
+    plain = [e for e in _load_ok(f"{WORK}/{key}/evaluations.jsonl") + _load_ok(f"{WORK}/lab_{key}/evaluations.jsonl") if not e.get("extra_cfg")]
+    seen, pl = set(), []
+    for e in plain:
+        if e["key"] in GATES and e["key"] not in seen:
+            seen.add(e["key"])
+            pl.append(e)
+    corr = [e for e in _load_ok(f"{WORK}/lab_{key}/evaluations.jsonl")
+            if (e.get("extra_cfg") or {}).get("decode_fill_maps") and not (e.get("extra_cfg") or {}).get("decode_exit_conf")]
+    full = next((e for e in pl if e["key"] == (1.0, 1.0, 1.0)), None)
+    if not corr or not full or len(pl) < 3:
+        return ""
+    floor = full["acc_pct"] - TOL
+    curve_pts = sorted(pl, key=lambda e: e["exec_loops"])
+
+    def curve(L):
+        lo = max((g for g in curve_pts if g["exec_loops"] <= L), key=lambda g: g["exec_loops"], default=curve_pts[0])
+        hi = min((g for g in curve_pts if g["exec_loops"] >= L), key=lambda g: g["exec_loops"], default=curve_pts[-1])
+        span = hi["exec_loops"] - lo["exec_loops"]
+        return lo["acc_pct"] if span <= 0 else lo["acc_pct"] + (L - lo["exec_loops"]) / span * (hi["acc_pct"] - lo["acc_pct"])
+
+    rows = [f'<tr class="dim"><td>plain {"released " if g["key"] != (1.0, 1.0, 1.0) else ""}{GATES[g["key"]]}</td><td class="n">{g["acc_pct"]:.1f}{" ↓" if g["acc_pct"] < floor else ""}</td>'
+            f'<td class="n">{g["exec_loops"]:.2f}</td><td class="n">{4 / g["exec_loops"]:.2f}×</td><td class="n">—</td></tr>' for g in sorted(pl, key=lambda g: -g["exec_loops"])]
+    best_c = None
+    for e in sorted(corr, key=lambda e: -(e["exec_loops"])):
+        e["eff"] = e["exec_loops"] + _fill_overhead(e["thresholds"][:3])
+        d = round((e["acc_pct"] - curve(e["eff"])) * n_items / 100.0)
+        nm = names.get(e["key"]) or (GATES[e["key"]] if e["key"] in GATES else _fmt(e["key"]))
+        if e["acc_pct"] >= floor and (best_c is None or e["eff"] < best_c["eff"]):
+            best_c = e
+        rows.append(f'<tr><td>{nm}, corrected {_fmt(e["key"])}</td><td class="n">{e["acc_pct"]:.1f}{" ↓" if e["acc_pct"] < floor else ""}</td>'
+                    f'<td class="n">{e["eff"]:.2f}</td><td class="n">{4 / e["eff"]:.2f}×</td><td class="n">{"+" if d > 0 else ""}{d}</td></tr>')
+    best_p = min((g for g in pl if g["key"] != (1.0, 1.0, 1.0) and g["acc_pct"] >= floor), key=lambda g: g["exec_loops"], default=None)
+    verdict = ""
+    if best_c and best_p:
+        dl = 100 * (1 - best_c["eff"] / best_p["exec_loops"])
+        verdict = (f' The cheapest corrected router that holds this floor runs {best_c["eff"]:.2f} loops ({best_c["acc_pct"]:.1f} %), the cheapest plain gate point '
+                   f'{best_p["exec_loops"]:.2f} ({GATES[best_p["key"]]}, {best_p["acc_pct"]:.1f} %): {abs(dl):.0f} % {"fewer" if dl > 0 else "more"} loops.')
+    return f'''<p style="margin:18px 0 6px;font-weight:600">Validation on {label}</p>
+    <table>
+      <thead><tr><th>router</th><th class="n">accuracy %</th><th class="n">loops (with the correction)</th><th class="n">compute saved</th><th class="n">items vs plain gate curve</th></tr></thead>
+      <tbody>
+        {"".join(rows)}
+      </tbody>
+    </table>
+    <p class="src">Full depth scores {full["acc_pct"]:.1f} % here, so the floor is {floor:.1f} % (↓ marks accuracy below it). None of these items was used to fit the correction or to choose thresholds.{verdict}</p>'''
+
+
 def bfcl_fill_search_block():
     evs = [e for e in _load_ok(f"{FILL}/evaluations.jsonl") if (e.get("extra_cfg") or {}).get("decode_fill_maps")]
     plain = _evals()
@@ -522,15 +571,20 @@ def bfcl_fill_search_block():
     best_id = best["pid"] if best else None
     pts_p.sort(key=lambda p: p["id"] == best_id)
     xs, ys = [p["x"] for p in pts_b + pts_p], [p["y"] for p in pts_b + pts_p]
-    x1 = max(2.0, 0.5 * (int(max(xs) / 0.5) + 1))
+    x1 = max(2.0, 0.5 * (int((max(xs) + 0.15) / 0.5) + 1))                 # room to the right of the last point for its label
     y0, y1 = int(min(min(ys), floor) - 1), int(max(ys) + 2)
+    design_ids = {e["pid"] for e in uniq if e["key"] in FILL_DESIGN}
     svg = pb4._svg((0.9, x1), (y0, y1), [1 + 0.5 * i for i in range(int((x1 - 1) / 0.5) + 1)], list(range(y0, y1 + 1, 1 if y1 - y0 <= 8 else 2)),
-                   pts_p, pts_b, [], round(floor, 2), best_id, {p["id"]: (9, 15, "start") for p in pts_p},
+                   pts_p, pts_b, [], round(floor, 2), best_id, {p["id"]: ((9, -9, "start") if p["id"] == best_id else (9, 15, "start")) for p in pts_p},
                    "Accuracy against decode compute on the search set: routers with corrected cache entries against the plain released-gate curve",
-                   (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel="decode compute saved: 4 / executed loops (higher is cheaper)",
+                   (pb4.ML + 22, pb4.H - pb4.MB - 78), xlabel="decode compute saved: 4 / loops including the correction (higher is cheaper)",
                    ylabel="accuracy on the 575 search items, %", floor_right=True, best_label="cheapest corrected router that holds the floor", id_prefix="",
-                   legend_names=("plain released gate and full depth", "corrected router that holds the accuracy floor", "corrected router below the floor"))
+                   legend_names=("plain released gate and full depth", "corrected router that holds the accuracy floor", "corrected router below the floor"),
+                   label_only=design_ids | ({best_id} if best_id else set()))
     chip = _chip("good", "finished") if finished else _chip("info", "running")
+    names = {e["key"]: (e["short"] if e["key"] in FILL_DESIGN else "BO " + e["short"]) for e in uniq}
+    unseen = (_fill_unseen_table("heldout", 575, "the 575 unseen non-live items", names)
+              + _fill_unseen_table("live", 1350, "the 1,350 live items", names))
     return f'''<div class="sub-head"><h3>Router search with corrected cache entries {chip}</h3><p>The third search on BFCL changes what an early exit leaves behind, not only when a token leaves. A token that leaves early no longer leaves plain copies of its keys and values in the cache slots of the loops it skips, but corrected ones: one linear map per layer, head and loop pair, fitted once on full-depth answers (the evidence is in the block above). The released gate still decides the exits. With that, the region below two loops, where the plain gate collapses, is worth searching. Search variables are the exit shares: f1, the share of all answer tokens released after loop 1 (0 to 70 %); f2, the share of the remaining tokens released after loop 2 (60 to 100 %); f3, the share of the still remaining tokens released after loop 3 (50 to 100 %). Each proposal becomes thresholds placed between two neighbouring values of the gate. Same objective, floor ({floor:.1f} %), search items and checker as the first search; the released-gate patterns with the correction seed the optimiser, four grid points follow, then sixteen model-based proposals.</p></div>
 <div class="tablewrap">
     <table>
@@ -542,7 +596,8 @@ def bfcl_fill_search_block():
     <p class="src">↓ marks accuracy below the floor. "With the correction" adds what the corrected entries cost to compute: one small matrix product per skipped cache slot, 3.1 % of one loop for a token that leaves after loop 1, 2.1 % after loop 2, 1.0 % after loop 3. Compute saved, the chart and the last column use that figure; the last column compares each router with the plain released gate at the same loops (straight line between its two points around it). Status: {status}. Trajectories: <code>{FILL}/evaluations.jsonl</code>.</p>
     <p style="margin:18px 0 6px;font-weight:600">Accuracy against decode compute, search set</p>
     {svg}
-    <p class="src">Squares: the plain released gate (no correction), joined in threshold order. Circles: routers with corrected cache entries; the labelled ones are on their frontier ("g0.25" is the gate pattern at 0.25 with the correction, "#3" the third proposal). The plain gate falls off to the right of threshold 0.25; the corrected routers hold up further.</p>
+    <p class="src">Squares: the plain released gate (no correction), joined in threshold order. Circles: routers with corrected cache entries (hover for thresholds); labelled are the gate patterns with the correction ("g0.25" is the pattern at 0.25) and the cheapest router that holds the floor. The plain gate falls off to the right of threshold 0.25; the corrected routers hold up further.</p>
+    {unseen}
   </div>
 '''
 
