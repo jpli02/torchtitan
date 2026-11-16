@@ -138,10 +138,12 @@ class OuroModel(Decoder):
         early_exit_step: int | None = None
         layer: TransformerBlock.Config
         # LoopLM-style training objectives (see torchtitan.components.loss).
-        ouro_loss_stage: Literal["standard", "stage1_entropy", "stage2_adaptive"] = (
+        ouro_loss_stage: Literal["standard", "stage1_entropy", "stage2_adaptive", "final"] = (
             "stage1_entropy"
         )
-        """``standard``: CE on expected logits; ``stage1_entropy``: Eq. (4); ``stage2_adaptive``: Eq. (6)."""
+        """``standard``: CE on expected logits; ``stage1_entropy``: Eq. (4); ``stage2_adaptive``: Eq. (6);
+        ``final``: CE on the last recurrence step only (what full-depth serving emits; the exit gate and the
+        intermediate steps get no direct loss)."""
         entropy_beta: float = 0.01
         """Entropy regularization weight for Stage I (beta in Eq. (4))."""
         adaptive_k: float = 50.0
@@ -300,6 +302,13 @@ class OuroModel(Decoder):
         # During training, use expected logits over all UT steps so gradients
         # propagate through every refinement step.
         if self.training:
+            if self.ouro_loss_stage == "final":
+                # Plain CE on the last recurrence step (what full-depth serving emits); the exit gate and the
+                # intermediate steps get no direct loss. Measured on v3 (val_probe, 2026-11-16): the Stage-I mixture
+                # sum_t p(t) CE_t is within 0.002 of the last step's CE on every validation group, because the gate puts
+                # early-exit mass only on tokens the early steps already predict well. So this stage is NOT expected to
+                # change the fit much; it exists as a control, not as a fix.
+                return self.output(hidden_states_list[-1])
             step_logits_list: list[torch.Tensor] = []
             expected_logits: torch.Tensor | None = None
             for step_idx, hidden in enumerate(hidden_states_list):
