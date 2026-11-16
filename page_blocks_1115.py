@@ -350,7 +350,23 @@ def _fill_answer_bullet():
     short = sorted(need - round(e["acc_pct"] * 5.75) for e in hc if e["acc_pct"] < floor)
     miss = ("" if not short else f'; the other{"s miss" if len(short) > 1 else " misses"} it by '
             + (f'{short[0]} item{"s" if short[0] != 1 else ""}' if len(set(short)) == 1 else f'{short[0]} to {short[-1]} items'))
-    s += (f'. {n_ok} of the {n_all} searched routers tested on unseen items hold{"s" if n_ok == 1 else ""} the floor{miss}. Two things were needed together: a linear correction of the cache '
+    s += f'. {n_ok} of the {n_all} searched routers tested on unseen items hold{"s" if n_ok == 1 else ""} the floor{miss}'
+    # the live set (1,350 items of a different, harder distribution) is a second unseen set: say plainly whether it agrees
+    lp = [e for e in _load_ok(f"{WORK}/live/evaluations.jsonl") + _load_ok(f"{WORK}/lab_live/evaluations.jsonl") if not e.get("extra_cfg")]
+    lfull = next((e for e in lp if e["key"] == (1.0, 1.0, 1.0)), None)
+    lbest = next((e for e in _load_ok(f"{WORK}/lab_live/evaluations.jsonl")
+                  if (e.get("extra_cfg") or {}).get("decode_fill_maps") and e["key"] == best["key"]), None)
+    if lfull and lbest:
+        lfloor = lfull["acc_pct"] - TOL
+        leff = lbest["exec_loops"] + _fill_overhead(lbest["thresholds"][:3])
+        if lbest["acc_pct"] >= lfloor:
+            s += (f'. On the 1,350 live items the same router also holds the floor: {lbest["acc_pct"]:.1f} % at {leff:.2f} loops '
+                  f'(full depth {lfull["acc_pct"]:.1f} %)')
+        else:
+            s += (f'. <b>The live items do not confirm it:</b> there the same router scores {lbest["acc_pct"]:.1f} % at {leff:.2f} loops against '
+                  f'{lfull["acc_pct"]:.1f} % at full depth, below the {lfloor:.1f} % floor, so the claim stands for the non-live items only '
+                  f'(the correction and the thresholds were fitted on non-live items)')
+    s += ('. Two things were needed together: a linear correction of the cache '
           f'entries a token leaves behind when it exits early, fitted once on full-depth answers, and a search over how many tokens leave after each loop.</li>')
     return s
 
@@ -537,12 +553,15 @@ def _fill_unseen_table(key, n_items, label, names):
     best_c = None
     for e in sorted(corr, key=lambda e: -(e["exec_loops"])):
         e["eff"] = e["exec_loops"] + _fill_overhead(e["thresholds"][:3])
+        # no plain point at (nearly) as few loops: no comparison; 0.05 loops of slack so the same thresholds with and without the correction compare
+        inside = curve_pts[0]["exec_loops"] - 0.05 <= e["eff"] <= curve_pts[-1]["exec_loops"] + 0.05
         d = round((e["acc_pct"] - curve(e["eff"])) * n_items / 100.0)
+        dcell = (("+" if d > 0 else "") + str(d)).replace("-", "−") if inside else "no plain point this cheap yet"
         nm = names.get(e["key"]) or (GATES[e["key"]] if e["key"] in GATES else _fmt(e["key"]))
         if e["acc_pct"] >= floor and (best_c is None or e["eff"] < best_c["eff"]):
             best_c = e
         rows.append(f'<tr><td>{nm}, corrected {_fmt(e["key"])}</td><td class="n">{e["acc_pct"]:.1f}{" ↓" if e["acc_pct"] < floor else ""}</td>'
-                    f'<td class="n">{e["eff"]:.2f}</td><td class="n">{4 / e["eff"]:.2f}×</td><td class="n">{"+" if d > 0 else ""}{d}</td></tr>')
+                    f'<td class="n">{e["eff"]:.2f}</td><td class="n">{4 / e["eff"]:.2f}×</td><td class="n">{dcell}</td></tr>')
     best_p = min((g for g in pl if g["key"] != (1.0, 1.0, 1.0) and g["acc_pct"] >= floor), key=lambda g: g["exec_loops"], default=None)
     verdict = ""
     if best_c and best_p:
