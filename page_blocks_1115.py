@@ -563,6 +563,18 @@ def _fill_unseen_table(key, n_items, label, names):
         rows.append(f'<tr><td>{nm}, corrected {_fmt(e["key"])}</td><td class="n">{e["acc_pct"]:.1f}{" ↓" if e["acc_pct"] < floor else ""}</td>'
                     f'<td class="n">{e["eff"]:.2f}</td><td class="n">{4 / e["eff"]:.2f}×</td><td class="n">{dcell}</td></tr>')
     best_p = min((g for g in pl if g["key"] != (1.0, 1.0, 1.0) and g["acc_pct"] >= floor), key=lambda g: g["exec_loops"], default=None)
+    # the cleanest reading of the correction: the SAME thresholds with and without it, in items
+    same = []
+    for e in sorted(corr, key=lambda e: -e["exec_loops"]):
+        g = next((g for g in pl if g["key"] == e["key"]), None)
+        if g is not None:
+            dd = round((e["acc_pct"] - g["acc_pct"]) * n_items / 100.0)
+            same.append(f'{GATES[e["key"]]} {"+" if dd > 0 else ""}{dd}'.replace("-", "−"))
+    same_txt = ""
+    if same:
+        helps = sum(1 for s in same if "+" in s)
+        same_txt = (f' Same thresholds with and without the correction, in items: {", ".join(same)}'
+                    + ("." if helps == len(same) else ": the correction does not help on this set." if helps == 0 else "."))
     verdict = ""
     if best_c and best_p:
         dl = 100 * (1 - best_c["eff"] / best_p["exec_loops"])
@@ -575,7 +587,7 @@ def _fill_unseen_table(key, n_items, label, names):
         {"".join(rows)}
       </tbody>
     </table>
-    <p class="src">Full depth scores {full["acc_pct"]:.1f} % here, so the floor is {floor:.1f} % (↓ marks accuracy below it). None of these items was used to fit the correction or to choose thresholds.{verdict}</p>
+    <p class="src">Full depth scores {full["acc_pct"]:.1f} % here, so the floor is {floor:.1f} % (↓ marks accuracy below it). None of these items was used to fit the correction or to choose thresholds.{same_txt}{verdict}</p>
     {_fill_paired_table(key, label, names)}'''
 
 
