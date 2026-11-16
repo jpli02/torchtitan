@@ -331,6 +331,20 @@ def _fill_answer_bullet():
     if same is not None:
         s += f' and {same["exec_loops"]:.2f} loops for the same accuracy ({same["acc_pct"]:.1f} % at threshold {same["key"][0]:g})'
     import math
+
+    def pm(x):
+        return f"{x:+.1f}".replace("-", "−")
+
+    bk = tuple(round(float(v), 4) for v in best["thresholds"][:3])
+    pr = next((r for r in _paired_rows("heldout") if tuple(round(float(v), 4) for v in r["thresholds"]) == bk), None)
+    if pr and "full depth" in pr["vs"]:
+        fd = pr["vs"]["full depth"]
+        s += (f'. On the same items it differs from full depth by {pm(fd["diff_pts"])} points (paired 95 % interval {pm(fd["ci95"][0])} to {pm(fd["ci95"][1])}): '
+              f'this set cannot tell the two apart, and it does not exclude a loss of that size')
+        g2 = pr["vs"].get("plain gate 0.2")
+        if g2 and g2["ci95"][0] > 0:
+            s += (f'. Against the plain gate at a similar budget (threshold 0.2: {g2["ref_acc_pct"]:.1f} % at {g2["ref_loops"]:.2f} loops) it is '
+                  f'{g2["diff_pts"]:.1f} points better (interval {pm(g2["ci95"][0])} to {pm(g2["ci95"][1])})')
     n_ok, n_all = len(ok), len(hc)
     need = math.ceil(floor * 5.75 - 1e-9)
     short = sorted(need - round(e["acc_pct"] * 5.75) for e in hc if e["acc_pct"] < floor)
@@ -542,7 +556,54 @@ def _fill_unseen_table(key, n_items, label, names):
         {"".join(rows)}
       </tbody>
     </table>
-    <p class="src">Full depth scores {full["acc_pct"]:.1f} % here, so the floor is {floor:.1f} % (↓ marks accuracy below it). None of these items was used to fit the correction or to choose thresholds.{verdict}</p>'''
+    <p class="src">Full depth scores {full["acc_pct"]:.1f} % here, so the floor is {floor:.1f} % (↓ marks accuracy below it). None of these items was used to fit the correction or to choose thresholds.{verdict}</p>
+    {_fill_paired_table(key, label, names)}'''
+
+
+def _paired_rows(key):
+    """Per-item paired comparison of the corrected routers with full depth and the plain gate (boptim_lcb/bfcl_paired.py)."""
+    import os
+    import sys
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "boptim_lcb")
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    try:
+        import bfcl_paired
+        return bfcl_paired.compute(key)
+    except Exception as ex:                                               # the page must build without the run directories
+        print("paired comparison skipped:", repr(ex)[:120])
+        return []
+
+
+def _fill_paired_table(key, label, names):
+    rows = _paired_rows(key)
+    refs = ["full depth", "plain gate 0.3", "plain gate 0.25", "plain gate 0.2"]
+    rows = [r for r in rows if all(n in r["vs"] for n in refs)]
+    if not rows:
+        return ""
+    ref0 = rows[0]["vs"]
+
+    def cell(v):
+        lo, hi = v["ci95"]
+        s = f'{v["diff_pts"]:+.1f} ({lo:+.1f} to {hi:+.1f})'.replace("-", "−")
+        return f'<td class="n"><b>{s}</b></td>' if lo > 0 or hi < 0 else f'<td class="n">{s}</td>'
+
+    body = []
+    for r in rows:
+        k = tuple(round(float(v), 4) for v in r["thresholds"])
+        k3 = tuple(round(v, 3) for v in k)
+        nm = names.get(k3) or names.get(k) or (GATES[k3] if k3 in GATES else "router")
+        eff = r["exec_loops"] + _fill_overhead(r["thresholds"])
+        body.append(f'<tr><td style="white-space:nowrap">{nm}, corrected</td><td class="n">{r["acc_pct"]:.1f}</td><td class="n">{eff:.2f}</td>' + "".join(cell(r["vs"][n]) for n in refs) + '</tr>')
+    heads = "".join(f'<th class="n">vs {n}<br>({ref0[n]["ref_acc_pct"]:.1f} % at {ref0[n]["ref_loops"]:.2f} loops)</th>' for n in refs)
+    return f'''<p style="margin:18px 0 6px;font-weight:600">Same items, paired: accuracy difference to full depth and to the plain gate ({label})</p>
+    <table>
+      <thead><tr><th>router</th><th class="n">accuracy %</th><th class="n">loops</th>{heads}</tr></thead>
+      <tbody>
+        {"".join(body)}
+      </tbody>
+    </table>
+    <p class="src">Difference in percentage points on the same items (router minus reference), with a paired bootstrap 95 % interval; bold where the interval excludes zero. An interval that contains zero means this item set cannot tell the two apart; it does not prove they are equal.</p>'''
 
 
 def bfcl_fill_search_block():
