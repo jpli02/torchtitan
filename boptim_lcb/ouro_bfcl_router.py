@@ -42,7 +42,11 @@ class OuroBFCLRouterObjective(BaseObjective):
     GEN_TIMEOUT_S = 5 * 3600
     MIN_FREE_MIB = 12000
     MAX_ATTEMPTS = 4   # tries per evaluation before the failure value is reported to the optimizer
-    SHARD_MIB = 9500   # one batch-1 process with a 2k-token prompt: model 5.5 GB + cache
+    # one batch-1 process with a 2k-token prompt: model 5.5 GB + cache (the live set's longest prompts need about 11.5 GB)
+    SHARD_MIB = int(os.environ.get("BFCL_SHARD_MIB", "9500"))
+    # memory left free for the card's other users when the shard count is chosen: jobs that start on a shared card AFTER
+    # the shards have launched must still fit (a 4-shard live run once filled the card to 1 GB free beside another user)
+    RESERVE_MIB = int(os.environ.get("BFCL_RESERVE_MIB", "0"))
     PREFILL_TOKEN_EQUIV = 8.0  # prompt prefill of one item, in units of one decoded token (shard balancing only)
 
     def __init__(
@@ -322,7 +326,7 @@ class OuroBFCLRouterObjective(BaseObjective):
         run_dir = self.work_dir / label
         run_dir.mkdir(parents=True, exist_ok=True)
         t0 = time.time()
-        k = max(1, min(self.shards, self._free_mib(gpu) // self.SHARD_MIB))
+        k = max(1, min(self.shards, (self._free_mib(gpu) - self.RESERVE_MIB) // self.SHARD_MIB))
         bounds = self._bounds(k)
         cfg = "decode_early_exit_threshold=" + json.dumps(thr)
         procs = []
