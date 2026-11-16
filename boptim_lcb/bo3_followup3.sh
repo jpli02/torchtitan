@@ -1,7 +1,11 @@
 #!/bin/bash
-# Validation of the fill-on search, third part: after the live phase of bo3_followup2.sh has returned, the other three
-# routers that hold the floor on the search set (#14, #13, #20) on the live set, so that ALL five are reported there too
-# (no selection by held-out score). Waits without touching the GPU; never overlaps the running 4-shard evaluation.
+# Validation of the fill-on search, third part. After the live phase of bo3_followup2.sh has returned:
+#   1. ABLATION on the held-out set: the searched routers WITHOUT the cache correction (same thresholds, plain copies), plus
+#      the plain gate at 0.2443 (a measured plain point near 1.7 loops) -> how much of the result is the correction and
+#      how much the exit pattern (about 1.7 h);
+#   2. the other three routers that hold the floor on the search set (#14, #13, #20) on the live set, so that ALL five are
+#      reported there too, with no selection by held-out score (about 2.75 h).
+# Waits without touching the GPU; never overlaps the running evaluation.
 # Start detached:  setsid nohup bash boptim_lcb/bo3_followup3.sh >> $TMP/bo3_followup.log 2>&1 < /dev/null &
 WT=/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft
 TMP=/home/jli199/.claude/jobs/c0d2da0a/tmp
@@ -14,6 +18,10 @@ done
 # wait until the shards of the previous phase are really gone
 while pgrep -u "$(id -un)" -f 'boptim_lcb/lab_eval.py' > /dev/null; do sleep 30; done
 cd /home/jli199/boptim-agent || exit 1
+echo "held-out ablation (searched routers without the correction) start $(date '+%m-%d %H:%M')"
+SET=heldout ROUTERS="0.2372,0.29355,0.4755;0.2386,0.30835,0.46445;0.2443,0.2443,0.2443;0.2358,0.20185,0.5019;0.24005,0.29995,0.4876" \
+  ./.venv/bin/python -u "$WT/boptim_lcb/lab_eval.py" >> "$TMP/lab_eval_heldout.log" 2>&1
+echo "held-out ablation returned $? $(date '+%m-%d %H:%M')"
 echo "live, remaining floor-holding routers start $(date '+%m-%d %H:%M')"
 SET=live ROUTERS="0.2386,0.30835,0.46445|maps=$M;0.2386,0.30595,0.47475|maps=$M;0.24005,0.29995,0.4876|maps=$M" \
   ./.venv/bin/python -u "$WT/boptim_lcb/lab_eval.py" >> "$TMP/lab_eval_live.log" 2>&1
