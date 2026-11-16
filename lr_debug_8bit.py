@@ -25,9 +25,9 @@ WHICH = sys.argv[1] if len(sys.argv) > 1 else "8bit"      # "8bit" (torchao Adam
 def run(case, scale, p_active, mean_frac):
     w8 = torch.nn.Parameter(torch.zeros(N))
     w32 = torch.nn.Parameter(torch.zeros(N))
-    if WHICH == "bf16":
+    if WHICH in ("bf16", "bf16rn"):                      # bf16rn: round to nearest instead of stochastic rounding
         from torchtitan.components.adamw_bf16 import AdamWBF16
-        o8 = AdamWBF16([w8], **kw)
+        o8 = AdamWBF16([w8], stochastic_round=(WHICH == "bf16"), **kw)
     else:
         o8 = AdamW8bit([w8], **kw)
     o32 = torch.optim.AdamW([w32], **kw)
