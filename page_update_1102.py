@@ -13,6 +13,7 @@ import page_blocks_1109 as pb2  # 2026-11-09 blocks: pooled LCB BO, ep4 continua
 import page_blocks_1113 as pb3  # 2026-11-13 block: second benchmark search
 import page_blocks_1114 as pb4  # 2026-11-14 block: Pareto charts of the two LCB BO runs
 import page_blocks_1115 as pb5  # 2026-11-14 block: router search on BFCL
+import page_blocks_1116 as pb6  # 2026-11-16 block: learning-rate debug of the Terminal-Bench fine-tuning
 
 TMP = "/home/jli199/.claude/jobs/c0d2da0a/tmp"
 SRC = "/home/jli199/boptim_scratch/boptim-experiments.html"
@@ -691,7 +692,7 @@ tt_block = f'''
     </table>
     <p class="src">Half of the pool tasks yielded a resolved trajectory, no task has more than two, and 40 % of the covered tasks have exactly one: that is the data-side reason a policy that leaves the demonstrated path has nothing to fall back on. Script: <code>dataset_tasks.py</code> (tasks matched by the pool instruction text).</p>
   </div>
-{ep4_metrics}{pb.tokdist_block()}{pb2.ckpt_table_block()}{pb2.cont_block()}<div class="sub-head"><h3>ep4 and r1 pass@1 on their training set</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained them; stock terminus-2 with the serving fixes (2,048-token turn cap), one server per card; v3, the starting checkpoint, solves 27 % of these tasks without having seen them.</p></div>
+{ep4_metrics}{pb.tokdist_block()}{pb6.lr_debug_block()}{pb2.ckpt_table_block()}{pb2.cont_block()}<div class="sub-head"><h3>ep4 and r1 pass@1 on their training set</h3><p>One attempt per task on the 75 variant tasks whose resolved take-turns r1 trajectories trained them; stock terminus-2 with the serving fixes (2,048-token turn cap), one server per card; v3, the starting checkpoint, solves 27 % of these tasks without having seen them.</p></div>
 <div class="tablewrap">
     <table>
       <thead><tr><th>Checkpoint</th><th>Trained on these tasks?</th><th class="n">solved</th><th class="n">timeouts</th><th class="n">budget</th><th class="st">Reading</th></tr></thead>
