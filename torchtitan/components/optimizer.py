@@ -100,6 +100,11 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
         if name == "AdamW8bit":
             from torchao.optim import AdamW8bit
             return AdamW8bit
+        # AdamWbf16: moments in bfloat16 (per-element exponent), 2x the 8-bit memory, without the block-relative
+        # underflow of the second moment that makes AdamW8bit over-step small-gradient parameters (adamw_bf16.py).
+        if name == "AdamWbf16":
+            from torchtitan.components.adamw_bf16 import AdamWBF16
+            return AdamWBF16
         if name not in optimizer_classes:
             raise NotImplementedError(f"Optimizer {name} not added.")
         return optimizer_classes[name]
@@ -116,7 +121,7 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
             "foreach": config.implementation == "foreach",
         }
         # torchao's AdamW8bit does not accept the fused/foreach impl flags.
-        if config.name == "AdamW8bit":
+        if config.name in ("AdamW8bit", "AdamWbf16"):
             kwargs.pop("fused")
             kwargs.pop("foreach")
         return kwargs
@@ -142,8 +147,16 @@ class OptimizersContainer(Optimizer, Stateful, Configurable, Generic[T]):
 
     # pyrefly: ignore [bad-override]
     def step(self, *args, **kwargs) -> None:
+        # OURO_OPT_PROBE=<out.jsonl>: compare the applied update with exact fp32 AdamW on sampled tensors (debug only)
+        from torchtitan.components.opt_probe import get_probe
+
+        probe = get_probe(self)
+        if probe is not None:
+            probe.before()
         for optimizer in self.optimizers:
             optimizer.step(*args, **kwargs)
+        if probe is not None:
+            probe.after()
 
     def zero_grad(self, *args, **kwargs) -> None:
         for optimizer in self.optimizers:
