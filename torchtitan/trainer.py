@@ -835,6 +835,10 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
             ) as memory_profiler,
         ):
             data_iterator = self.batch_generator(self.dataloader)
+            # OURO_VAL_FILE=<rendered.jsonl>: teacher-forced validation loss before training and every OURO_VAL_EVERY steps
+            from torchtitan.components.val_probe import maybe_validate
+
+            maybe_validate(self, force=True)
             while self.should_continue_training():
                 self.step += 1
                 self.gc_handler.run(self.step)
@@ -844,6 +848,7 @@ class Trainer(torch.distributed.checkpoint.stateful.Stateful, Configurable):
                     logger.warning("Ran out of data; last step was canceled.")
                     break
 
+                maybe_validate(self)
                 last_step = self.step == config.training.steps
                 ckpt_id = self.checkpointer.checkpoint_id_if_saving(
                     self.step, last_step=last_step

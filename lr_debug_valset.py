@@ -43,3 +43,14 @@ for g in ["oracle_test"] + list(pools):
     rs = [r for r in out if r["group"] == g]
     print(f"{g:14s} rows {len(rs):3d}  tokens {sum(len(r['ids']) for r in rs):8,d}  supervised {sum(sum(1 for x in r['labels'] if x != -100) for r in rs):8,d}")
 print("total tokens", sum(len(r["ids"]) for r in out))
+
+# a small subset of the same rows for validation INSIDE training (torchtitan/components/val_probe.py, about two minutes a pass)
+SMALL = {"oracle_test": 12, "r2_unseen": 8, "replay_unseen": 6, "train_new": 5, "train_replay": 4}
+small = []
+for g, k in SMALL.items():
+    small += [r for r in out if r["group"] == g][:k]
+with open(f"{T}/lrval_small_rendered.jsonl", "w") as f:
+    for k, r in enumerate(small):
+        f.write(json.dumps(dict(r, i=k)) + "\n")
+print("small file:", len(small), "rows,", sum(len(r["ids"]) for r in small), "tokens,",
+      sum(sum(1 for x in r["labels"] if x != -100) for r in small), "supervised")
