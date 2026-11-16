@@ -637,6 +637,38 @@ def _fill_paired_table(key, label, names):
     <p class="src">Difference in percentage points on the same items (router minus reference), with a paired bootstrap 95 % interval; bold where the interval excludes zero. An interval that contains zero means this item set cannot tell the two apart; it does not prove they are equal.</p>'''
 
 
+def _fill_ablation_table(names, key="heldout", n_items=575):
+    """The searched routers with and without the cache correction on the same unseen items (same thresholds)."""
+    evs = _load_ok(f"{WORK}/lab_{key}/evaluations.jsonl")
+    plain = {e["key"]: e for e in evs if not e.get("extra_cfg")}
+    corr = [e for e in evs if (e.get("extra_cfg") or {}).get("decode_fill_maps") and not (e.get("extra_cfg") or {}).get("decode_exit_conf")
+            and e["key"] in plain and e["key"] not in GATES]
+    if not corr:
+        return ""
+    rows, gains = [], []
+    for e in sorted(corr, key=lambda e: -e["exec_loops"]):
+        p = plain[e["key"]]
+        d = round((e["acc_pct"] - p["acc_pct"]) * n_items / 100.0)
+        gains.append(d)
+        eff = e["exec_loops"] + _fill_overhead(e["thresholds"][:3])
+        rows.append(f'<tr><td>{names.get(e["key"]) or _fmt(e["key"])} {_fmt(e["key"])}</td><td class="n">{e["acc_pct"]:.1f}</td><td class="n">{eff:.2f}</td>'
+                    f'<td class="n">{p["acc_pct"]:.1f}</td><td class="n">{p["exec_loops"]:.2f}</td><td class="n">{"+" if d > 0 else ""}{d}</td></tr>')
+    ref = plain.get((0.2443, 0.2443, 0.2443))
+    ref_txt = ""
+    if ref:
+        worse = all(plain[e["key"]]["acc_pct"] < ref["acc_pct"] for e in corr)
+        ref_txt = (f' The plain released gate at threshold 0.2443 scores {ref["acc_pct"]:.1f} % at {ref["exec_loops"]:.2f} loops on these items'
+                   + (", more than every searched pattern without the correction: the search found exit patterns that only work with corrected cache entries." if worse else "."))
+    return f'''<p style="margin:18px 0 6px;font-weight:600">Ablation: the searched routers without the correction (the 575 unseen non-live items)</p>
+    <table>
+      <thead><tr><th>router (same thresholds)</th><th class="n">with correction, %</th><th class="n">loops</th><th class="n">without, %</th><th class="n">loops</th><th class="n">items gained by the correction</th></tr></thead>
+      <tbody>
+        {"".join(rows)}
+      </tbody>
+    </table>
+    <p class="src">Without the correction the same thresholds lose {min(gains)} to {max(gains)} of 575 items and run slightly more loops (a token that exits early then leaves plain copies in the cache, and later tokens need more depth).{ref_txt}</p>'''
+
+
 def bfcl_fill_search_block():
     evs = [e for e in _load_ok(f"{FILL}/evaluations.jsonl") if (e.get("extra_cfg") or {}).get("decode_fill_maps")]
     plain = _evals()
@@ -712,7 +744,7 @@ def bfcl_fill_search_block():
                    label_only=design_ids | ({best_id} if best_id else set()))
     chip = _chip("good", "finished") if finished else _chip("info", "running")
     names = {e["key"]: (e["short"] if e["key"] in FILL_DESIGN else "BO " + e["short"]) for e in uniq}
-    unseen = (_fill_unseen_table("heldout", 575, "the 575 unseen non-live items", names)
+    unseen = (_fill_unseen_table("heldout", 575, "the 575 unseen non-live items", names) + _fill_ablation_table(names)
               + _fill_unseen_table("live", 1350, "the 1,350 live items", names))
     return f'''<div class="sub-head"><h3>Router search with corrected cache entries {chip}</h3><p>The third search on BFCL changes what an early exit leaves behind, not only when a token leaves. A token that leaves early no longer leaves plain copies of its keys and values in the cache slots of the loops it skips, but corrected ones: one linear map per layer, head and loop pair, fitted once on full-depth answers (the evidence is in the block above). The released gate still decides the exits. With that, the region below two loops, where the plain gate collapses, is worth searching. Search variables are the exit shares: f1, the share of all answer tokens released after loop 1 (0 to 70 %); f2, the share of the remaining tokens released after loop 2 (60 to 100 %); f3, the share of the still remaining tokens released after loop 3 (50 to 100 %). Each proposal becomes thresholds placed between two neighbouring values of the gate. Same objective, floor ({floor:.1f} %), search items and checker as the first search; the released-gate patterns with the correction seed the optimiser, four grid points follow, then sixteen model-based proposals.</p></div>
 <div class="tablewrap">
