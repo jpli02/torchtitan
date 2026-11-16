@@ -304,6 +304,43 @@ def _fill_sentence(evs):
     return s + ". Exiting on the head&#39;s confidence in place of the gate does not help."
 
 
+def _fill_answer_bullet():
+    """The positive result, when it exists: a searched router with corrected cache entries that holds the held-out floor with
+    fewer loops than every plain released-gate point that holds it."""
+    hp = [e for e in _load_ok(f"{WORK}/heldout/evaluations.jsonl") if not e.get("extra_cfg") and e["key"] in GATES]
+    design = {(0.3, 0.3, 0.3), (0.25, 0.25, 0.25), (0.2443, 0.2443, 0.2443), (0.2, 0.2, 0.2)}
+    hc = [e for e in _load_ok(f"{WORK}/lab_heldout/evaluations.jsonl")
+          if (e.get("extra_cfg") or {}).get("decode_fill_maps") and not (e.get("extra_cfg") or {}).get("decode_exit_conf") and e["key"] not in design]
+    full = next((e for e in hp if e["key"] == (1.0, 1.0, 1.0)), None)
+    if not full or not hc:
+        return ""
+    floor = full["acc_pct"] - TOL
+    for e in hc:
+        e["eff"] = e["exec_loops"] + _fill_overhead(e["thresholds"][:3])
+    ok = [e for e in hc if e["acc_pct"] >= floor]
+    gp = [g for g in hp if g["key"] != (1.0, 1.0, 1.0) and g["acc_pct"] >= floor]
+    if not ok or not gp:
+        return ""
+    best, gbest = min(ok, key=lambda e: e["eff"]), min(gp, key=lambda g: g["exec_loops"])
+    if best["eff"] >= gbest["exec_loops"]:
+        return ""
+    same = min((g for g in gp if g["acc_pct"] >= best["acc_pct"] - 0.05), key=lambda g: g["exec_loops"], default=None)
+    s = (f'\n      <li><b>On BFCL a searched router keeps baseline accuracy at {best["eff"]:.2f} of 4 loops on unseen items, once early exits leave corrected cache '
+         f'entries behind.</b> On the 575 held-out items it scores {best["acc_pct"]:.1f} % (full depth {full["acc_pct"]:.1f} %, floor {floor:.1f} %) at '
+         f'{4 / best["eff"]:.2f}× less decode compute than full depth; the plain released gate needs {gbest["exec_loops"]:.2f} loops to hold that floor')
+    if same is not None:
+        s += f' and {same["exec_loops"]:.2f} loops for the same accuracy ({same["acc_pct"]:.1f} % at threshold {same["key"][0]:g})'
+    import math
+    n_ok, n_all = len(ok), len(hc)
+    need = math.ceil(floor * 5.75 - 1e-9)
+    short = sorted(need - round(e["acc_pct"] * 5.75) for e in hc if e["acc_pct"] < floor)
+    miss = ("" if not short else f'; the other{"s miss" if len(short) > 1 else " misses"} it by '
+            + (f'{short[0]} item{"s" if short[0] != 1 else ""}' if len(set(short)) == 1 else f'{short[0]} to {short[-1]} items'))
+    s += (f'. {n_ok} of the {n_all} searched routers tested on unseen items hold{"s" if n_ok == 1 else ""} the floor{miss}. Two things were needed together: a linear correction of the cache '
+          f'entries a token leaves behind when it exits early, fitted once on full-depth answers, and a search over how many tokens leave after each loop.</li>')
+    return s
+
+
 def bfcl_answer_bullet():
     """One answer bullet for the router question, written from the search and held-out results (empty until both exist)."""
     evs = _evals()
@@ -331,11 +368,11 @@ def bfcl_answer_bullet():
         return ""
     wins = hp is not None and hp["heldout_loops"] < hg["heldout_loops"]
     head = ("On BFCL a searched router keeps its advantage on unseen items." if wins else
-            "On BFCL the searched routers land on the released gate&#39;s own curve.")
+            "Searching thresholds alone does not beat the released gate on BFCL.")
     unseen = (f'on 575 unseen items the cheapest router above the floor is {"the searched " + hp["name"].split(" (")[0] if wins else hg["name"]} '
               f'({(hp if wins else hg)["heldout"]:.1f} % at {(hp if wins else hg)["heldout_loops"]:.2f} loops'
               + ("" if wins or hp is None else f'; the best searched router needs {hp["heldout_loops"]:.2f} loops for {hp["heldout"]:.1f} %') + ')')
-    return (f'\n      <li><b>{head}</b> Function calling is the benchmark where depth matters most (depth 1 / 2 / 4: 0 / 51 / 78 %), and the released gate already '
+    return (_fill_answer_bullet() + f'\n      <li><b>{head}</b> Function calling is the benchmark where depth matters most (depth 1 / 2 / 4: 0 / 51 / 78 %), and the released gate already '
             f'keeps full-depth accuracy at {g["exec_loops"]:.2f} of 4 loops. On the 575 search items the best searched router held the accuracy floor at '
             f'{p["exec_loops"]:.2f} loops; {unseen}. The reason is in the gate: its cumulative exit probabilities sit near 0.25, 0.5 and 0.75 and take only a few '
             f'distinct values, so a threshold chooses how many tokens leave after each loop, not which ones.{_fill_sentence(evs)}</li>')
