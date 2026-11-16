@@ -56,9 +56,9 @@ def _legend():
                       f'<circle cx="6" cy="6" r="4.5" style="fill:{COL[g]}"/></svg>{NAME[g]}</span>' for g in GROUPS) + '</div>')
 
 
-def _line_chart(title, xlabel, series, xticks, ymax, xfmt=lambda v: f"{v:g}", w=400, h=250, mark_x=None):
+def _line_chart(title, xlabel, series, xticks, ymax, xfmt=lambda v: f"{v:g}", w=450, h=250, mark_x=None):
     """One small chart: token loss (single axis) against xlabel; series = {group: [(x, y, tip)]} coloured by validation group."""
-    ml, mr, mt, mb = 40, 78, 26, 36
+    ml, mr, mt, mb = 40, 122, 26, 36                                  # the right margin holds the direct labels at the line ends
     x0, x1 = min(xticks), max(xticks)
     px = lambda x: ml + (x - x0) / (x1 - x0) * (w - ml - mr)  # noqa: E731
     py = lambda y: mt + (1 - min(y, ymax) / ymax) * (h - mt - mb)  # noqa: E731
@@ -97,7 +97,7 @@ def _line_chart(title, xlabel, series, xticks, ymax, xfmt=lambda v: f"{v:g}", w=
 
 
 def _grid(charts):
-    return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px 18px;margin:6px 0 4px">'
+    return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:14px 18px;margin:6px 0 4px">'
             + "".join(f'<div style="min-width:0">{c}</div>' for c in charts) + '</div>')
 
 
@@ -249,7 +249,22 @@ def lr_debug_block():
                 parts.append(f'{ {"r1": "r1", "ep1": "epoch 1", "ep4": "epoch 4", "ep8": "epoch 8"}[t]}: lowest test-task loss at {bt["oracle_test"]:g} of the step, '
                              f'lowest unseen-run loss at {bt.get("r2_unseen", float("nan")):g}')
         bullets.append('<li><b>Step size along the direction each run moved.</b> ' + "; ".join(parts) + '. A value of 0 means v3 itself is best, 1 the checkpoint as trained.</li>')
-    if arms:
+    ref = None                                                       # the recipe's 2e-5 after 536 steps (epoch 1), on the same 35-row subset
+    if os.path.exists(f"{KEEP}/lrval_lerp_ep1_a1.00.json"):
+        ref = _groups(f"{KEEP}/lrval_lerp_ep1_a1.00.json")
+    low = arms.get("lr5e-6_const") if arms else None
+    if low and ref:
+        s = min(low, key=lambda st: abs(st - 536))
+        d = low[s]
+        g4 = lambda src, key: " / ".join(f"{src[g][key] if isinstance(src[g], dict) else src[g][0]:.2f}" for g in GROUPS)  # noqa: E731
+        better = all(d[g]["ce_final"] < ref[g][0] for g in ("oracle_test", "r2_unseen", "replay_unseen"))
+        bullets.insert(1, f'<li><b>{"The rate itself is too high, not only the number of steps." if better else "A lower rate changes the held-out picture."}</b> '
+                          f'A run from v3 at a constant 5e-6, a quarter of the recipe&#39;s peak, scores {g4(d, "ce_final")} after {s} steps on test tasks / unseen runs / '
+                          f'earlier rows / rows trained on; the recipe at 2e-5 after 536 steps (epoch 1) scores {g4(ref, 0)} on the same rows. '
+                          + (f'At a similar fit to the training rows the lower rate is better on all three held-out sets, and its test-task loss is below v3&#39;s '
+                             f'({low[min(low)]["oracle_test"]["ce_final"]:.2f}) instead of above it.' if better and d["oracle_test"]["ce_final"] < low[min(low)]["oracle_test"]["ce_final"]
+                             else '') + f' The run is at step {max(low)} of 1,072.</li>')
+    elif arms:
         parts = []
         for tag, by in arms.items():
             lr = tag[2:].split("_")[0]
@@ -290,5 +305,5 @@ def lr_debug_block():
     <p style="margin:18px 0 2px;font-weight:600">Held-out loss during training at a constant learning rate</p>
     {_legend()}
     {curve_html}
-    <p class="src">Two runs from v3 on the same data and order as the 4-epoch run, 50 warm-up steps and then a constant rate, validated every 134 steps (a quarter epoch) inside the trainer on the 35-row subset. Constant rates make every point of a run comparable with every other.</p>'''
+    <p class="src">Runs from v3 on the same data and order as the 4-epoch run, 50 warm-up steps and then a constant rate, validated every 134 steps (a quarter epoch) inside the trainer on the 35-row subset; a constant rate makes every point of a run comparable with every other. The recipe&#39;s 2e-5 has no curve of its own yet; its reference points on the same rows are the "1" positions of the charts above (epoch 1 = 536 steps, r1 = 896 steps with decay, epoch 4 = 2,144 steps).</p>'''
     return html + '\n  </div>\n'
