@@ -12,12 +12,18 @@ With a save path the fitted maps are written for the decode-time fill of the exi
 """
 import glob
 import json
+import os
 import sys
 
 import torch
 
-DATA = "/srv/scratch/jli199/bfcl_stage/bfcl_search.jsonl"
+# KV_DATA / KV_RUNS / KV_CAND / KV_REPORT fit on another item set, e.g. the live items (2026-11-17):
+#   KV_DATA=.../bfcl_live_all.jsonl KV_RUNS=<work>/live KV_CAND=third KV_REPORT=<work>/kv_fill_fit_live.json ... --save <work>/fill_maps_live.pt
+#   KV_CAND=third takes the candidates from the items with index % 3 == 0; the other two thirds stay untouched for validation.
+DATA = os.environ.get("KV_DATA", "/srv/scratch/jli199/bfcl_stage/bfcl_search.jsonl")
 WORK = "/home/jli199/boptim_scratch/bo_bfcl_router"
+RUNS = os.environ.get("KV_RUNS", WORK)          # directory holding the full-depth run (q1.000-1.000-1.000_*) of DATA
+REPORT = os.environ.get("KV_REPORT", f"{WORK}/kv_fill_fit.json")
 PAIRS = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]  # (source loop, target loop), zero-based
 RIDGE = 1e-2
 
@@ -28,12 +34,15 @@ def fit(model, tok, n_fit=120, n_test=40, save=None, log=print, min_conf=None):
     rows = [json.loads(l) for l in open(DATA) if l.strip()]
     sig = [json.loads(l) for l in open(f"{WORK}/signal_probs.jsonl")] if min_conf is not None else None
     full_dir = None
-    for rec in sorted(glob.glob(f"{WORK}/q1.000-1.000-1.000_*/record.json")):
+    for rec in sorted(glob.glob(f"{RUNS}/q1.000-1.000-1.000_*/record.json")):
         if json.load(open(rec)).get("status") == "ok":
             full_dir = rec.rsplit("/", 1)[0]
     gens = [json.loads(l) for l in open(f"{full_dir}/gen.jsonl") if l.strip() and '"summary"' not in l[:12]]
     # items 0, 4, 8, ... are the ones the teacher-forced exit test (bfcl_tf_exit.py, step 4) runs on: never fitted on
     cand = [i for i in range(len(rows)) if i % 4 != 0]
+    if os.environ.get("KV_CAND") == "third":
+        cand = [i for i in range(len(rows)) if i % 3 == 0]
+    assert full_dir is not None and len(gens) == len(rows), f"full-depth run of {DATA} not found or incomplete under {RUNS}"
     step = max(1, len(cand) // (n_fit + n_test))
     pick = cand[::step][: n_fit + n_test]
     fit_items, test_items = [], []
@@ -119,7 +128,7 @@ def fit(model, tok, n_fit=120, n_test=40, save=None, log=print, min_conf=None):
             report[f"{name} {a + 1}->{b + 1}"] = {"copy": [round(float(v), 4) for v in copy_e], "affine": [round(float(v), 4) for v in aff_e]}
             log(f"{name} loop {a + 1} -> {b + 1}: relative error copy / affine, mean over layers {copy_e.mean():.3f} / {aff_e.mean():.3f}; by layer "
                 + "  ".join(f"L{l}: {copy_e[l]:.2f}/{aff_e[l]:.2f}" for l in layers if l < NL))
-    json.dump({"fit_items": len(fit_items), "test_items": len(test_items), "ridge": RIDGE, "report": report}, open(f"{WORK}/kv_fill_fit.json", "w"), indent=1)
+    json.dump({"fit_items": len(fit_items), "test_items": len(test_items), "ridge": RIDGE, "report": report}, open(REPORT, "w"), indent=1)
     if save:
         torch.save({"pairs": PAIRS, "maps": {f"{w}:{a}:{b}": m.float() for (w, (a, b)), m in maps.items()}, "layers": NL}, save)
         log(f"saved maps to {save}")
