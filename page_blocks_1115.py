@@ -526,6 +526,24 @@ def _fill_overhead(thr):
     return slot * (3 * sh[0] + 2 * sh[1] + 1 * sh[2])
 
 
+def _live_fit_sentence():
+    """Outcome of fitting the correction on live items (bfcl_live_heldout_compare.py), on the 900 live items never fitted on."""
+    p = f"{WORK}/live_heldout_compare.json"
+    if not os.path.exists(p):
+        return ""
+    rows = json.load(open(p))["rows"]
+    get = lambda thr, kind: next((r for r in rows if [round(v, 3) for v in r["thresholds"]] == [thr] * 3 and r["kind"] == kind), None)  # noqa: E731
+    parts = []
+    for thr in (0.3, 0.25):
+        a, b, c = get(thr, "plain"), get(thr, "non-live maps"), get(thr, "live maps")
+        if a and b and c:
+            parts.append(f'gate {thr:g}: plain {a["heldout_ok"]}, correction fitted on non-live items {b["heldout_ok"]}, fitted on live items {c["heldout_ok"]}')
+    if not parts:
+        return ""
+    return (' A correction fitted on 120 live items was tried as well, and it changes nothing: solved of the 900 live items never used for fitting, '
+            + "; ".join(parts) + '. So the gap on live items is not a matter of where the correction is fitted, and no search on a live split was run.')
+
+
 def _fill_unseen_table(key, n_items, label, names):
     """Validation of corrected routers on an unseen set against the plain released gate measured on the same items."""
     plain = [e for e in _load_ok(f"{WORK}/{key}/evaluations.jsonl") + _load_ok(f"{WORK}/lab_{key}/evaluations.jsonl") if not e.get("extra_cfg")]
@@ -560,7 +578,8 @@ def _fill_unseen_table(key, n_items, label, names):
         nm = names.get(e["key"]) or (GATES[e["key"]] if e["key"] in GATES else _fmt(e["key"]))
         if e["acc_pct"] >= floor and (best_c is None or e["eff"] < best_c["eff"]):
             best_c = e
-        rows.append(f'<tr><td>{nm}, corrected {_fmt(e["key"])}</td><td class="n">{e["acc_pct"]:.1f}{" ↓" if e["acc_pct"] < floor else ""}</td>'
+        live_fit = str((e.get("extra_cfg") or {}).get("decode_fill_maps", "")).endswith("fill_maps_live.pt")
+        rows.append(f'<tr><td>{nm}, corrected{" (fitted on live items)" if live_fit else ""} {_fmt(e["key"])}</td><td class="n">{e["acc_pct"]:.1f}{" ↓" if e["acc_pct"] < floor else ""}</td>'
                     f'<td class="n">{e["eff"]:.2f}</td><td class="n">{4 / e["eff"]:.2f}×</td><td class="n">{dcell}</td></tr>')
     best_p = min((g for g in pl if g["key"] != (1.0, 1.0, 1.0) and g["acc_pct"] >= floor), key=lambda g: g["exec_loops"], default=None)
     # the cleanest reading of the correction: the SAME thresholds with and without it, in items
@@ -569,7 +588,8 @@ def _fill_unseen_table(key, n_items, label, names):
         g = next((g for g in pl if g["key"] == e["key"]), None)
         if g is not None:
             dd = round((e["acc_pct"] - g["acc_pct"]) * n_items / 100.0)
-            same.append(f'{GATES[e["key"]]} {"+" if dd > 0 else ""}{dd}'.replace("-", "−"))
+            lf = str((e.get("extra_cfg") or {}).get("decode_fill_maps", "")).endswith("fill_maps_live.pt")
+            same.append((f'{GATES[e["key"]]}{" (fitted on live items)" if lf else ""} ' + f'{"+" if dd > 0 else ""}{dd}'.replace("-", "−")))
     same_txt = ""
     if same:
         helps = sum(1 for s in same if "+" in s)
@@ -587,7 +607,7 @@ def _fill_unseen_table(key, n_items, label, names):
         {"".join(rows)}
       </tbody>
     </table>
-    <p class="src">Full depth scores {full["acc_pct"]:.1f} % here, so the floor is {floor:.1f} % (↓ marks accuracy below it). None of these items was used to fit the correction or to choose thresholds.{same_txt}{verdict}</p>
+    <p class="src">Full depth scores {full["acc_pct"]:.1f} % here, so the floor is {floor:.1f} % (↓ marks accuracy below it). None of these items was used to fit the correction or to choose thresholds.{same_txt}{verdict}{_live_fit_sentence() if key == "live" else ""}</p>
     {_fill_paired_table(key, label, names)}'''
 
 
