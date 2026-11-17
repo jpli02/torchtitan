@@ -237,10 +237,11 @@ def _tb_run(name):
 def _tb_section():
     """Terminal-Bench test set for the candidates the held-out loss pointed to, next to the reference checkpoints."""
     small = lambda tag, a: _groups(f"{KEEP}/lrval_lerp_{tag}_a{a:.2f}.json") if os.path.exists(f"{KEEP}/lrval_lerp_{tag}_a{a:.2f}.json") else {}  # noqa: E731
-    cands = [("v3 (start)", "no further training", small("r1", 0.0), {"ok": 8, "n": 22}, None),
-             ("take-turns r1", "2e-5 with decay, 896 steps", small("r1", 1.0), {"ok": 9, "n": 22, "tasks_ok": 6, "tasks": 11}, None),
-             ("halfway from v3 to r1", "half of r1&#39;s step (weights averaged)", small("r1", 0.5), None, "lerp_r1_a050_eval"),
-             ("epoch 8", "2e-5, two schedules, 4,288 steps", small("ep8", 1.0), None, "tvary_r1_8ep_ep8_eval")]
+    # label, how it was made, losses, the first evaluation if its run directory is gone, run names (first evaluation and repeats)
+    cands = [("v3 (start)", "no further training", small("r1", 0.0), {"ok": 8, "n": 22}, ["v3_rep2_eval"]),
+             ("take-turns r1", "2e-5 with decay, 896 steps", small("r1", 1.0), {"ok": 9, "n": 22, "tasks_ok": 6, "tasks": 11}, ["r1_rep2_eval"]),
+             ("halfway from v3 to r1", "half of r1&#39;s step (weights averaged)", small("r1", 0.5), None, ["lerp_r1_a050_eval", "lerp_r1_a050_rep2_eval"]),
+             ("epoch 8", "2e-5, two schedules, 4,288 steps", small("ep8", 1.0), None, ["tvary_r1_8ep_ep8_eval"])]
     p = f"{KEEP}/valprobe_lr5e-6_cos804.jsonl"
     rec = {}
     if os.path.exists(p):
@@ -250,29 +251,36 @@ def _tb_section():
             rec = {r["group"]: (r["ce_final"], r["acc_final"]) for r in rows if r["step"] == last}
             rec["_step"] = last
     cands.append(("5e-6 with decay, 1.5 epochs", "5e-6 cosine to 5e-7, 804 steps" + (f' (at step {rec["_step"]})' if rec and rec["_step"] < 804 else ""),
-                  rec, None, "lr5e-6_cos804_b_eval"))      # the first attempt (lr5e-6_cos804_eval) died after 2 trials when /tmp filled up
+                  rec, None, ["lr5e-6_cos804_b_eval"]))    # the first attempt (lr5e-6_cos804_eval) died after 2 trials when /tmp filled up
     out, res = [], {}
-    for label, how, s, static, run in cands:
-        r = static if static is not None else _tb_run(run)
-        res[label] = r
-        if r is None:
-            score, tasks, to = "queued", "—", "—"
-        else:
-            done = r["n"] >= 20
-            score = f'<b>{r["ok"]}/{r["n"]}</b>' if done else f'{r["ok"]}/{r["n"]} so far'
-            tasks = f'{r["tasks_ok"]}/{r["tasks"]}' if "tasks_ok" in r else "—"
-            to = str(r["timeouts"]) if "timeouts" in r else "—"
+    for label, how, s, static, runs in cands:
+        got = ([static] if static is not None else []) + [r for r in (_tb_run(n) for n in runs) if r is not None]
+        fin = [r for r in got if r["n"] >= 20]
+        part = [r for r in got if r["n"] < 20]
+        pool = {"ok": sum(r["ok"] for r in fin), "n": sum(r["n"] for r in fin), "runs": len(fin),
+                "each": [f'{r["ok"]}/{r["n"]}' for r in fin], "tasks_ok": [r["tasks_ok"] for r in fin if "tasks_ok" in r],
+                "timeouts": [r["timeouts"] for r in fin if "timeouts" in r]} if fin else None
+        res[label] = pool
+        each = ", ".join(pool["each"]) if pool else ""
+        if part:
+            each += ("; " if each else "") + f'{part[0]["ok"]}/{part[0]["n"]} so far'
+        if not each:
+            each = "queued"
+        total = f'<b>{pool["ok"]}/{pool["n"]} ({100 * pool["ok"] / pool["n"]:.0f} %)</b>' if pool else "—"
+        tasks = ", ".join(str(t) for t in pool["tasks_ok"]) + " of 11" if pool and pool["tasks_ok"] else "—"
+        to = ", ".join(str(t) for t in pool["timeouts"]) if pool and pool["timeouts"] else "—"
         cell = lambda g: f'<td class="n">{s[g][0]:.2f}</td>' if g in s else '<td class="n">—</td>'  # noqa: E731
-        out.append(f'<tr><td>{label}</td><td>{_sm(how)}</td>{cell("oracle_test")}{cell("r2_unseen")}<td class="n">{score}</td><td class="n">{tasks}</td><td class="n">{to}</td></tr>')
+        out.append(f'<tr><td>{label}</td><td>{_sm(how)}</td>{cell("oracle_test")}{cell("r2_unseen")}<td class="n">{each}</td><td class="n">{total}</td>'
+                   f'<td class="n">{tasks}</td><td class="n">{to}</td></tr>')
     html = f'''
     <p style="margin:18px 0 6px;font-weight:600">Terminal-Bench test set for the checkpoints the held-out loss pointed to</p>
     <table>
-      <thead><tr><th>Checkpoint</th><th>how it was made</th><th class="n">test-task loss</th><th class="n">unseen-run loss</th><th class="n">test set solved</th><th class="n">tasks with a solve</th><th class="n">timeouts</th></tr></thead>
+      <thead><tr><th>Checkpoint</th><th>how it was made</th><th class="n">test-task loss</th><th class="n">unseen-run loss</th><th class="n">each evaluation</th><th class="n">all trials</th><th class="n">tasks with a solve</th><th class="n">timeouts</th></tr></thead>
       <tbody>
         {chr(10).join("        " + r for r in out).strip()}
       </tbody>
     </table>
-    <p class="src">11 test tasks, two attempts each, the same serving and limits for every row (v3 and r1 from the earlier evaluations). 22 trials is a small sample: two identical runs differ by about two trials, so a difference of two is a direction, not a result. Losses on the 35-row subset. The first evaluation of the 5e-6 checkpoint stopped after 2 trials (one trial printed 4.5 GB to its terminal recording and filled the temporary disk); it is rerun with the run directories on the large disk.</p>'''
+    <p class="src">11 test tasks, two attempts each per evaluation, the same serving and limits for every row. One evaluation is 22 trials, a small sample (two evaluations of the same checkpoint can differ by a trial or two), so every checkpoint that matters is evaluated twice and "all trials" pools them. Tasks with a solve and timeouts are listed per evaluation. Losses on the 35-row subset. The first evaluation of the 5e-6 checkpoint stopped after 2 trials (one trial printed 4.5 GB to its terminal recording and filled the temporary disk) and does not count; it is rerun with the run directories on the large disk.</p>'''
     return html, res
 
 
@@ -359,15 +367,24 @@ def lr_debug_block():
         bullets.append('<li><b>Learning rates compared on held-out loss during training.</b> ' + "; ".join(parts) + '.</li>')
     tb_html, tb = _tb_section()
     half, rec_tb = tb.get("halfway from v3 to r1"), tb.get("5e-6 with decay, 1.5 epochs")
-    if half and half["n"] >= 20:
-        txt = (f'<li><b>The smaller step also gives the best Terminal-Bench test score so far: {half["ok"]} of {half["n"]}.</b> The checkpoint halfway between v3 and r1 '
-               f'(the same update, half the size) solves {half["tasks_ok"]} of the 11 test tasks with {half["timeouts"]} timeout'
-               f'{"" if half["timeouts"] == 1 else "s"}; v3 solves 8 of 22, r1 9 of 22 (6 tasks) and epoch 8 4 of 22 with 14 timeouts. '
-               f'Two trials above r1 is within what two identical runs differ by, so this is a direction that a repeat has to confirm')
-        if rec_tb and rec_tb["n"] >= 20:
-            txt += f'; the run trained at 5e-6 with decay for 1.5 epochs scores {rec_tb["ok"]} of {rec_tb["n"]} ({rec_tb["tasks_ok"]} tasks)'
+    v3_tb, r1_tb = tb.get("v3 (start)"), tb.get("take-turns r1")
+    if half:
+        pct = lambda r: f'{r["ok"]} of {r["n"]} ({100 * r["ok"] / r["n"]:.0f} %)'  # noqa: E731
+        twice = half["runs"] >= 2
+        txt = (f'<li><b>The smaller step also gives the best Terminal-Bench test score: {pct(half)}'
+               + (f' over {half["runs"]} evaluations ({" and ".join(half["each"])})' if twice else '') + '.</b> '
+               f'The checkpoint halfway between v3 and r1 is the same update at half the size. For comparison: v3 {pct(v3_tb)}, r1 {pct(r1_tb)}, '
+               f'epoch 8 4 of 22 with 14 timeouts. ')
+        if twice and (v3_tb["runs"] < 2 or r1_tb["runs"] < 2):
+            txt += 'Its two evaluations agree on every task but one; the repeats of v3 and r1 that make the comparison even are not finished yet'
+        elif twice:
+            txt += 'Every row rests on two evaluations'
+        else:
+            txt += 'Two trials above r1 is within what two evaluations of one checkpoint can differ by, so a repeat has to confirm it'
+        if rec_tb:
+            txt += f'. The run trained at 5e-6 with decay for 1.5 epochs scores {pct(rec_tb)}'
         bullets.insert(0, txt + '.</li>')
-    all_done = bool(rec_tb and rec_tb["n"] >= 20)
+    all_done = bool(rec_tb and v3_tb and r1_tb and v3_tb["runs"] >= 2 and r1_tb["runs"] >= 2)
     status = _chip("good", "measured") if all_done else _chip("info", "running")
     html = f'''<div class="sub-head"><h3>Is the learning rate wrong? {status}</h3><p>The Terminal-Bench test score has not moved above the starting checkpoint with any amount of training, so the learning rate of the fine-tuning was checked from the mechanics up: is the configured rate the one applied, does the optimizer take the steps it should, and how does held-out loss respond to the rate. Terminal-Bench itself is a slow and noisy instrument for this (6 to 23 hours per checkpoint, 22 test trials), so the checkpoints and the new runs are compared on teacher-forced token loss of four fixed sets of trajectories: oracle runs of the 12 test tasks, runs of the training tasks that were not trained on, earlier training rows that the mix did not replay, and rows that were trained on.</p></div>
 <div class="tablewrap">
