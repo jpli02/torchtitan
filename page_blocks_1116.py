@@ -209,7 +209,9 @@ def _curve_section():
     return _grid(charts), arms
 
 
-TB_ROOTS = ("/tmp/tb_runs", "/home/jli199/boptim_scratch/tb_runs")   # run directories moved to the large disk on 11-16
+# run directories: /tmp until 11-16 (8 GB, filled up once), then the LOCAL scratch disk. Not boptim_scratch: it is NFS and the
+# Docker daemon cannot create bind-mount paths there (every trial fails as unknown_agent_error before the agent starts).
+TB_ROOTS = ("/tmp/tb_runs", "/srv/scratch/jli199/tb_runs")
 
 
 def _tb_run(name):
@@ -238,8 +240,8 @@ def _tb_section():
     """Terminal-Bench test set for the candidates the held-out loss pointed to, next to the reference checkpoints."""
     small = lambda tag, a: _groups(f"{KEEP}/lrval_lerp_{tag}_a{a:.2f}.json") if os.path.exists(f"{KEEP}/lrval_lerp_{tag}_a{a:.2f}.json") else {}  # noqa: E731
     # label, how it was made, losses, the first evaluation if its run directory is gone, run names (first evaluation and repeats)
-    cands = [("v3 (start)", "no further training", small("r1", 0.0), {"ok": 8, "n": 22}, ["v3_rep2_eval"]),
-             ("take-turns r1", "2e-5 with decay, 896 steps", small("r1", 1.0), {"ok": 9, "n": 22, "tasks_ok": 6, "tasks": 11}, ["r1_rep2_eval"]),
+    cands = [("v3 (start)", "no further training", small("r1", 0.0), {"ok": 8, "n": 22}, ["v3_rep2b_eval"]),
+             ("take-turns r1", "2e-5 with decay, 896 steps", small("r1", 1.0), {"ok": 9, "n": 22, "tasks_ok": 6, "tasks": 11}, ["r1_rep2b_eval"]),
              ("halfway from v3 to r1", "half of r1&#39;s step (weights averaged)", small("r1", 0.5), None, ["lerp_r1_a050_eval", "lerp_r1_a050_rep2_eval"]),
              ("epoch 8", "2e-5, two schedules, 4,288 steps", small("ep8", 1.0), None, ["tvary_r1_8ep_ep8_eval"])]
     p = f"{KEEP}/valprobe_lr5e-6_cos804.jsonl"
@@ -251,7 +253,7 @@ def _tb_section():
             rec = {r["group"]: (r["ce_final"], r["acc_final"]) for r in rows if r["step"] == last}
             rec["_step"] = last
     cands.append(("5e-6 with decay, 1.5 epochs", "5e-6 cosine to 5e-7, 804 steps" + (f' (at step {rec["_step"]})' if rec and rec["_step"] < 804 else ""),
-                  rec, None, ["lr5e-6_cos804_b_eval"]))    # the first attempt (lr5e-6_cos804_eval) died after 2 trials when /tmp filled up
+                  rec, None, ["lr5e-6_cos804_c_eval"]))    # the first attempt (lr5e-6_cos804_eval) died after 2 trials when /tmp filled up
     out, res = [], {}
     for label, how, s, static, runs in cands:
         got = ([static] if static is not None else []) + [r for r in (_tb_run(n) for n in runs) if r is not None]
@@ -280,7 +282,7 @@ def _tb_section():
         {chr(10).join("        " + r for r in out).strip()}
       </tbody>
     </table>
-    <p class="src">11 test tasks, two attempts each per evaluation, the same serving and limits for every row. One evaluation is 22 trials, a small sample (two evaluations of the same checkpoint can differ by a trial or two), so every checkpoint that matters is evaluated twice and "all trials" pools them. Tasks with a solve and timeouts are listed per evaluation. Losses on the 35-row subset. The first evaluation of the 5e-6 checkpoint stopped after 2 trials (one trial printed 4.5 GB to its terminal recording and filled the temporary disk) and does not count; it is rerun with the run directories on the large disk.</p>'''
+    <p class="src">11 test tasks, two attempts each per evaluation, the same serving and limits for every row. One evaluation is 22 trials, a small sample (two evaluations of the same checkpoint can differ by a trial or two), so every checkpoint that matters is evaluated twice and "all trials" pools them. Tasks with a solve and timeouts are listed per evaluation. Losses on the 35-row subset. The first evaluation of the 5e-6 checkpoint stopped after 2 trials (one trial printed 4.5 GB to its terminal recording and filled the temporary disk) and does not count; it is rerun with the run directories on the local scratch disk.</p>'''
     return html, res
 
 
