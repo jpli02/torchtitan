@@ -24,7 +24,9 @@ NAME = {"oracle_test": "test tasks, oracle runs", "r2_unseen": "training tasks, 
 SHORT = {"oracle_test": "test tasks", "r2_unseen": "unseen runs", "replay_unseen": "not replayed", "train_new": "trained on"}
 HEAD = {"oracle_test": "test tasks<br>(oracle runs)", "r2_unseen": "training tasks<br>(unseen runs)", "replay_unseen": "earlier rows<br>(not replayed)",
         "train_new": "rows<br>trained on"}
-COL = {"oracle_test": "var(--s1)", "r2_unseen": "var(--s2)", "replay_unseen": "var(--s3)", "train_new": "var(--base)"}
+COL = {"oracle_test": "var(--s1)", "r2_unseen": "var(--s2)", "replay_unseen": "var(--s3)", "train_new": "var(--base)", "v3_heldout": "var(--s3)"}
+NAME["v3_heldout"] = "v3-style rows held out of training"
+SHORT["v3_heldout"] = "held-out rows"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -50,13 +52,13 @@ def _groups(path):
     return out
 
 
-def _legend():
+def _legend(groups=None):
     return ('<div class="sm" style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:8px 0 2px">'
             + "".join(f'<span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="vertical-align:-1px;margin-right:5px">'
-                      f'<circle cx="6" cy="6" r="4.5" style="fill:{COL[g]}"/></svg>{NAME[g]}</span>' for g in GROUPS) + '</div>')
+                      f'<circle cx="6" cy="6" r="4.5" style="fill:{COL[g]}"/></svg>{NAME[g]}</span>' for g in (groups or GROUPS)) + '</div>')
 
 
-def _line_chart(title, xlabel, series, xticks, ymax, xfmt=lambda v: f"{v:g}", w=450, h=250, mark_x=None):
+def _line_chart(title, xlabel, series, xticks, ymax, xfmt=lambda v: f"{v:g}", w=450, h=250, mark_x=None, groups=None):
     """One small chart: token loss (single axis) against xlabel; series = {group: [(x, y, tip)]} coloured by validation group."""
     ml, mr, mt, mb = 40, 122, 26, 36                                  # the right margin holds the direct labels at the line ends
     x0, x1 = min(xticks), max(xticks)
@@ -77,7 +79,7 @@ def _line_chart(title, xlabel, series, xticks, ymax, xfmt=lambda v: f"{v:g}", w=
         o.append(f'<line x1="{px(mark_x):.1f}" x2="{px(mark_x):.1f}" y1="{mt}" y2="{h - mb}" style="stroke:var(--line-2);stroke-width:1;stroke-dasharray:3 3"/>')
     o.append(f'<text x="{(ml + w - mr) / 2:.1f}" y="{h - 4}" text-anchor="middle" style="fill:var(--text-2);font-size:11px">{xlabel}</text>')
     ends = []
-    for g in GROUPS:
+    for g in (groups or GROUPS):
         pts = sorted(series.get(g) or [])
         if not pts:
             continue
@@ -286,6 +288,81 @@ def _tb_section():
     return html, res
 
 
+def _frombase_section():
+    """Training from the base model: data coverage of the original run, its held-out curve, and the new from-base run."""
+    rows, got = [], {}
+    lr_at = {"base": "before training", "v3s5000": "step 5,000 (rate 1.9e-5)", "v3s10000": "step 10,000 (1.4e-5)",
+             "v3s15000": "step 15,000 (6e-6)", "v3": "step 20,000 = v3 (2e-6)"}
+    for n, label in lr_at.items():
+        p = f"{KEEP}/lrval_{n}.json"
+        if os.path.exists(p):
+            s = got[n] = _groups(p)
+            cell = lambda g: f'<td class="n">{s[g][0]:.2f}{_sm(f" ({100 * s[g][1]:.1f})")}</td>' if g in s else '<td class="n">—</td>'  # noqa: E731
+            rows.append(f'<tr><td>{label}</td>{cell("replay_unseen")}{cell("r2_unseen")}{cell("oracle_test")}</tr>')
+    if len(got) < 3:
+        return "", None
+    cov = ""
+    p = f"{KEEP}/train_v3_tokens.json"
+    if os.path.exists(p):
+        t = json.load(open(p))["tokens"]
+        seen, cum, last = 20000 * 4096, 0, len(t)
+        for i, n in enumerate(t):
+            cum += n
+            if cum > seen:
+                last = i
+                break
+        cov = (f'<li><b>v3 never trained on the rows it was built for.</b> The trainer reads its data file in order. v3&#39;s file is 7,324 earlier rows followed by the '
+               f'358 skill rows added for v3, {sum(t) / 1e6:.1f} million tokens in all, which is {sum(t) / 4096:,.0f} steps of 4,096 tokens. v3 ran 20,000 steps, '
+               f'{100 * seen / sum(t):.1f} % of one pass: rows 1 to {last:,}. The last {len(t) - last} rows, all 358 skill rows among them, were never read.</li>')
+    a, b = got["base"], got["v3"]
+    mono = all(got[x]["replay_unseen"][0] > got[y]["replay_unseen"][0] for x, y in zip(list(got)[:-1], list(got)[1:]))
+    curve = (f'<li><b>From the base model, 2e-5 is not the problem.</b> Along the original from-base run every held-out loss falls from start to end'
+             f'{" without a reversal" if mono else ""}: v3-style rows {a["replay_unseen"][0]:.2f} to {b["replay_unseen"][0]:.2f}, unseen take-turns runs '
+             f'{a["r2_unseen"][0]:.2f} to {b["r2_unseen"][0]:.2f}, and it was still falling over the last 5,000 steps. The damage measured above belongs to '
+             f'repeated passes over 224 rows from an already fitted model; from the base model each row is seen once and the run is, if anything, too short.</li>')
+    run = ""
+    vp = f"{KEEP}/valprobe_frombase_v3r1_p1.jsonl"
+    by = collections.defaultdict(dict)
+    if os.path.exists(vp):
+        for line in open(vp):
+            if line.strip():
+                r = json.loads(line)
+                by[r["step"]][r["group"]] = r
+    by = dict(sorted(by.items()))
+    chart = ""
+    if len(by) >= 2:
+        groups = ["oracle_test", "r2_unseen", "v3_heldout", "train_new"]
+        ymax = max(d[g]["ce_final"] for d in by.values() for g in groups if g in d) * 1.08
+        last = max(by)
+        xt = [s for s in range(0, 22185, 5546)]
+        series = {g: [(s, d[g]["ce_final"], f"{NAME[g]}: loss {d[g]['ce_final']:.3f}, accuracy {100 * d[g]['acc_final']:.1f} % after {s:,} steps")
+                      for s, d in by.items() if g in d] for g in groups}
+        chart = (_legend(groups) + _grid([_line_chart("from the base model, one pass" + ("" if last >= 22184 else f" (running, step {last:,} of 22,184)"),
+                                                     "training steps from the base model", series, xt, ymax, groups=groups, xfmt=lambda v: f"{v:,.0f}")]))
+        d = by[last]
+        run = (f' It is at step {last:,} of 22,184: held-out v3-style rows {d["v3_heldout"]["ce_final"]:.2f}, unseen take-turns runs {d["r2_unseen"]["ce_final"]:.2f}.'
+               if last < 22184 else f' It has finished: held-out v3-style rows {d["v3_heldout"]["ce_final"]:.2f}, unseen take-turns runs {d["r2_unseen"]["ce_final"]:.2f}.')
+    plan = ('<li><b>The run that replaces the chain of continuations.</b> One run from the base model on v3&#39;s 7,682 rows (60 of them held out for validation) plus '
+            'the 112 take-turns trajectories, shuffled, for exactly one pass (22,184 steps, about 40 hours), at 2e-5 with cosine decay, validated every 1,000 '
+            'steps, then the Terminal-Bench test set.' + (run or ' It starts when the evaluation on the card ends.') + '</li>')
+    html = f'''
+    <p style="margin:22px 0 6px;font-weight:600">Training from the base model</p>
+    <ul>
+      {cov}
+      {curve}
+      {plan}
+    </ul>
+    <table>
+      <thead><tr><th>Original from-base run (2e-5, cosine)</th><th class="n">v3-style rows</th><th class="n">take-turns runs (never trained on)</th><th class="n">test tasks (oracle runs)</th></tr></thead>
+      <tbody>
+        {chr(10).join("        " + r for r in rows).strip()}
+      </tbody>
+    </table>
+    <p class="src">Token loss (accuracy %) on the same validation rows as the checkpoint table. The v3-style rows are a sample of v3&#39;s own file, nine in ten of them read once during the run. The oracle runs of the test tasks barely separate the base model from v3 (0.94 against 0.88), so that column is a weak measure of what training adds; the other two are the informative ones.</p>
+    {chart}'''
+    return html, got
+
+
 def _low_curve_sentence(low):
     """What the 5e-6 curve does over the run: where the two generalisation losses bottom out and where they end."""
     s0, last = min(low), max(low)
@@ -367,6 +444,11 @@ def lr_debug_block():
                          f'{s0["oracle_test"]["ce_final"]:.3f}) and the unseen-run loss at step {best.get("r2_unseen")} '
                          f'({by[best["r2_unseen"]]["r2_unseen"]["ce_final"]:.3f}, start {s0["r2_unseen"]["ce_final"]:.3f}) of {max(by)} so far')
         bullets.append('<li><b>Learning rates compared on held-out loss during training.</b> ' + "; ".join(parts) + '.</li>')
+    fb_html, fb = _frombase_section()
+    if fb:
+        bullets.insert(0, '<li><b>From 16 November every training run starts from the released base model, not from v3.</b> The runs measured in this block '
+                          'all continue from v3, so they diagnose the learning rate but none of them is a recipe to keep; the from-base run and what preparing it '
+                          'turned up are at the end of the block.</li>')
     tb_html, tb = _tb_section()
     half, rec_tb = tb.get("halfway from v3 to r1"), tb.get("5e-6 with decay, 1.5 epochs")
     v3_tb, r1_tb = tb.get("v3 (start)"), tb.get("take-turns r1")
@@ -419,4 +501,4 @@ def lr_debug_block():
     {_legend()}
     {curve_html}
     <p class="src">Runs from v3 on the same data and order as the 4-epoch run, 50 warm-up steps and then a constant rate, validated every 134 steps (a quarter epoch) inside the trainer on the 35-row subset; a constant rate makes every point of a run comparable with every other. The recipe&#39;s 2e-5 has no curve of its own yet; its reference points on the same rows are the "1" positions of the charts above (epoch 1 = 536 steps, r1 = 896 steps with decay, epoch 4 = 2,144 steps).</p>'''
-    return html + '\n  </div>\n'
+    return html + fb_html + '\n  </div>\n'
