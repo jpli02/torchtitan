@@ -453,22 +453,20 @@ def lr_debug_block():
     half, rec_tb = tb.get("halfway from v3 to r1"), tb.get("5e-6 with decay, 1.5 epochs")
     v3_tb, r1_tb = tb.get("v3 (start)"), tb.get("take-turns r1")
     if half:
-        pct = lambda r: f'{r["ok"]} of {r["n"]} ({100 * r["ok"] / r["n"]:.0f} %)'  # noqa: E731
+        pct = lambda r: f'{r["ok"]} of {r["n"]}'  # noqa: E731
         twice = half["runs"] >= 2
-        txt = (f'<li><b>The smaller step also gives the best Terminal-Bench test score: {pct(half)}'
-               + (f' over {half["runs"]} evaluations ({" and ".join(half["each"])})' if twice else '') + '.</b> '
-               f'The checkpoint halfway between v3 and r1 is the same update at half the size. For comparison: v3 {pct(v3_tb)}, r1 {pct(r1_tb)}, '
-               f'epoch 8 4 of 22 with 14 timeouts. ')
-        if twice and (v3_tb["runs"] < 2 or r1_tb["runs"] < 2):
-            txt += 'Its two evaluations agree on every task but one; the repeats of v3 and r1 that make the comparison even are not finished yet'
-        elif twice:
-            txt += 'Every row rests on two evaluations'
-        else:
-            txt += 'Two trials above r1 is within what two evaluations of one checkpoint can differ by, so a repeat has to confirm it'
-        if rec_tb:
-            txt += f'. The run trained at 5e-6 with decay for 1.5 epochs scores {pct(rec_tb)}'
+        txt = ('<li><b>On the Terminal-Bench test set the checkpoints that were not over-trained land between 8 and 11 of 22; only over-training clearly hurts.</b> '
+               f'The checkpoint halfway between v3 and r1 (the same update at half the size) scores {pct(half)}'
+               + (f' over {half["runs"]} evaluations ({" and ".join(half["each"])})' if twice else '')
+               + f', v3 {pct(v3_tb)}, r1 {pct(r1_tb)}'
+               + (f', the run trained at 5e-6 with decay for 1.5 epochs {pct(rec_tb)}' if rec_tb else '')
+               + ', and epoch 8 4 of 22 with 14 timeouts. ')
+        if twice:
+            txt += ('The halfway checkpoint&#39;s two evaluations agree on every task but one, so its lead of about two trials over r1 is probably real, and small. '
+                    'v3 and r1 rest on one evaluation each; their repeats were dropped when training moved to the base model. ')
+        txt += 'A better learning rate removes the damage of over-training; it does not by itself lift the test score'
         bullets.insert(0, txt + '.</li>')
-    all_done = bool(rec_tb and v3_tb and r1_tb and v3_tb["runs"] >= 2 and r1_tb["runs"] >= 2)
+    all_done = False     # the from-base run is the open item
     status = _chip("good", "measured") if all_done else _chip("info", "running")
     html = f'''<div class="sub-head"><h3>Is the learning rate wrong? {status}</h3><p>The Terminal-Bench test score has not moved above the starting checkpoint with any amount of training, so the learning rate of the fine-tuning was checked from the mechanics up: is the configured rate the one applied, does the optimizer take the steps it should, and how does held-out loss respond to the rate. Terminal-Bench itself is a slow and noisy instrument for this (6 to 23 hours per checkpoint, 22 test trials), so the checkpoints and the new runs are compared on teacher-forced token loss of four fixed sets of trajectories: oracle runs of the 12 test tasks, runs of the training tasks that were not trained on, earlier training rows that the mix did not replay, and rows that were trained on.</p></div>
 <div class="tablewrap">
