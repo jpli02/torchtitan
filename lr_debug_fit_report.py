@@ -9,7 +9,7 @@ import sys
 
 T = "/home/jli199/.claude/jobs/c0d2da0a/tmp"
 GROUPS = ["oracle_test", "r2_unseen", "replay_unseen", "train_new", "train_replay"]
-ORDER = ["v3", "r1", "ep1", "ep2", "ep3", "ep4", "ep5", "ep6", "ep7", "ep8"]
+ORDER = ["base", "v3s5000", "v3s10000", "v3s15000", "v3", "r1", "ep1", "ep2", "ep3", "ep4", "ep5", "ep6", "ep7", "ep8"]
 
 
 def load(name):
