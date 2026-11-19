@@ -466,11 +466,14 @@ def lr_debug_block():
     tb_html, tb = _tb_section()
     half, rec_tb = tb.get("halfway from v3 to r1"), tb.get("5e-6 with decay, 1.5 epochs")
     v3_tb, r1_tb = tb.get("v3 (start)"), tb.get("take-turns r1")
+    fb_tb = tb.get("from the base model, one pass")
     if half:
         pct = lambda r: f'{r["ok"]} of {r["n"]}'  # noqa: E731
         twice = half["runs"] >= 2
-        txt = ('<li><b>On the Terminal-Bench test set the checkpoints that were not over-trained land between 8 and 11 of 22; only over-training clearly hurts.</b> '
-               f'The checkpoint halfway between v3 and r1 (the same update at half the size) scores {pct(half)}'
+        txt = ('<li><b>On the Terminal-Bench test set every checkpoint that was not over-trained lands between 8 and 11 of 22'
+               + (', the clean run from the base model included' if fb_tb else '') + '; only over-training clearly hurts.</b> '
+               + (f'The single run from the base model (shuffled data, one full pass, take-turns rows in the mix) scores {pct(fb_tb)}. ' if fb_tb else '')
+               + f'The checkpoint halfway between v3 and r1 (the same update at half the size) scores {pct(half)}'
                + (f' over {half["runs"]} evaluations ({" and ".join(half["each"])})' if twice else '')
                + f', v3 {pct(v3_tb)}, r1 {pct(r1_tb)}'
                + (f', the run trained at 5e-6 with decay for 1.5 epochs {pct(rec_tb)}' if rec_tb else '')
@@ -478,9 +481,11 @@ def lr_debug_block():
         if twice:
             txt += ('The halfway checkpoint&#39;s two evaluations agree on every task but one, so its lead of about two trials over r1 is probably real, and small. '
                     'v3 and r1 rest on one evaluation each; their repeats were dropped when training moved to the base model. ')
-        txt += 'A better learning rate removes the damage of over-training; it does not by itself lift the test score'
+        txt += ('Neither a better learning rate nor a correct from-base recipe lifts the test score: the same four or five tasks are solved every time, and '
+                'the six that fail are the ones no checkpoint of this model has solved reliably' if fb_tb else
+                'A better learning rate removes the damage of over-training; it does not by itself lift the test score')
         bullets.insert(0, txt + '.</li>')
-    all_done = False     # the from-base run is the open item
+    all_done = bool(fb_tb)
     status = _chip("good", "measured") if all_done else _chip("info", "running")
     html = f'''<div class="sub-head"><h3>Is the learning rate wrong? {status}</h3><p>The Terminal-Bench test score has not moved above the starting checkpoint with any amount of training, so the learning rate of the fine-tuning was checked from the mechanics up: is the configured rate the one applied, does the optimizer take the steps it should, and how does held-out loss respond to the rate. Terminal-Bench itself is a slow and noisy instrument for this (6 to 23 hours per checkpoint, 22 test trials), so the checkpoints and the new runs are compared on teacher-forced token loss of four fixed sets of trajectories: oracle runs of the 12 test tasks, runs of the training tasks that were not trained on, earlier training rows that the mix did not replay, and rows that were trained on.</p></div>
 <div class="tablewrap">
