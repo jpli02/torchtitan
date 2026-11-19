@@ -256,6 +256,15 @@ def _tb_section():
             rec["_step"] = last
     cands.append(("5e-6 with decay, 1.5 epochs", "5e-6 cosine to 5e-7, 804 steps" + (f' (at step {rec["_step"]})' if rec and rec["_step"] < 804 else ""),
                   rec, None, ["lr5e-6_cos804_c_eval"]))    # the first attempt (lr5e-6_cos804_eval) died after 2 trials when /tmp filled up
+    fb = {}
+    pf = f"{KEEP}/valprobe_frombase_v3r1_p1.jsonl"
+    if os.path.exists(pf):
+        rows_fb = [json.loads(line) for line in open(pf) if line.strip()]
+        if rows_fb:
+            last_fb = max(r["step"] for r in rows_fb)
+            fb = {r["group"]: (r["ce_final"], r["acc_final"]) for r in rows_fb if r["step"] == last_fb}
+            cands.append(("from the base model, one pass", "base model, v3 data + take-turns rows shuffled, 2e-5 cosine, 22,184 steps"
+                          + (f" (at step {last_fb:,})" if last_fb < 22184 else ""), fb, None, ["frombase_v3r1_p1_b_eval"]))
     out, res = [], {}
     for label, how, s, static, runs in cands:
         got = ([static] if static is not None else []) + [r for r in (_tb_run(n) for n in runs) if r is not None]
@@ -284,7 +293,7 @@ def _tb_section():
         {chr(10).join("        " + r for r in out).strip()}
       </tbody>
     </table>
-    <p class="src">11 test tasks, two attempts each per evaluation, the same serving and limits for every row. One evaluation is 22 trials, a small sample (two evaluations of the same checkpoint can differ by a trial or two), so every checkpoint that matters is evaluated twice and "all trials" pools them. Tasks with a solve and timeouts are listed per evaluation. Losses on the 35-row subset. The first evaluation of the 5e-6 checkpoint stopped after 2 trials (one trial printed 4.5 GB to its terminal recording and filled the temporary disk) and does not count; it is rerun with the run directories on the local scratch disk.</p>'''
+    <p class="src">11 test tasks, two attempts each per evaluation, the same serving and limits for every row. One evaluation is 22 trials, a small sample (two evaluations of the same checkpoint can differ by a trial or two), so every checkpoint that matters is evaluated twice and "all trials" pools them. Tasks with a solve and timeouts are listed per evaluation. Losses on the 35-row subset. The first evaluation of the 5e-6 checkpoint stopped after 2 trials (one trial printed 4.5 GB to its terminal recording and filled the temporary disk) and does not count; it was rerun with the run directories on the local scratch disk. The from-base row is the only one trained from the base model in a single run; its evaluation waits for a card that is free of other users&#39; jobs.</p>'''
     return html, res
 
 
