@@ -141,15 +141,20 @@ def _ckpt_table():
     label = {"v3": "v3 (start)", "r1": "take-turns r1", **{f"ep{k}": f"epoch {k}" for k in range(1, 9)}}
     steps = {"v3": "0", "r1": "896, decayed", "ep1": "536, mid-schedule", "ep2": "1,072, mid-schedule", "ep4": "2,144, decayed",
              "ep5": "+536, mid-schedule", "ep6": "+1,072, mid-schedule", "ep7": "+1,608, mid-schedule", "ep8": "+2,144, decayed"}
+    label["frombase"] = "from the base model, one pass"
+    steps["frombase"] = "22,184 from the base model, decayed"
     rows, got = [], {}
-    for n in ["v3", "r1", "ep1", "ep2", "ep4", "ep5", "ep6", "ep7", "ep8"]:
+    for n in ["v3", "r1", "ep1", "ep2", "ep4", "ep5", "ep6", "ep7", "ep8", "frombase"]:
         p = f"{KEEP}/lrval_{n}.json"
         if not os.path.exists(p):
             continue
         s = _groups(p)
         got[n] = s
         test = test_static.get(n)
-        if test is None:
+        if n == "frombase":
+            r = _tb_run("frombase_v3r1_p1_b_eval")
+            test = f'{r["ok"]}/{r["n"]}' if r and r["n"] >= 20 else "waiting for a card"
+        elif test is None:
             ok, cnt, _ = pb2._tb_counts("/tmp/tb_runs", f"tvary_r1_8ep_{n}_eval")
             test = f"{ok}/{cnt}" if cnt >= 20 else "—"
         cell = lambda g: f'<td class="n">{s[g][0]:.2f}{_sm(f" ({100 * s[g][1]:.1f})")}</td>' if g in s else '<td class="n">—</td>'  # noqa: E731
@@ -495,7 +500,7 @@ def lr_debug_block():
         {chr(10).join("        " + r for r in rows).strip()}
       </tbody>
     </table>
-    <p class="src">Token loss (top-1 accuracy in %) on supervised tokens, last recurrence step, 4,096-token windows as in training: 12 oracle runs of test tasks (7,903 tokens), 30 unseen runs of training tasks (71,539), 20 earlier rows (67,985), 12 trained-on rows (25,560). Steps count from v3; a leading + counts from epoch 4. "Mid-schedule" checkpoints were saved while the rate was still high, "decayed" ones at the end of a schedule. Results: <code>{KEEP}</code>.</p>'''
+    <p class="src">Token loss (top-1 accuracy in %) on supervised tokens, last recurrence step, 4,096-token windows as in training: 12 oracle runs of test tasks (7,903 tokens), 30 unseen runs of training tasks (71,539), 20 earlier rows (67,985), 12 trained-on rows (25,560). Steps count from v3; a leading + counts from epoch 4. The last row is the single run from the base model on v3&#39;s data plus the take-turns rows: for it the "earlier rows" were training rows seen once, as they were for v3, and the take-turns rows it "trained on" were seen once. "Mid-schedule" checkpoints were saved while the rate was still high, "decayed" ones at the end of a schedule. Results: <code>{KEEP}</code>.</p>'''
     if lerp_html:
         html += f'''
     <p style="margin:18px 0 2px;font-weight:600">Was the step too large? Loss on the line from v3 to each checkpoint</p>
