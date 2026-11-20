@@ -636,6 +636,9 @@ kw.update(CFG)
 config = AutoConfig.from_pretrained(args.ckpt, trust_remote_code=True)
 for _k, _v in kw.items():
     setattr(config, _k, _v)
+import os as _os
+if _os.environ.get("DEPTH_EVAL_MEM_GB"):  # cap this process on a card whose memory is mostly another user's (it then fails alone instead of growing)
+    torch.cuda.set_per_process_memory_fraction(float(_os.environ["DEPTH_EVAL_MEM_GB"]) * 2**30 / torch.cuda.get_device_properties(0).total_memory)
 model = AutoModelForCausalLM.from_pretrained(args.ckpt, config=config, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda().eval()
 print(f"loaded {args.ckpt} steps={model.config.total_ut_steps} thr={getattr(model.config, 'early_exit_threshold', None)} cfg={CFG} rows={len(rows)}", flush=True)
 
