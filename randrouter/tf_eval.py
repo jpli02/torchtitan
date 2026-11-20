@@ -39,7 +39,7 @@ def parse_router(spec):
 
 
 @torch.inference_mode()
-def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print, fill_maps=None):
+def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print, fill_maps=None, exact=True):
     """Returns {router spec: {"loops", "agree_real", "ce_real", "agree_exact", "ce_exact", "n", per-loop shares}}."""
     batches = core.make_batches(seqs, budget_tok)
     res = {}
@@ -56,7 +56,7 @@ def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print
                 out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=r["thr"], shares=r["shares"], lengths=lengths, gate=gate,
                                           fill_maps=fill_maps)
                 _, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on="exit", need_grad=False)
-                if r["spec"] == "full":
+                if r["spec"] == "full" or not exact:  # exact=False: only the decoder's cache (half the cost)
                     st_x = st
                 else:
                     # the same exits with an exact cache: reuse the decided exits as a plan, no key/value replacement

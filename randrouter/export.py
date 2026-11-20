@@ -30,6 +30,9 @@ ap.add_argument("--teacher", default="/home/jli199/boptim_scratch/randrouter/tea
 ap.add_argument("--check_n", type=int, default=0)
 ap.add_argument("--check_routers", default="full;0.3;iid:0.25,0.25,0.25,0.25")
 ap.add_argument("--mem_gb", type=float, default=0.0)
+ap.add_argument("--serve_dir", default=core.SERVE_DIR,
+                help="directory the model file and tokenizer are copied from (the exit-lab one for a model trained with the calibrated fill)")
+ap.add_argument("--fill_maps", default=None, help="calibrated fill for the fidelity check (the model was trained with it)")
 args = ap.parse_args()
 
 if args.mem_gb:
@@ -37,6 +40,7 @@ if args.mem_gb:
 model, tok = core.load_model(core.SERVE_DIR)
 routers = [tf_eval.parse_router(s) for s in args.check_routers.split(";")]
 val = core.load_teacher(args.teacher, split="val")[:args.check_n] if args.check_n else []
+FILL = core.load_fill_maps(args.fill_maps) if args.fill_maps else None
 if args.gate:
     g = torch.load(args.gate, map_location="cpu")
     with torch.no_grad():
@@ -48,12 +52,12 @@ if args.lora:
     core.load_lora_state(model, torch.load(args.lora, map_location="cpu"))
     if val:
         print("before the merge (update applied on the fly):", flush=True)
-        tf_eval.evaluate(model, val, routers, tok.pad_token_id, log=lambda s: print(s, flush=True))
+        tf_eval.evaluate(model, val, routers, tok.pad_token_id, log=lambda s: print(s, flush=True), fill_maps=FILL)
     n = core.merge_lora(model)
     print(f"merged {n} LoRA updates into the base weights", flush=True)
 if val:
     print("as exported:", flush=True)
-    tf_eval.evaluate(model, val, routers, tok.pad_token_id, log=lambda s: print(s, flush=True))
+    tf_eval.evaluate(model, val, routers, tok.pad_token_id, log=lambda s: print(s, flush=True), fill_maps=FILL)
 
 os.makedirs(args.out, exist_ok=True)
 state = {k: v.detach().cpu().contiguous() for k, v in model.state_dict().items()}
@@ -63,7 +67,7 @@ assert set(state) == base_keys, f"state keys differ from the released file: {sor
 save_file(state, os.path.join(args.out, "model.safetensors"), metadata={"format": "pt"})
 for fn in ("config.json", "configuration_ouro.py", "modeling_ouro.py", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
            "vocab.json", "merges.txt"):
-    shutil.copy(os.path.join(core.SERVE_DIR, fn), os.path.join(args.out, fn))
-json.dump({"base": core.BASE_DIR, "lora": args.lora, "lora_r": args.lora_r, "lora_alpha": args.lora_alpha, "gate": args.gate},
+    shutil.copy(os.path.join(args.serve_dir, fn), os.path.join(args.out, fn))
+json.dump({"base": core.BASE_DIR, "serve_dir": args.serve_dir, "lora": args.lora, "lora_r": args.lora_r, "lora_alpha": args.lora_alpha, "gate": args.gate},
           open(os.path.join(args.out, "randrouter_export.json"), "w"), indent=1)
 print(f"EXPORTED {args.out}", flush=True)
