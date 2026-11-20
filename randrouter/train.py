@@ -58,6 +58,7 @@ ap.add_argument("--val_n", type=int, default=48)
 ap.add_argument("--val_routers", default="full;0.3;0.245,0.3,0.3;0.2;0.25,1.0,1.0;rank:0.5,0.5,0.5;iid:0.25,0.25,0.25,0.25")
 ap.add_argument("--train_n", type=int, default=10**9, help="use only the first N training sequences (data-size ablation)")
 ap.add_argument("--seed", type=int, default=0)
+ap.add_argument("--fill_maps", default=None, help="train (and validate) with the calibrated cache fill of fit_fill_maps.py instead of the plain copy")
 ap.add_argument("--train_split", default="train")
 ap.add_argument("--val_split", default="val")
 ap.add_argument("--mem_gb", type=float, default=0.0)
@@ -95,10 +96,14 @@ print(f"trainable LoRA parameters {n_train / 1e6:.1f} M; train {len(train)} sequ
       f"val {len(val)}; run dir {run_dir}", flush=True)
 
 
+FILL = core.load_fill_maps(args.fill_maps) if args.fill_maps else None
+
+
 def validate(step):
     model.eval()
     t0 = time.time()
-    res = tf_eval.evaluate(model, val, val_routers, tok.pad_token_id, budget_tok=max(args.budget_tok, 3072), log=lambda s: print(s, flush=True))
+    res = tf_eval.evaluate(model, val, val_routers, tok.pad_token_id, budget_tok=max(args.budget_tok, 3072), log=lambda s: print(s, flush=True),
+                           fill_maps=FILL)
     with open(os.path.join(run_dir, "val.jsonl"), "a") as f:
         f.write(json.dumps({"step": step, "routers": res}) + "\n")
     torch.save(core.lora_state(model), os.path.join(run_dir, "lora_last.pt"))
@@ -148,7 +153,8 @@ while step < args.steps:
         for g in opt.param_groups:
             g["lr"] = lr_at(step)
         with torch.autocast("cuda", dtype=torch.bfloat16):
-            out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=thr, shares=shares, lengths=lengths, grad_ckpt=not args.no_ckpt)
+            out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=thr, shares=shares, lengths=lengths, grad_ckpt=not args.no_ckpt,
+                                      fill_maps=FILL)
             loss, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on=args.loss_on, loop_w=LOOP_W)
         (loss / args.accum).backward()
         micro += 1

@@ -39,7 +39,7 @@ def parse_router(spec):
 
 
 @torch.inference_mode()
-def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print):
+def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print, fill_maps=None):
     """Returns {router spec: {"loops", "agree_real", "ce_real", "agree_exact", "ce_exact", "n", per-loop shares}}."""
     batches = core.make_batches(seqs, budget_tok)
     res = {}
@@ -53,7 +53,8 @@ def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print
             if r["rates"] is not None:
                 plan, _ = core.sample_iid_plan(ids, gen, rates=r["rates"])
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=r["thr"], shares=r["shares"], lengths=lengths, gate=gate)
+                out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=r["thr"], shares=r["shares"], lengths=lengths, gate=gate,
+                                          fill_maps=fill_maps)
                 _, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on="exit", need_grad=False)
                 if r["spec"] == "full":
                     st_x = st
@@ -88,6 +89,8 @@ if __name__ == "__main__":
     ap.add_argument("--lora_r", type=int, default=32)
     ap.add_argument("--lora_alpha", type=float, default=64.0)
     ap.add_argument("--gate", default=None, help="gate file of randrouter/stage2.py (replaces the model's exit gate)")
+    ap.add_argument("--fill_maps", default=None, help="calibrated cache fill (randrouter/fit_fill_maps.py) instead of the plain copy")
+    ap.add_argument("--mem_gb", type=float, default=0.0)
     ap.add_argument("--teacher", default="/home/jli199/boptim_scratch/randrouter/teacher_lcb_v1v4*.jsonl")
     ap.add_argument("--split", default="val")
     ap.add_argument("--n", type=int, default=10**9)
@@ -95,6 +98,8 @@ if __name__ == "__main__":
     ap.add_argument("--budget_tok", type=int, default=6000)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    if args.mem_gb:
+        torch.cuda.set_per_process_memory_fraction(args.mem_gb * 2**30 / torch.cuda.get_device_properties(0).total_memory)
     model, tok = core.load_model(args.ckpt)
     if args.lora:
         core.add_lora(model, args.lora_r, args.lora_alpha)
@@ -106,6 +111,7 @@ if __name__ == "__main__":
             model.model.early_exit_gate.bias.copy_(g["bias"].to(model.model.early_exit_gate.bias))
     seqs = core.load_teacher(args.teacher, split=args.split)[:args.n]
     print(f"{len(seqs)} sequences ({args.split}), {sum(len(s['ids']) - s['n_prompt'] for s in seqs)} answer tokens; ckpt {args.ckpt} lora {args.lora} gate {args.gate}", flush=True)
-    res = evaluate(model, seqs, [parse_router(s) for s in args.routers.split(";")], tok.pad_token_id, args.budget_tok)
+    fm = core.load_fill_maps(args.fill_maps) if args.fill_maps else None
+    res = evaluate(model, seqs, [parse_router(s) for s in args.routers.split(";")], tok.pad_token_id, args.budget_tok, fill_maps=fm)
     if args.out:
-        json.dump({"ckpt": args.ckpt, "lora": args.lora, "gate": args.gate, "split": args.split, "n_seqs": len(seqs), "routers": res}, open(args.out, "w"), indent=1)
+        json.dump({"ckpt": args.ckpt, "lora": args.lora, "gate": args.gate, "fill_maps": args.fill_maps, "split": args.split, "n_seqs": len(seqs), "routers": res}, open(args.out, "w"), indent=1)

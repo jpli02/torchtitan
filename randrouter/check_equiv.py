@@ -19,7 +19,7 @@ import time
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from core import SERVE_DIR, load_model, load_teacher, routed_forward, stock_readout_loop  # noqa: E402
+from core import SERVE_DIR, load_fill_maps, load_model, load_teacher, routed_forward, stock_readout_loop  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--teacher", default="/home/jli199/boptim_scratch/randrouter/teacher_lcb_v1v4*.jsonl")
@@ -27,11 +27,14 @@ ap.add_argument("--n", type=int, default=3)
 ap.add_argument("--max_gen", type=int, default=300)
 ap.add_argument("--routers", default="0.3,0.3,0.3;0.5,0.5,0.5;1.0,0.38,0.3;0.2,0.6,0.4")
 ap.add_argument("--mem_gb", type=float, default=0.0, help="cap this process's GPU memory (shared card)")
+ap.add_argument("--ckpt", default=SERVE_DIR, help="serving directory (the exit-lab one for --fill_maps)")
+ap.add_argument("--fill_maps", default=None, help="check the calibrated fill: decode_fill_maps in the serving model against fill_maps in the parallel forward")
 args = ap.parse_args()
 
 if args.mem_gb:
     torch.cuda.set_per_process_memory_fraction(args.mem_gb * 2**30 / torch.cuda.get_device_properties(0).total_memory)
-model, tok = load_model(SERVE_DIR)
+model, tok = load_model(args.ckpt)
+FILL = load_fill_maps(args.fill_maps) if args.fill_maps else None
 inner = model.model
 seqs = load_teacher(args.teacher)[:args.n]
 print(f"{len(seqs)} sequences; lengths {[len(s['ids']) for s in seqs]}, prompts {[s['n_prompt'] for s in seqs]}", flush=True)
@@ -70,6 +73,7 @@ with torch.inference_mode():
             ids = s["ids"][:s["n_prompt"] + args.max_gen]
             p = s["n_prompt"]
             inner.decode_early_exit_threshold = thr + [1.0]
+            inner.decode_fill_maps = args.fill_maps
             o = model(input_ids=torch.tensor([ids[:p]], device="cuda"), use_cache=True)
             past = o.past_key_values
             r_pred, r_loops = [], []
@@ -82,7 +86,7 @@ with torch.inference_mode():
             inner.decode_early_exit_threshold = None
             del past, o
             t_ids = torch.tensor([ids], device="cuda")
-            out = routed_forward(model, t_ids, torch.tensor([p], device="cuda"), thresholds=thr)
+            out = routed_forward(model, t_ids, torch.tensor([p], device="cuda"), thresholds=thr, fill_maps=FILL)
             pred, _ = readouts(out, t_ids)
             p_loops = (out["exit"][0, p:] + 1).tolist()
             p_pred = pred[p:].tolist()

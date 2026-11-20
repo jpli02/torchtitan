@@ -49,8 +49,45 @@ def _rotary(model):
     return sys.modules[type(model).__module__].apply_rotary_pos_emb
 
 
-def _block(layer, rot, h, cos, sin, k_prev, v_prev, stale):
-    """One decoder layer on the whole sequence; keys/values of the positions in `stale` are replaced by the carried ones."""
+def load_fill_maps(path: str, device: str = "cuda"):
+    """Maps of the calibrated fill as ({(exit loop, target loop): [layers, heads, dim + 1, dim]} for keys, the same for values)."""
+    blob = torch.load(path, map_location="cpu")
+    km, vm = {}, {}
+    for name, m in blob["maps"].items():
+        w, a, b = (int(x) for x in name.split(":"))
+        (km if w == 0 else vm)[(a, b)] = m.to(device, torch.float32)
+    return km, vm
+
+
+def _rot_half(x):
+    half = x.shape[-1] // 2
+    return torch.cat((-x[..., half:], x[..., :half]), dim=-1)
+
+
+def _mapped_fill(fill, k_carry, v_carry, cos, sin):
+    """Affine stand-ins for this loop's keys/values of the positions that left earlier, from their exit loop's (carried) ones."""
+    exit_, t, l, km, vm = fill
+    c, s_ = cos[:, None].float(), sin[:, None].float()
+    k_un = k_carry.float() * c - _rot_half(k_carry.float()) * s_          # undo the rotary rotation
+    v32 = v_carry.float()
+    k_out, v_out = k_carry, v_carry
+    for e in range(t):
+        m = (exit_ == e)[:, None, :, None]
+        if not bool(m.any()):
+            continue
+        a_k, a_v = km[(e, t)][l], vm[(e, t)][l]                            # [heads, dim + 1, dim]
+        k_m = torch.einsum("bhtd,hde->bhte", k_un, a_k[:, :-1, :]) + a_k[:, -1, :][None, :, None, :]
+        k_m = k_m * c + _rot_half(k_m) * s_
+        v_m = torch.einsum("bhtd,hde->bhte", v32, a_v[:, :-1, :]) + a_v[:, -1, :][None, :, None, :]
+        k_out = torch.where(m, k_m.to(k_carry.dtype), k_out)
+        v_out = torch.where(m, v_m.to(v_carry.dtype), v_out)
+    return k_out, v_out
+
+
+def _block(layer, rot, h, cos, sin, k_prev, v_prev, stale, fill=None):
+    """One decoder layer on the whole sequence; keys/values of the positions in `stale` are replaced by the carried ones
+    (plain copy of their exit loop's) or, with `fill`, by the calibrated maps of them. Returns the state and the keys/values
+    to carry: every position's keys/values of its last computed loop, unmapped."""
     attn = layer.self_attn
     b, t, _ = h.shape
     x = layer.input_layernorm(h)
@@ -59,19 +96,26 @@ def _block(layer, rot, h, cos, sin, k_prev, v_prev, stale):
     k = attn.k_proj(x).view(shape).transpose(1, 2)
     v = attn.v_proj(x).view(shape).transpose(1, 2)
     q, k = rot(q, k, cos, sin)
+    k_carry, v_carry = k, v
     if k_prev is not None:
         m = stale[:, None, :, None]
-        k = torch.where(m, k_prev, k)
-        v = torch.where(m, v_prev, v)
+        k_carry = torch.where(m, k_prev, k)
+        v_carry = torch.where(m, v_prev, v)
+        if fill is None:
+            k, v = k_carry, v_carry
+        else:
+            k_f, v_f = _mapped_fill(fill, k_carry, v_carry, cos, sin)
+            k = torch.where(m, k_f, k)
+            v = torch.where(m, v_f, v)
     a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
     a = attn.o_proj(a.transpose(1, 2).reshape(b, t, -1))
     h = h + layer.input_layernorm_2(a)
     h = h + layer.post_attention_layernorm_2(layer.mlp(layer.post_attention_layernorm(h)))
-    return h, k, v
+    return h, k_carry, v_carry
 
 
 def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=None, lengths=None, exact_cache=False,
-                   grad_ckpt=False, gate=None):
+                   grad_ckpt=False, gate=None, fill_maps=None):
     """Teacher-forced forward of `ids` (B, T) under a router.
 
     n_prompt    (B,) number of prefill positions per sequence (they always run every loop)
@@ -83,6 +127,7 @@ def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=N
     exact_cache True = "gather" mode: exits are decided/recorded the same way but no key or value is replaced (every position
                 keeps computing; the state at its exit loop is what an exit with an exact cache would read)
     gate        module mapping the normed state to the gate logit (default: the model's own early_exit_gate)
+    fill_maps   (key maps, value maps) of load_fill_maps: calibrated fill instead of the plain copy
     Returns {"hidden": [4 x (B, T, D)] normed states, "exit": (B, T) long, "lam": (B, T, 4) float32 gate probabilities,
     "gate_logit": (B, T, 4) gate logits in the model's dtype}.
     hidden[t][b, i] is meaningful only for t <= exit[b, i] (always, in gather mode).
@@ -111,10 +156,11 @@ def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=N
         st = stale if (t > 0 and not exact_cache) else None
         for l, layer in enumerate(inner.layers):
             kp, vp = (ks[l], vs[l]) if st is not None else (None, None)
+            fill = (exit_, t, l, fill_maps[0], fill_maps[1]) if (fill_maps is not None and st is not None) else None
             if grad_ckpt:
-                h, ks[l], vs[l] = checkpoint(_block, layer, rot, h, cos, sin, kp, vp, st, use_reentrant=False)
+                h, ks[l], vs[l] = checkpoint(_block, layer, rot, h, cos, sin, kp, vp, st, fill, use_reentrant=False)
             else:
-                h, ks[l], vs[l] = _block(layer, rot, h, cos, sin, kp, vp, st)
+                h, ks[l], vs[l] = _block(layer, rot, h, cos, sin, kp, vp, st, fill)
         h = inner.norm(h)
         hidden.append(h)
         glog = gate(h).squeeze(-1)
@@ -210,6 +256,11 @@ def sample_thresholds(gen: torch.Generator, lo: float = 0.05, hi: float = 1.0):
 
 
 # ------------------------------------------------------------------------------------------------------------ loss, metrics
+def _head_ce(head, x, tg):
+    logits = head(x).float()
+    return F.cross_entropy(logits, tg, reduction="none"), (logits.argmax(-1) == tg).float()
+
+
 def readout_stats(model, out, ids, n_prompt, lengths, *, loss_on="valid", need_grad=True, loop_w=None):
     """Cross-entropy of the next-token readouts against the teacher-forced tokens.
 
@@ -238,9 +289,15 @@ def readout_stats(model, out, ids, n_prompt, lengths, *, loss_on="valid", need_g
             stats[f"n{t}"], stats[f"ce{t}"], stats[f"ok{t}"] = 0, 0.0, 0.0
             continue
         hv = out["hidden"][t][bi[valid], ti[valid]]
-        logits = model.lm_head(hv).float()
-        ce = F.cross_entropy(logits, target[valid], reduction="none")
-        ok = (logits.argmax(-1) == target[valid]).float()
+        tg = target[valid]
+
+        if need_grad and hv.requires_grad:
+            # the vocabulary-sized logits of a loop are recomputed in the backward pass instead of being kept for all loops
+            # (the targets are passed as an argument: the function runs again in the backward pass, after this loop has moved on)
+            ce, ok = checkpoint(_head_ce, model.lm_head, hv, tg, use_reentrant=False)
+        else:
+            ce, ok = _head_ce(model.lm_head, hv, tg)
+        ok = ok.detach()
         at_exit = (ex[valid] == t).float()
         stats[f"n{t}"], stats[f"ce{t}"], stats[f"ok{t}"] = int(valid.sum()), float(ce.detach().sum()), float(ok.sum())
         exit_ce += float((ce.detach() * at_exit).sum())
