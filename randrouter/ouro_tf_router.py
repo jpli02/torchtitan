@@ -39,7 +39,7 @@ class OuroTFRouterObjective(BaseObjective):
     def __init__(self, *, lora: str | None = None, gate: str | None = None, fill_maps: str | None = None, veto: str | None = None,
                  teacher: str = "/home/jli199/boptim_scratch/randrouter/teacher_lcb_v1v4*.jsonl", split: str = "val", n_items: int = 99,
                  floor_pct: float = 98.45, penalty_per_pt: float = 3.5, budget_tok: int = 2500, mem_gb: float = 0.0,
-                 work_dir: str | None = None, lora_r: int = 32, lora_alpha: float = 64.0, seed: int | None = None):
+                 work_dir: str | None = None, lora_r: int = 32, lora_alpha: float = 64.0, seed: int | None = None, exact: int = 0):
         import torch
 
         if RR not in sys.path:
@@ -67,6 +67,8 @@ class OuroTFRouterObjective(BaseObjective):
         self.setup = {"lora": lora, "gate": gate, "fill_maps": fill_maps, "split": split, "n_items": len(self.seqs),
                       "floor_pct": self.floor, "penalty_per_pt": self.penalty}
         self.seed = seed
+        self.exact = bool(int(exact))
+        self.setup["exact_cache"] = self.exact
         self._eval_records: list = []
         self.params = [ObjectiveParam("q1", (0.05, 1.0)), ObjectiveParam("q2", (0.05, 1.0)), ObjectiveParam("q3", (0.05, 1.0))]
         self.veto = veto
@@ -89,8 +91,8 @@ class OuroTFRouterObjective(BaseObjective):
         if self.veto and tau is not None:
             spec += f"|veto={self.veto}@{float(tau):.6f}"
         res = self._tf.evaluate(self.model, self.seqs, [self._tf.parse_router(spec)], self.tok.pad_token_id, self.budget_tok,
-                                log=lambda s: None, fill_maps=self.fill, exact=False)[spec]
-        return res["loops"], 100.0 * res["agree_real"], res["share"]
+                                log=lambda s: None, fill_maps=self.fill, exact=("only" if self.exact else False))[spec]
+        return res["loops"], 100.0 * res["agree_exact" if self.exact else "agree_real"], res["share"]
 
     def evaluate(self, params) -> float:
         thr = [min(1.0, max(0.05, float(v))) for v in params][:3]

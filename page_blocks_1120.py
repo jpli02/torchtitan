@@ -82,15 +82,15 @@ def _diagnosis():
     and once with the same exits but every token's exact keys and values. Agreement = share of answer tokens whose exit readout is the full-depth token
     (full depth against itself: {_pct(full["agree_real"]) if full else "—"} %, the rest is numerical noise).</p>
     <table>
-      <thead><tr><th>Router (thresholds after loops 1, 2, 3)</th><th class="n">loops per token</th><th class="n">% leaving after loop 1</th>
-      <th class="n">agreement %, decoder's cache</th><th class="n">agreement %, exact cache</th><th class="n">lost to the cache, points</th></tr></thead>
+      <thead><tr><th>Router<br>(thresholds after loops 1, 2, 3)</th><th class="n">loops<br>per token</th><th class="n">% leaving<br>after loop 1</th>
+      <th class="n">agreement %,<br>decoder's cache</th><th class="n">agreement %,<br>exact cache</th><th class="n">lost to the<br>cache, points</th></tr></thead>
       <tbody>
         {chr(10).join(rows)}
       </tbody>
     </table>
     <p class="src">Reading. As long as no token leaves after loop 1 (gates 0.5 and 0.3) the cache costs a few tenths of a point. As soon as tokens leave after loop 1 the
     readouts of those tokens are still right (the exact-cache column does not move), yet the later tokens, which attend to the copied loop-1 keys and values in loops 2 to 4,
-    lose 2 to 5 points.{kv}{gs} This is why no threshold search over the released gate gets below about 2.1 loops: the region below is closed by the cache, not by the choice of tokens.</p>'''
+    lose 2 to 6 points.{kv}{gs} This is why no threshold search over the released gate gets below about 2.1 loops: the region below is closed by the cache, not by the choice of tokens.</p>'''
 
 
 def _repairs():
@@ -127,7 +127,7 @@ def _stage2():
         return ""
     names = [("released", "released gate"), ("paper", "refit, the paper's Stage-II rule"), ("next", "refit, “will the next loop help”"), ("correct", "refit, “readout already right”")]
     specs = [s for s in ("rank:0.5,0.5,0.5", "rank:0.7,0.5,0.5", "rank:0.8,0.5,0.5", "rank:0.9,0.5,0.5") if s in f.get("released", {})]
-    head = "".join(f'<th class="n">{round(100 * float(s.split(":")[1].split(",")[0]))} % leave after loop 1{_sm("<br>%.2f loops" % f["released"][s]["loops"])}</th>' for s in specs)
+    head = "".join(f'<th class="n">{round(100 * float(s.split(":")[1].split(",")[0]))} % leave<br>after loop 1{_sm("<br>%.2f loops" % f["released"][s]["loops"])}</th>' for s in specs)
     rows = []
     for key, disp in names:
         if key not in f:
@@ -135,7 +135,7 @@ def _stage2():
         rows.append(f'<tr><td>{disp}</td>' + "".join(f'<td class="n">{_pct(f[key][s]["agree_exact"])}</td>' if s in f[key] else '<td class="n">—</td>' for s in specs) + '</tr>')
     return f'''<p style="margin:16px 0 6px;font-weight:600">3 · Stage II again: refitting the gate alone changes nothing</p>
     <table>
-      <thead><tr><th>Gate (a linear map of the state, as released)</th>{head}</tr></thead>
+      <thead><tr><th>Gate<br>(a linear map of the state, as released)</th>{head}</tr></thead>
       <tbody>
         {chr(10).join(rows)}
       </tbody>
@@ -148,7 +148,8 @@ def _stage2():
 def _proxy():
     rows = []
     for name, disp in (("base_copy", "released model, plain copy"), ("fill24", "released model, calibrated fill"), ("r2kl125", "random-router training, 125 steps"),
-                       ("r3_kl_fill", "random-router training + calibrated fill"), ("r3_maps", "trained fill maps")):
+                       ("veto_fill24", "released model, calibrated fill + loop-1 veto as a fourth knob"),
+                       ("base_exact", "released model, EXACT cache (what a perfect repair would allow)")):
         cells = []
         for suffix in ("", "_strict"):
             b = _load(f"{R}/bo_tf/{name}{suffix}/baseline.json")
@@ -168,13 +169,13 @@ def _proxy():
                 return '<td class="n">—</td><td class="n">—</td>'
             bk, be, n = c
             return (f'<td class="n">{bk["value"]:.2f}{_sm("<br>q = %g: %.2f loops, %.2f %%" % (bk["q"], bk["loops"], bk["agree_pct"]))}</td>'
-                    f'<td class="n">{be["value"]:.2f}{_sm("<br>(%s): %.2f loops, %.2f %%" % (", ".join("%.2f" % v for v in be["thresholds"]), be["loops"], be["agree_pct"]))}</td>')
+                    f'<td class="n">{be["value"]:.2f}{_sm("<br>(%s)%s: %.2f loops, %.2f %%" % (", ".join("%.2f" % v for v in be["thresholds"]), "" if be.get("tau") is None or be["tau"] > 2.0 else ", veto at %.2f" % be["tau"], be["loops"], be["agree_pct"]))}</td>')
         rows.append(f'<tr><td>{disp}</td>{fmt(cells[0])}{fmt(cells[1])}</tr>')
     if not rows:
         return ""
     return f'''<p style="margin:16px 0 6px;font-weight:600">4 · The search on a proxy objective: 15 seconds per evaluation instead of 3 hours</p>
     <table>
-      <thead><tr><th rowspan="2">System</th><th colspan="2" class="n">objective of the real searches</th><th colspan="2" class="n">no loss allowed (floor = gate 0.3 of the released model)</th></tr>
+      <thead><tr><th rowspan="2">System</th><th colspan="2" class="n">objective of the real searches</th><th colspan="2" class="n">no loss allowed<br>(floor = gate 0.3 of the released model)</th></tr>
       <tr><th class="n">best single knob</th><th class="n">search, 50 evaluations</th><th class="n">best single knob</th><th class="n">search, 50 evaluations</th></tr></thead>
       <tbody>
         {chr(10).join(rows)}
@@ -184,21 +185,28 @@ def _proxy():
     max(0, floor − agreement %), minimised. Left: the real searches' units (penalty 3.5 per agreement point below 98.45 %, the real 2.0 per pass@1 point at the observed slope).
     Right: penalty 20 below 98.22 %, i.e. the fastest router that loses nothing against the released gate at 0.3. Gaussian-process search (boptim, gp_hedge) warm-started with
     the single knob at seven thresholds. On the released model the proxy reproduces the real result: the search ends at about 2.2 loops with no loop-1 exit and
-    −11.25, where the real Gaussian-process run ended at (1.00, 0.38, 0.30) and −11.10.</p>'''
+    −11.25, where the real Gaussian-process run ended at (1.00, 0.38, 0.30) and −11.10. With an exact cache the same search finds what the single knob cannot express:
+    let the tokens the gate is surest about leave after loop 1 and run all the others to full depth, about 1.3 loops at the agreement of the released gate at 0.3.</p>'''
 
 
 def _frontier():
     """Fewest loops at a given agreement, over every router evaluated on the proxy (searches and their single-knob baselines)."""
-    floors = [97.0, 97.5, 98.0, 98.22, 98.5]
+    floors = [97.0, 97.5, 98.0, 98.22, 98.5, 99.0, 99.3]
     rows = []
     for names, disp in ((("base_copy", "base_copy_strict"), "released model, plain copy"), (("fill24", "fill24_strict"), "released model, calibrated fill"),
-                        (("r2kl125", "r2kl125_strict"), "random-router training, 125 steps")):
+                        (("r2kl125", "r2kl125_strict"), "random-router training, 125 steps"),
+                        (("veto_fill24_strict",), "released model, calibrated fill + loop-1 veto"),
+                        (("base_exact", "base_exact_strict"), "released model, EXACT cache (upper bound)")):
         pts = []
         for n in names:
             for sub in ("", "baseline/"):
                 p = f"{R}/bo_tf/{n}/{sub}evaluations.jsonl"
                 if os.path.exists(p):
                     pts += [json.loads(l) for l in open(p) if l.strip()]
+        if "veto" in names[0]:   # the hand-picked veto routers of part 7 (the strict search stayed above two loops)
+            tab = _load(f"{R}/tables/veto_fill24.json")
+            if tab:
+                pts += [{"loops": r["loops"], "agree_pct": 100 * r["agree_real"]} for r in tab["routers"].values()]
         if not pts:
             continue
         cells = []
@@ -218,7 +226,9 @@ def _frontier():
     </table>
     <p class="src">Loops per token of the cheapest evaluated router whose agreement with the full-depth answers is at least the column's level (validation answers; the
     released gate at 0.3 sits at 98.22 % and 2.14 loops). Below about 98 % the repaired systems need 15 to 40 % fewer loops; at the level of the released gate and above they
-    need the same or more, because every router that uses loop 1 still loses about a point to the cache and the trained model also lost half a point at full depth.</p>'''
+    need the same or more, because every router that uses loop 1 still loses about a point to the cache and the trained model also lost half a point at full depth.
+    The last row is the prize: with an exact cache the searched routers need about 1.3 loops for the gate's agreement and 1.5 to 1.7 loops for 99.0 to 99.3 %, where
+    the released model with its copy fill needs 3 loops or cannot get there.</p>'''
 
 
 def _real():
@@ -263,8 +273,8 @@ def _real():
     note = "" if recs else " The evaluations of the repaired systems are running."
     return f'''<p style="margin:16px 0 6px;font-weight:600">6 · Real execution on the 342 test problems</p>
     <table>
-      <thead><tr><th>System</th><th>Router</th><th class="n">executed loops per token</th><th class="n">pass@1 %</th><th class="n">answer tokens / cut at 1,024</th>
-      <th class="n">against gate 0.3: problems only this run / only the gate solves</th></tr></thead>
+      <thead><tr><th style="min-width:230px">System</th><th style="min-width:130px">Router</th><th class="n">executed loops<br>per token</th><th class="n">pass@1 %</th>
+      <th class="n">answer tokens /<br>cut at 1,024</th><th class="n">against gate 0.3:<br>only this run /<br>only the gate solves</th></tr></thead>
       <tbody>
         {chr(10).join(rows)}
       </tbody>
@@ -295,8 +305,8 @@ def _externality():
             vr.append(f'<tr><td>({name})</td><td class="n">{r["loops"]:.2f}</td><td class="n">{round(100 * r["share"][0])}</td><td class="n">{_pct(r["agree_real"])}</td>'
                       f'<td class="n">{_pct(r["agree_exact"])}</td></tr>')
         veto = f'''<table>
-      <thead><tr><th>Router (calibrated fill)</th><th class="n">loops per token</th><th class="n">% leaving after loop 1</th><th class="n">agreement %, decoder's cache</th>
-      <th class="n">agreement %, exact cache</th></tr></thead>
+      <thead><tr><th>Router (calibrated fill)</th><th class="n">loops<br>per token</th><th class="n">% leaving<br>after loop 1</th><th class="n">agreement %,<br>decoder's cache</th>
+      <th class="n">agreement %,<br>exact cache</th></tr></thead>
       <tbody>
         {chr(10).join(vr)}
       </tbody>
@@ -309,7 +319,7 @@ def _externality():
     A read-out of the loop-1 state trained to find them (on {rep["n_train"]:,} training tokens) is then used as a veto: a token the gate would release after loop 1 stays for
     loop 2 if the read-out scores it harmful.</p>
     <table>
-      <thead><tr><th>Ranking of the validation tokens by</th><th class="n">AUC for “in the most harmful fifth”</th><th class="n">% of the harm in its top 10 %</th>
+      <thead><tr><th>Ranking of the validation tokens by</th><th class="n">AUC for “in the<br>most harmful fifth”</th><th class="n">% of the harm<br>in its top 10 %</th>
       <th class="n">top 20 %</th><th class="n">top 30 %</th></tr></thead>
       <tbody>
         {chr(10).join(rows)}
@@ -318,15 +328,31 @@ def _externality():
     {veto}'''
 
 
+def _outlook():
+    return '''<p style="margin:16px 0 6px;font-weight:600">8 · Where this leaves the search, and the next step</p>
+    <p class="src">(a) The released single-knob gate is not the ceiling: with an exact cache a three-threshold search halves the loops at almost no loss (parts 4 and 5),
+    and the first router checked in real execution, (0.245, 0.3, 0.3), keeps 19.0 % pass@1, where the decoder's copy fill already drops to 15.2 % at the milder
+    neighbour (0.25, 0.3, 0.3) (part 6).
+    (b) No repair of the copy fill tried so far gets there. Calibrated maps, random-router training of the model, trained maps and a veto on harmful exits all stop near
+    98 % token agreement for routers that use loop 1, and real execution needs about 98.5 % to match the released gate. Refitting the gate (Stage II) is not the lever at all.
+    (c) The skipped loops may not need to be skipped. A decode step with 2 rows costs 1.17 times a step with 1 row and a step with 4 rows 1.27 times (measured on the
+    released model, full depth, one shared card): batch-1 decoding is bound by per-call overhead, not by arithmetic. So the deeper loops of a token that has already been
+    emitted after loop 1 can run in the same batched pass as the first loop of the next token. The cache then stays exact, the answer is the exact-cache answer of part 6,
+    and the latency per token is the router's loops times about 1.2 instead of 4 passes. That trades the compute saving for a latency saving, and it is the version of
+    early exit in which the router search has something to find. Not built yet.</p>'''
+
+
 def randrouter_block():
-    parts = [_diagnosis(), _repairs(), _stage2(), _proxy(), _frontier(), _real(), _externality()]
-    if not any(parts):
+    parts = [_diagnosis(), _repairs(), _stage2(), _proxy(), _frontier(), _real(), _externality(), _outlook()]
+    if not any(parts[:-1]):
         return ""
     return f'''<div class="sub-head"><h3>Why the searches cannot beat the released gate, and what was tried against it (2026-11-20)</h3><p>Question from the user: change
     the router into a random one and retrain Stage II, to get past “the search cannot beat the baseline”. Short answer: the baseline is not protected by a good gate but by a
-    bad cache. A token that leaves after loop 1 poisons the cache for every later token, so every router that would use loop 1 loses accuracy, whatever its thresholds.
-    Training under a random router with the decoder's cache fill repairs most of the token-level damage (95.5 → 98.2 % agreement at 1.5 to 1.9 loops), refitting the gate
-    (Stage II) alone repairs nothing, and neither is enough yet in real execution: pass@1 needs about 98.5 % agreement to match the released gate.</p></div>
+    bad cache. A token that leaves after loop 1 poisons the cache for every later token, so every router that would use loop 1 loses accuracy, whatever its thresholds;
+    with an exact cache such a router keeps its accuracy in real execution (19.0 % pass@1 at (0.245, 0.3, 0.3); with the decoder's copy fill the neighbouring router
+    (0.25, 0.3, 0.3), which releases fewer tokens after loop 1, scores 15.2 %). Training under a random router with the decoder's cache fill repairs most of the
+    token-level damage (about 95 → 98 % agreement at 1.5 to 1.9 loops), refitting the gate (Stage II) alone repairs nothing, and neither is enough yet in real
+    execution: pass@1 needs about 98.5 % agreement to match the released gate, and the random-router model scores 15.2 % at 1.66 loops.</p></div>
   <div class="tablewrap">
     {"".join(p for p in parts if p)}
   </div>

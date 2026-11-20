@@ -52,6 +52,14 @@ if "ouro_tf_veto" not in s:
     open(p, "w").write(s)
     py_compile.compile(p, doraise=True)
     print("added veto to the ouro_tf_router factory branch")
+s = open(p).read()
+if "ouro_tf_exact" not in s:
+    a = '            veto=getattr(args, "ouro_tf_veto", None),\n'
+    assert s.count(a) == 1
+    s = s.replace(a, a + '            exact=int(getattr(args, "ouro_tf_exact", 0) or 0),\n', 1)
+    open(p, "w").write(s)
+    py_compile.compile(p, doraise=True)
+    print("added exact to the ouro_tf_router factory branch")
 
 p = f"{BO}/main.py"
 s = open(p).read()
@@ -82,3 +90,11 @@ if "--ouro_tf_veto" not in s:
     open(p, "w").write(s)
     py_compile.compile(p, doraise=True)
     print("added the --ouro_tf_veto flag to main.py")
+s = open(p).read()
+if "--ouro_tf_exact" not in s:
+    a = '    parser.add_argument("--ouro_tf_fill_maps", type=str, default=None, help="[ouro_tf_router] calibrated cache fill")\n'
+    assert s.count(a) == 1
+    s = s.replace(a, a + '    parser.add_argument("--ouro_tf_exact", type=int, default=0, help="[ouro_tf_router] 1 = exact cache (upper bound of a cache repair)")\n', 1)
+    open(p, "w").write(s)
+    py_compile.compile(p, doraise=True)
+    print("added the --ouro_tf_exact flag to main.py")

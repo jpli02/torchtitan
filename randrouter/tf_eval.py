@@ -68,10 +68,11 @@ def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print
             if r["rates"] is not None:
                 plan, _ = core.sample_iid_plan(ids, gen, rates=r["rates"])
             with torch.autocast("cuda", dtype=torch.bfloat16):
+                # exact == "only": one pass in which the exits themselves are decided on an exact cache (the upper bound of a repair)
                 out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=r["thr"], shares=r["shares"], lengths=lengths, gate=gate,
-                                          fill_maps=fill_maps, veto=r.get("veto"))
+                                          fill_maps=fill_maps, veto=r.get("veto"), exact_cache=(exact == "only"))
                 _, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on="exit", need_grad=False)
-                if r["spec"] == "full" or not exact:  # exact=False: only the decoder's cache (half the cost)
+                if r["spec"] == "full" or not exact or exact == "only":  # exact=False: only the decoder's cache (half the cost)
                     st_x = st
                 else:
                     # the same exits with an exact cache: reuse the decided exits as a plan, no key/value replacement
