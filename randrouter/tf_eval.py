@@ -11,7 +11,8 @@ One parallel forward per (batch, router, mode); a sequence takes about a second 
         [--routers "full;0.7;0.5;0.3;0.2;1.0,0.38,0.3;iid:0.25,0.25,0.25,0.25"] [--out FILE.json]
 A router is "full", one threshold q (the released single knob), "q1,q2,q3", "iid:p1,p2,p3,p4" (the random router with those
 exit shares, seed 0), or "rank:f1,f2,f3" (after loop s the share f_s of the still-running tokens that the gate is surest about
-leaves; the gate-ordered counterpart of the random router).
+leaves; the gate-ordered counterpart of the random router). "q1,q2,q3|veto=PROBE.pt@tau": a token leaves after loop 1 only if
+the harm probe (harm_fit.py) scores it at most tau.
 """
 import argparse
 import json
@@ -27,7 +28,21 @@ import core  # noqa: E402
 DEFAULT_ROUTERS = "full;0.7;0.5;0.3;0.2;1.0,0.38,0.3;iid:0.25,0.25,0.25,0.25;iid:0.1,0.4,0.4,0.1"
 
 
+_PROBES = {}
+
+
 def parse_router(spec):
+    if "|veto=" in spec:
+        base, v = spec.split("|veto=", 1)
+        path, tau = v.rsplit("@", 1)
+        r = parse_router(base)
+        if path not in _PROBES:
+            _PROBES[path] = core.load_probe(path)
+        return dict(r, spec=spec, veto=(_PROBES[path], float(tau)))
+    return dict(_parse_plain(spec), veto=None)
+
+
+def _parse_plain(spec):
     if spec == "full":
         return {"spec": spec, "thr": None, "rates": None, "shares": None}
     if spec.startswith("iid:"):
@@ -54,7 +69,7 @@ def evaluate(model, seqs, routers, pad_id, budget_tok=6000, gate=None, log=print
                 plan, _ = core.sample_iid_plan(ids, gen, rates=r["rates"])
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=r["thr"], shares=r["shares"], lengths=lengths, gate=gate,
-                                          fill_maps=fill_maps)
+                                          fill_maps=fill_maps, veto=r.get("veto"))
                 _, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on="exit", need_grad=False)
                 if r["spec"] == "full" or not exact:  # exact=False: only the decoder's cache (half the cost)
                     st_x = st

@@ -130,8 +130,27 @@ def _block(layer, rot, h, cos, sin, k_prev, v_prev, stale, fill=None):
     return h, k_carry, v_carry
 
 
+def load_probe(path: str, device: str = "cuda"):
+    """A harm probe of harm_fit.py as a function of the normed loop-1 state: (B, T, D) -> (B, T) float32 score."""
+    blob = torch.load(path, map_location="cpu")
+    sd = blob["state_dict"]
+    if blob["kind"] == "mlp":
+        net = nn.Sequential(nn.Linear(sd["0.weight"].shape[1], sd["0.weight"].shape[0]), nn.GELU(), nn.Linear(sd["2.weight"].shape[1], 1))
+    else:
+        net = nn.Linear(sd["weight"].shape[1], 1)
+    net.load_state_dict(sd)
+    net = net.to(device).float().eval()
+    mean, std = blob["mean"].to(device), blob["std"].to(device)
+
+    @torch.no_grad()
+    def score(h):
+        return net((h.float() - mean) / std).squeeze(-1)
+
+    return score
+
+
 def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=None, lengths=None, exact_cache=False,
-                   grad_ckpt=False, gate=None, fill_maps=None):
+                   grad_ckpt=False, gate=None, fill_maps=None, veto=None):
     """Teacher-forced forward of `ids` (B, T) under a router.
 
     n_prompt    (B,) number of prefill positions per sequence (they always run every loop)
@@ -144,6 +163,7 @@ def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=N
                 keeps computing; the state at its exit loop is what an exit with an exact cache would read)
     gate        module mapping the normed state to the gate logit (default: the model's own early_exit_gate)
     fill_maps   (key maps, value maps) of load_fill_maps: calibrated fill instead of the plain copy
+    veto        (score function of load_probe, tau): with thresholds, a position leaves after loop 1 only if its score <= tau
     Returns {"hidden": [4 x (B, T, D)] normed states, "exit": (B, T) long, "lam": (B, T, 4) float32 gate probabilities,
     "gate_logit": (B, T, 4) gate logits in the model's dtype}.
     hidden[t][b, i] is meaningful only for t <= exit[b, i] (always, in gather mode).
@@ -201,6 +221,8 @@ def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=N
                                 newly[bidx, idx[top]] = True
                     else:
                         newly = running & (cum >= float(thresholds[t]))
+                        if veto is not None and t == 0:
+                            newly = newly & (veto[0](h) <= float(veto[1]))
                     exit_ = torch.where(newly, torch.full_like(exit_, t), exit_)
             stale = is_gen & (exit_ <= t)
     return {"hidden": hidden, "exit": exit_, "lam": torch.stack(lams, dim=-1), "gate_logit": torch.stack(glogs, dim=-1)}
