@@ -223,7 +223,10 @@ class OuroLCBRouterObjective(BaseObjective):
                         out.write(line if line.endswith("\n") else line + "\n")
         n_tot = sum(r["n"] for r in results)
         wall = time.time() - t0
-        return {"n": n_tot, "trunc_rate": sum(r["trunc_rate"] * r["n"] for r in results) / n_tot,
+        # exact recurrence loops executed per decoded token (depth_eval's exec counter; absent at full depth, where it is 4)
+        ex_n = sum(r.get("exec_n", 0) for r in results)
+        exec_loops = (sum(r["exec_loops"] * r["exec_n"] for r in results if r.get("exec_n")) / ex_n) if ex_n else None
+        return {"n": n_tot, "exec_loops": exec_loops, "trunc_rate": sum(r["trunc_rate"] * r["n"] for r in results) / n_tot,
                 "mean_tokens": sum(r["mean_tokens"] * r["n"] for r in results) / n_tot,
                 "mean_loops": sum(r["mean_loops"] * r["n"] for r in results) / n_tot,
                 "tok_s": sum(r["mean_tokens"] * r["n"] for r in results) / wall, "shards": k, "wall_s": wall}
@@ -249,9 +252,11 @@ class OuroLCBRouterObjective(BaseObjective):
         return others
 
     def _calibrate(self, thr, gpu, run_dir: Path, tag: str):
-        """Speed on the first CAL_N problems, repeated while another user computes on the card (up to 3 runs)."""
+        """Speed on the first CAL_N problems, repeated while another user computes on the card (up to CAL_ATTEMPTS runs, default 3;
+        LCB_CAL_ATTEMPTS=1 when a neighbour computes on the card all day, so repeating cannot give a clean run: the candidate and the
+        full-depth reference are then both measured once, back to back, under the same load, and the record is flagged not clean)."""
         best = None
-        for attempt in range(3):
+        for attempt in range(max(1, int(os.environ.get("LCB_CAL_ATTEMPTS", "3")))):
             before = self._gpu_contention(gpu)
             res = self._depth_eval(thr, gpu, self.CAL_N, run_dir / f"cal_{tag}_{attempt}.jsonl", run_dir / f"cal_{tag}_{attempt}.log", self.CAL_TIMEOUT_S,
                                    data=self.CAL_DATA)
@@ -260,7 +265,7 @@ class OuroLCBRouterObjective(BaseObjective):
                 continue
             clean = not before and not after
             cand = {"tok_s": float(res["tok_s"]), "clean": clean, "attempt": attempt, "others": before + after,
-                    "mean_loops_counter": res.get("mean_loops"), "mean_tokens": res.get("mean_tokens")}
+                    "mean_loops_counter": res.get("mean_loops"), "mean_tokens": res.get("mean_tokens"), "exec_loops": res.get("exec_loops")}
             if best is None or cand["tok_s"] > best["tok_s"]:
                 best = cand
             if clean:
@@ -374,7 +379,8 @@ class OuroLCBRouterObjective(BaseObjective):
         prev = self._find_graded(thr)
         if prev is not None:
             acc_pct, gen = float(prev["pass1_pct"]), {"trunc_rate": prev.get("trunc_rate"), "mean_tokens": prev.get("mean_tokens"),
-                                                      "mean_loops": prev.get("mean_loops_counter"), "tok_s": prev.get("tok_s_gen", prev.get("tok_s"))}
+                                                      "mean_loops": prev.get("mean_loops_counter"), "tok_s": prev.get("tok_s_gen", prev.get("tok_s")),
+                                                      "exec_loops": prev.get("exec_loops")}
             print(f"[lcb-router] thr={['%.3f' % v for v in thr[:3]]} accuracy reused from {prev.get('run_dir')}: {acc_pct:.1f}%", flush=True)
         else:
             out_jsonl = run_dir / "gen.jsonl"
@@ -415,7 +421,8 @@ class OuroLCBRouterObjective(BaseObjective):
         rec = {"thresholds": thr, "pass1_pct": acc_pct, "tok_s": tok_s, "tok_s_cal": tok_s_cal, "cal_clean": cal["clean"] and bool(full and full.get("clean")),
                "cal_attempts": cal["attempt"] + 1, "cal_others": cal["others"], "tok_s_full_cal": (full or {}).get("tok_s"), "speedup": speedup,
                "tok_s_gen": gen.get("tok_s"), "trunc_rate": gen.get("trunc_rate"), "mean_tokens": gen.get("mean_tokens"),
-               "mean_loops_counter": gen.get("mean_loops"), "wall_s": time.time() - t0, "gpu": gpu, "value": value, "status": "ok", "run_dir": str(run_dir)}
+               "mean_loops_counter": gen.get("mean_loops"), "exec_loops": gen.get("exec_loops"), "exec_loops_cal": cal.get("exec_loops"),
+               "wall_s": time.time() - t0, "gpu": gpu, "value": value, "status": "ok", "run_dir": str(run_dir)}
         self._eval_records.append(rec)
         json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
         with open(self.work_dir / "evaluations.jsonl", "a") as f:

@@ -5,12 +5,15 @@ from that run's resume state, written to the resume state of the chatgpt run so 
   cd ~/boptim-agent && ./.venv/bin/python <this file>          (prints the state path and the records)
 """
 import json
+import os
 import sys
 
 sys.path.insert(0, "/home/jli199/boptim-agent")
 GP_STATE = "/home/jli199/boptim-agent/runs/state_gp_hedge_ouro_lcb_router_6b77c3e5c1c32373.json"
-WORK = "/home/jli199/boptim_scratch/bo_lcb_router_pooled_luna"
-MODEL = "openai/gpt-5.6-luna"
+# LUNA_MODEL / LUNA_WORK select the run (they are part of the resume-state key): the gpt-5.6-luna run of 2026-11-20 used the
+# defaults below; the gpt-6-luna run sets both in launch_lcb_luna.sh
+WORK = os.environ.get("LUNA_WORK", "/home/jli199/boptim_scratch/bo_lcb_router_pooled_luna")
+MODEL = os.environ.get("LUNA_MODEL", "openai/gpt-5.6-luna")
 # main.py argv as run_experiment.py builds it for configs/ouro_lcb_router_pooled_luna.yaml (max_iter is not part of the state key)
 ARGV = ["main.py", "--optim", "chatgpt", "--model", MODEL, "--objective", "ouro_lcb_router", "--batch_size", "1", "--max_iter", "17",
         "--optimizer-seed", "7", "--objective-seed", "7", "--ouro_lcb_mode", "steps", "--ouro_lcb_n", "342", "--ouro_lcb_offset", "0",
