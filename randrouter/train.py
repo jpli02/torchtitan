@@ -66,6 +66,8 @@ ap.add_argument("--val_routers", default="full;0.3;0.245,0.3,0.3;0.2;0.25,1.0,1.
 ap.add_argument("--train_n", type=int, default=10**9, help="use only the first N training sequences (data-size ablation)")
 ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--fill_maps", default=None, help="train (and validate) with the calibrated cache fill of fit_fill_maps.py instead of the plain copy")
+ap.add_argument("--train_maps", action="store_true", help="the fill maps are trained too (their own learning rate --maps_lr); with --r 0 only they are")
+ap.add_argument("--maps_lr", type=float, default=3e-4)
 ap.add_argument("--train_split", default="train")
 ap.add_argument("--val_split", default="val")
 ap.add_argument("--mem_gb", type=float, default=0.0)
@@ -83,9 +85,22 @@ gen = torch.Generator().manual_seed(args.seed)
 model, tok = core.load_model(core.SERVE_DIR)            # the released base weights
 assert os.path.realpath(os.path.join(core.SERVE_DIR, "model.safetensors")) == os.path.realpath(os.path.join(core.BASE_DIR, "model.safetensors")), \
     "the serving directory does not hold the released base weights"
-params = core.add_lora(model, args.r, args.alpha, targets=tuple(args.lora_targets.split(",")))
+if args.r > 0:
+    params = core.add_lora(model, args.r, args.alpha, targets=tuple(args.lora_targets.split(",")))
+else:                                                   # maps only: the model itself stays the released one
+    for p_ in model.parameters():
+        p_.requires_grad_(False)
+    params = []
+FILL = core.load_fill_maps(args.fill_maps) if args.fill_maps else None
+map_params = []
+if args.train_maps:
+    assert FILL is not None, "--train_maps needs --fill_maps (the starting point)"
+    FILL, map_params = core.trainable_fill_maps(FILL)
+assert params or map_params, "nothing to train"
 n_train = sum(p.numel() for p in params)
-opt = torch.optim.AdamW(params, lr=args.lr, betas=(0.9, 0.999), weight_decay=0.0)
+groups = ([{"params": params, "lr": args.lr}] if params else []) + ([{"params": map_params, "lr": args.maps_lr}] if map_params else [])
+opt = torch.optim.AdamW(groups, betas=(0.9, 0.999), weight_decay=0.0)
+BASE_LR = [g["lr"] for g in groups]
 
 
 def lr_at(step):
@@ -99,11 +114,8 @@ def lr_at(step):
 train = core.load_teacher(args.teacher, split=args.train_split, max_len=args.max_len)[:args.train_n]
 val = core.load_teacher(args.teacher, split=args.val_split, max_len=args.max_len)[:args.val_n]
 val_routers = [tf_eval.parse_router(s) for s in args.val_routers.split(";")]
-print(f"trainable LoRA parameters {n_train / 1e6:.1f} M; train {len(train)} sequences ({sum(len(s['ids']) - s['n_prompt'] for s in train)} answer tokens), "
+print(f"trainable LoRA parameters {n_train / 1e6:.1f} M, fill-map parameters {sum(p.numel() for p in map_params) / 1e6:.1f} M; train {len(train)} sequences ({sum(len(s['ids']) - s['n_prompt'] for s in train)} answer tokens), "
       f"val {len(val)}; run dir {run_dir}", flush=True)
-
-
-FILL = core.load_fill_maps(args.fill_maps) if args.fill_maps else None
 
 
 def validate(step):
@@ -113,8 +125,11 @@ def validate(step):
                            fill_maps=FILL)
     with open(os.path.join(run_dir, "val.jsonl"), "a") as f:
         f.write(json.dumps({"step": step, "routers": res}) + "\n")
-    torch.save(core.lora_state(model), os.path.join(run_dir, "lora_last.pt"))
-    torch.save(core.lora_state(model), os.path.join(run_dir, f"lora_step{step}.pt"))
+    if params:
+        torch.save(core.lora_state(model), os.path.join(run_dir, "lora_last.pt"))
+        torch.save(core.lora_state(model), os.path.join(run_dir, f"lora_step{step}.pt"))
+    if map_params:
+        core.save_fill_maps(os.path.join(run_dir, f"fill_maps_step{step}.pt"), FILL)
     print(f"[val step {step}] {time.time() - t0:.0f}s", flush=True)
     model.train()
 
@@ -157,8 +172,8 @@ while step < args.steps:
             thr = core.sample_thresholds(gen)
         else:
             kind = "full"
-        for g in opt.param_groups:
-            g["lr"] = lr_at(step)
+        for g, base in zip(opt.param_groups, BASE_LR):
+            g["lr"] = lr_at(step) * base / args.lr
         with torch.autocast("cuda", dtype=torch.bfloat16):
             teach = core.teacher_hidden(model, ids, n_prompt) if args.target == "kl" else None
             out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=thr, shares=shares, lengths=lengths, grad_ckpt=not args.no_ckpt,
@@ -166,7 +181,8 @@ while step < args.steps:
             loss, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on=args.loss_on, loop_w=LOOP_W, teacher=teach,
                                           kl_teacher=args.kl_teacher)
         del teach
-        (loss / args.accum).backward()
+        if loss.requires_grad:  # a batch in which no token left early has no path to the fill maps
+            (loss / args.accum).backward()
         micro += 1
         for k, v in st.items():
             agg[k] = agg.get(k, 0.0) + v
@@ -176,7 +192,7 @@ while step < args.steps:
         del out, loss
         if micro % args.accum:
             continue
-        gnorm = float(torch.nn.utils.clip_grad_norm_(params, args.clip))
+        gnorm = float(torch.nn.utils.clip_grad_norm_(params + map_params, args.clip))
         opt.step()
         opt.zero_grad(set_to_none=True)
         step += 1

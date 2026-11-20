@@ -59,6 +59,22 @@ def load_fill_maps(path: str, device: str = "cuda"):
     return km, vm
 
 
+def trainable_fill_maps(fill_maps):
+    """The same maps as leaf parameters (float32); returns ((key maps, value maps), list of parameters)."""
+    km = {k: nn.Parameter(v.detach().clone().float()) for k, v in fill_maps[0].items()}
+    vm = {k: nn.Parameter(v.detach().clone().float()) for k, v in fill_maps[1].items()}
+    return (km, vm), list(km.values()) + list(vm.values())
+
+
+def save_fill_maps(path: str, fill_maps):
+    """Write maps in the file format of fit_fill_maps.py / kv_fill_fit.py (read by the exit-lab serving model)."""
+    km, vm = fill_maps
+    blob = {"pairs": sorted(km.keys()), "layers": int(next(iter(km.values())).shape[0]),
+            "maps": {**{f"0:{a}:{b}": m.detach().float().cpu() for (a, b), m in km.items()},
+                     **{f"1:{a}:{b}": m.detach().float().cpu() for (a, b), m in vm.items()}}}
+    torch.save(blob, path)
+
+
 def _rot_half(x):
     half = x.shape[-1] // 2
     return torch.cat((-x[..., half:], x[..., :half]), dim=-1)
