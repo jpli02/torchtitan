@@ -657,6 +657,157 @@ def _fill_paired_table(key, label, names):
     <p class="src">Difference in percentage points on the same items (router minus reference), with a paired bootstrap 95 % interval; bold where the interval excludes zero. An interval that contains zero means this item set cannot tell the two apart; it does not prove they are equal.</p>'''
 
 
+def _unseen_points(key):
+    """Points of the accuracy-against-loops figure for one unseen set: plain gate curve, corrected gate points, corrected
+    searched routers and the same routers without the correction (the correction fitted on non-live answers only)."""
+    plain = [e for e in _load_ok(f"{WORK}/{key}/evaluations.jsonl") + _load_ok(f"{WORK}/lab_{key}/evaluations.jsonl") if not e.get("extra_cfg")]
+    corr = [e for e in _load_ok(f"{WORK}/lab_{key}/evaluations.jsonl")
+            if str((e.get("extra_cfg") or {}).get("decode_fill_maps", "")).endswith("fill_maps.pt") and not (e.get("extra_cfg") or {}).get("decode_exit_conf")]
+    is_gate = lambda k: len(set(k)) == 1  # noqa: E731
+    seen, curve = set(), []
+    for e in plain:
+        if is_gate(e["key"]) and e["key"] not in seen:
+            seen.add(e["key"])
+            curve.append(e)
+    curve.sort(key=lambda e: e["exec_loops"])
+    for e in corr:
+        e["eff"] = e["exec_loops"] + _fill_overhead(e["thresholds"][:3])
+    bo = [e for e in corr if not is_gate(e["key"])]
+    bo_keys = {e["key"] for e in bo}
+    abl = {e["key"]: e for e in plain if e["key"] in bo_keys}
+    return curve, [e for e in corr if is_gate(e["key"])], bo, abl
+
+
+def _unseen_chart(key, title, yr, names, w=560, h=340):
+    """Accuracy against loops per generated token on one unseen set (single y axis; fewer loops = cheaper, to the left)."""
+    curve, gate_c, bo, abl = _unseen_points(key)
+    full = next((e for e in curve if e["key"] == (1.0, 1.0, 1.0)), None)
+    if full is None or len(curve) < 3:
+        return ""
+    floor = full["acc_pct"] - TOL
+    ml, mr, mt, mb = 46, 18, 30, 44
+    x0, x1 = 1.2, 4.15
+    px = lambda x: ml + (x - x0) / (x1 - x0) * (w - ml - mr)  # noqa: E731
+    py = lambda y: mt + (yr[1] - y) / (yr[1] - yr[0]) * (h - mt - mb)  # noqa: E731
+    o = [f'<svg viewBox="0 0 {w} {h}" role="img" aria-label="{title}: accuracy against loops per token" style="width:100%;max-width:{w}px;height:auto;display:block">',
+         f'<text x="{ml}" y="15" style="fill:var(--text);font-size:13px;font-weight:600">{title}</text>']
+    for y in range(int(yr[0]), int(yr[1]) + 1, 2):
+        o.append(f'<line x1="{ml}" x2="{w - mr}" y1="{py(y):.1f}" y2="{py(y):.1f}" style="stroke:var(--line);stroke-width:1"/>')
+        o.append(f'<text x="{ml - 7}" y="{py(y) + 3.5:.1f}" text-anchor="end" style="fill:var(--text-3);font-size:10.5px">{y}</text>')
+    for x in (1.5, 2.0, 2.5, 3.0, 3.5, 4.0):
+        o.append(f'<line x1="{px(x):.1f}" x2="{px(x):.1f}" y1="{h - mb}" y2="{h - mb + 4}" style="stroke:var(--line-2);stroke-width:1"/>')
+        o.append(f'<text x="{px(x):.1f}" y="{h - mb + 16}" text-anchor="middle" style="fill:var(--text-3);font-size:10.5px">{x:g}</text>')
+    o.append(f'<text x="{(ml + w - mr) / 2:.1f}" y="{h - 8}" text-anchor="middle" style="fill:var(--text-2);font-size:11px">loops per generated token, of 4 (left = cheaper)</text>')
+    o.append(f'<text x="12" y="{(mt + h - mb) / 2:.1f}" text-anchor="middle" transform="rotate(-90 12 {(mt + h - mb) / 2:.1f})" style="fill:var(--text-2);font-size:11px">accuracy, %</text>')
+
+    # every mark as a box, so that labels can be placed where nothing is
+    marks = ([(px(e["exec_loops"]), py(e["acc_pct"])) for e in curve] + [(px(e["exec_loops"]), py(e["acc_pct"])) for e in abl.values()]
+             + [(px(e["eff"]), py(e["acc_pct"])) for e in gate_c + bo])
+    boxes = [(cx - 7, cy - 7, cx + 7, cy + 7) for cx, cy in marks]
+    # the gate curve and the floor line are obstacles too (sampled as small boxes), so that no label sits on a line
+    cpts = [(px(e["exec_loops"]), py(e["acc_pct"])) for e in curve]
+    for (xa, ya), (xb, yb) in zip(cpts[:-1], cpts[1:]):
+        n = max(2, int(((xb - xa) ** 2 + (yb - ya) ** 2) ** 0.5 / 5))
+        boxes += [(xa + (xb - xa) * i / n - 2, ya + (yb - ya) * i / n - 2, xa + (xb - xa) * i / n + 2, ya + (yb - ya) * i / n + 2) for i in range(n + 1)]
+    boxes += [(x, py(floor) - 1.5, x + 8, py(floor) + 1.5) for x in range(ml, w - mr, 8)]
+
+    def free(box):
+        if box[0] < ml + 1 or box[2] > w - mr or box[1] < mt or box[3] > h - mb - 1:
+            return False
+        return not any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3] for b in boxes)
+
+    def place(cx, cy, text, size=10.5, order=("right", "left", "above", "below"), gap=9):
+        """x, y, anchor of a label next to (cx, cy) that overlaps no mark and no earlier label (falls back to the first choice)."""
+        wd = 0.58 * size * len(text)
+        cand = {"right": (cx + gap, cy + 3.5, "start", (cx + gap, cy - 6, cx + gap + wd, cy + 6)),
+                "left": (cx - gap, cy + 3.5, "end", (cx - gap - wd, cy - 6, cx - gap, cy + 6)),
+                "above": (cx, cy - gap - 1, "middle", (cx - wd / 2, cy - gap - 11, cx + wd / 2, cy - gap + 1)),
+                "below": (cx, cy + gap + 9, "middle", (cx - wd / 2, cy + gap - 1, cx + wd / 2, cy + gap + 11)),
+                "above-right": (cx + 6, cy - gap - 1, "start", (cx + 6, cy - gap - 11, cx + 6 + wd, cy - gap + 1)),
+                "below-right": (cx + 6, cy + gap + 9, "start", (cx + 6, cy + gap - 1, cx + 6 + wd, cy + gap + 11)),
+                "above-left": (cx - 6, cy - gap - 1, "end", (cx - 6 - wd, cy - gap - 11, cx - 6, cy - gap + 1)),
+                "below-left": (cx - 6, cy + gap + 9, "end", (cx - 6 - wd, cy + gap - 1, cx - 6, cy + gap + 11))}
+        for k in order:
+            x, y, anc, box = cand[k]
+            if free(box):
+                boxes.append(box)
+                return x, y, anc
+        x, y, anc, box = cand[order[0]]
+        boxes.append(box)
+        return x, y, anc
+
+    # accuracy floor of the search objective on this set (label at the right end, above the line)
+    ftxt = f"floor {floor:.1f} %"
+    fy = py(floor)
+    o.append(f'<line x1="{ml}" x2="{w - mr}" y1="{fy:.1f}" y2="{fy:.1f}" style="stroke:var(--text-3);stroke-width:1;stroke-dasharray:4 4"/>')
+    fbox = (w - mr - 4 - 0.58 * 10.5 * len(ftxt), fy - 15, w - mr - 4, fy - 3)
+    if not free(fbox):
+        fbox = (ml + 4, fy - 15, ml + 4 + 0.58 * 10.5 * len(ftxt), fy - 3)
+    boxes.append(fbox)
+    o.append(f'<text x="{fbox[0]:.1f}" y="{fy - 5:.1f}" style="fill:var(--text-3);font-size:10.5px">{ftxt}</text>')
+    # pairs: the same thresholds without and with the correction
+    for e in bo:
+        a = abl.get(e["key"])
+        if a:
+            o.append(f'<line x1="{px(a["exec_loops"]):.1f}" y1="{py(a["acc_pct"]):.1f}" x2="{px(e["eff"]):.1f}" y2="{py(e["acc_pct"]):.1f}" style="stroke:var(--line-2);stroke-width:1.2"/>')
+    # plain released gate: one line through full depth
+    d = " ".join(f'{"M" if i == 0 else "L"}{px(e["exec_loops"]):.1f},{py(e["acc_pct"]):.1f}' for i, e in enumerate(curve))
+    o.append(f'<path d="{d}" style="fill:none;stroke:var(--base);stroke-width:2"/>')
+    labels = []
+    for e in curve:
+        cx, cy = px(e["exec_loops"]), py(e["acc_pct"])
+        nm = "full depth" if e["key"] == (1.0, 1.0, 1.0) else f'gate {e["key"][0]:g}'
+        o.append(f'<g><title>released {nm}: {e["acc_pct"]:.1f} % at {e["exec_loops"]:.2f} loops</title><rect x="{cx - 4.5:.1f}" y="{cy - 4.5:.1f}" width="9" height="9" '
+                 f'style="fill:var(--base);stroke:var(--surface);stroke-width:1.5"/></g>')
+        labels.append((cx, cy, nm, ("above", "above-left", "below-left", "below", "left") if e["key"] == (1.0, 1.0, 1.0)
+                       else ("right", "below-right", "above-right", "below", "above", "below-left", "above-left", "left"), "var(--text-2)", 10.5, ""))
+    for e in abl.values():
+        o.append(f'<g><title>{names.get(e["key"], "searched router")} without the correction: {e["acc_pct"]:.1f} % at {e["exec_loops"]:.2f} loops</title>'
+                 f'<circle cx="{px(e["exec_loops"]):.1f}" cy="{py(e["acc_pct"]):.1f}" r="4.5" style="fill:var(--surface);stroke:var(--s2);stroke-width:2"/></g>')
+    for e in gate_c:
+        o.append(f'<g><title>gate {e["key"][0]:g} with the correction: {e["acc_pct"]:.1f} % at {e["eff"]:.2f} loops</title>'
+                 f'<path d="M{px(e["eff"]):.1f},{py(e["acc_pct"]) - 5.5:.1f} l5.5,5.5 l-5.5,5.5 l-5.5,-5.5 Z" style="fill:var(--s3);stroke:var(--surface);stroke-width:1.5"/></g>')
+    for e in bo:
+        o.append(f'<g><title>{names.get(e["key"], "searched router")} with the correction: {e["acc_pct"]:.1f} % at {e["eff"]:.2f} loops</title>'
+                 f'<circle cx="{px(e["eff"]):.1f}" cy="{py(e["acc_pct"]):.1f}" r="5" style="fill:var(--s1);stroke:var(--surface);stroke-width:1.5"/></g>')
+    # one label per group of searched routers, placed at the group's top / bottom point
+    if bo:
+        top, low = max(bo, key=lambda e: e["acc_pct"]), min(bo, key=lambda e: e["acc_pct"])
+        mid = sum(px(e["eff"]) for e in bo) / len(bo)
+        labels.insert(0, (mid, py(top["acc_pct"]), "searched + correction", ("above", "above-left", "above-right", "left", "below-left", "below"), "var(--text)", 11, "font-weight:600;"))
+        if abl:
+            lowa, topa = min(abl.values(), key=lambda e: e["acc_pct"]), max(abl.values(), key=lambda e: e["acc_pct"])
+            mida = sum(px(e["exec_loops"]) for e in abl.values()) / len(abl)
+            labels.insert(1, (mida, py(lowa["acc_pct"]), "same routers, no correction", ("right", "below-right", "below", "above-right", "left"), "var(--text-2)", 10.5, ""))
+            del topa, low
+    for cx, cy, text, order, col, size, extra in labels:
+        x, y, anc = place(cx, cy, text, size=size, order=order)
+        o.append(f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="{anc}" style="fill:{col};font-size:{size}px;{extra}">{text}</text>')
+    o.append('</svg>')
+    return "".join(o)
+
+
+def _unseen_figure(names):
+    a = _unseen_chart("heldout", "575 unseen non-live items", (74, 82), names)
+    b = _unseen_chart("live", "1,350 live items", (56, 66), names)
+    if not a:
+        return ""
+    def sw(shape, col, text):
+        return f'<span><svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" style="vertical-align:-2px;margin-right:5px">{shape.format(col=col)}</svg>{text}</span>'
+    legend = ('<div class="sm" style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:8px 0 4px">'
+              + sw('<rect x="2" y="2" width="9" height="9" style="fill:{col}"/>', "var(--base)", "released gate and full depth (no correction)")
+              + sw('<circle cx="6.5" cy="6.5" r="5" style="fill:{col}"/>', "var(--s1)", "searched router with the cache correction")
+              + sw('<circle cx="6.5" cy="6.5" r="4" style="fill:none;stroke:{col};stroke-width:2"/>', "var(--s2)", "the same router without the correction")
+              + sw('<path d="M6.5,1 l5.5,5.5 l-5.5,5.5 l-5.5,-5.5 Z" style="fill:{col}"/>', "var(--s3)", "released gate thresholds with the correction")
+              + '</div>')
+    grid = ('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px 22px;margin:4px 0">'
+            + "".join(f'<div style="min-width:0">{c}</div>' for c in (a, b) if c) + '</div>')
+    return f'''<p style="margin:18px 0 2px;font-weight:600">The result in one figure: accuracy against loops on items the search never saw</p>
+    {legend}
+    {grid}
+    <p class="src">Each panel has its own accuracy scale. Left panel: the searched routers with the correction keep full-depth accuracy near 1.6 loops, where the released gate has already fallen off; thin lines join each router to itself without the correction. Right panel: on the live items the same routers lie on the released gate&#39;s own curve and the correction gives no gain. Hover a point for its numbers.</p>'''
+
+
 def _fill_ablation_table(names, key="heldout", n_items=575):
     """The searched routers with and without the cache correction on the same unseen items (same thresholds)."""
     evs = _load_ok(f"{WORK}/lab_{key}/evaluations.jsonl")
@@ -764,7 +915,7 @@ def bfcl_fill_search_block():
                    label_only=design_ids | ({best_id} if best_id else set()))
     chip = _chip("good", "finished") if finished else _chip("info", "running")
     names = {e["key"]: (e["short"] if e["key"] in FILL_DESIGN else "BO " + e["short"]) for e in uniq}
-    unseen = (_fill_unseen_table("heldout", 575, "the 575 unseen non-live items", names) + _fill_ablation_table(names)
+    unseen = (_unseen_figure(names) + _fill_unseen_table("heldout", 575, "the 575 unseen non-live items", names) + _fill_ablation_table(names)
               + _fill_unseen_table("live", 1350, "the 1,350 live items", names))
     return f'''<div class="sub-head"><h3>Router search with corrected cache entries {chip}</h3><p>The third search on BFCL changes what an early exit leaves behind, not only when a token leaves. A token that leaves early no longer leaves plain copies of its keys and values in the cache slots of the loops it skips, but corrected ones: one linear map per layer, head and loop pair, fitted once on full-depth answers (the evidence is in the block above). The released gate still decides the exits. With that, the region below two loops, where the plain gate collapses, is worth searching. Search variables are the exit shares: f1, the share of all answer tokens released after loop 1 (0 to 70 %); f2, the share of the remaining tokens released after loop 2 (60 to 100 %); f3, the share of the still remaining tokens released after loop 3 (50 to 100 %). Each proposal becomes thresholds placed between two neighbouring values of the gate. Same objective, floor ({floor:.1f} %), search items and checker as the first search; the released-gate patterns with the correction seed the optimiser, four grid points follow, then sixteen model-based proposals.</p></div>
 <div class="tablewrap">
