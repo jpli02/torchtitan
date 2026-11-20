@@ -19,7 +19,8 @@ from the model's own readouts.
 
   CUDA_VISIBLE_DEVICES=0 python randrouter/stage2.py --tag base [--lora FILE] [--epochs 2] [--init zero|random] [--lr 1e-3]
 Writes <OUT>/gates_<tag>/{<variant>.pt ({"weight" (1, 2048), "bias" (1,)}), fit.jsonl, frontier.json (teacher-forced
-loops/agreement of every gate at a grid of single thresholds on the validation problems, next to the released gate)}.
+loops/agreement of every gate under gate-ranked exit shares on the validation problems, next to the released gate; shares
+instead of thresholds because the fitted gates' probabilities live on other scales than the released gate's)}.
 """
 import argparse
 import json
@@ -53,7 +54,10 @@ ap.add_argument("--budget_tok", type=int, default=6000)
 ap.add_argument("--max_len", type=int, default=3072)
 ap.add_argument("--train_n", type=int, default=10**9)
 ap.add_argument("--val_n", type=int, default=99)
-ap.add_argument("--grid", default="0.9,0.7,0.5,0.4,0.3,0.2,0.1")
+ap.add_argument("--routers", default="rank:0.5,0.5,0.5;rank:0.7,0.5,0.5;rank:0.8,0.5,0.5;rank:0.9,0.5,0.5;rank:0.8,0.8,0.8;rank:0.9,0.9,0.9",
+                help="routers of the frontier: gate-ranked exit shares, so gates with different probability scales compare at equal loops")
+ap.add_argument("--exact", action="store_true", help="fit on exact-cache states (the plain full-depth forward): the gate a repaired cache would need")
+ap.add_argument("--fill_maps", default=None, help="calibrated cache fill while fitting and in the frontier")
 ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--train_split", default="train")
 ap.add_argument("--val_split", default="val")
@@ -73,6 +77,7 @@ if args.lora:
 model.eval()
 for p in model.parameters():
     p.requires_grad_(False)
+FILL = core.load_fill_maps(args.fill_maps) if args.fill_maps else None
 dim = model.config.hidden_size
 gates = {}
 for v in VARIANTS:
@@ -100,12 +105,14 @@ for epoch in range(args.epochs):
         ids, n_prompt, lengths = core.collate(train, batch, tok.pad_token_id)
         plan, _ = core.sample_iid_plan(ids, gen, alpha=1.0)
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-            out = core.routed_forward(model, ids, n_prompt, plan=plan)
+            out = core.routed_forward(model, ids, n_prompt, plan=plan, exact_cache=args.exact, fill_maps=FILL)
             pos = torch.arange(ids.shape[1], device=ids.device)[None].expand_as(ids)
             read = (pos >= (n_prompt[:, None] - 1)) & (pos < (lengths[:, None] - 1))
             bi, ti = read.nonzero(as_tuple=True)
             target = ids[bi, ti + 1]
             ex = out["exit"][bi, ti]
+            if args.exact:
+                ex = torch.full_like(ex, core.N_LOOPS - 1)   # with an exact cache every loop's state is a valid one
             feats, ces, oks = [], [], []
             for t in range(core.N_LOOPS):
                 hv = out["hidden"][t][bi, ti]
@@ -158,15 +165,14 @@ for v, g in gates.items():
     torch.save({"weight": g.weight.detach().cpu(), "bias": g.bias.detach().cpu(), "variant": v, "args": vars(args)}, os.path.join(run_dir, f"{v}.pt"))
 
 # teacher-forced frontier on the validation problems: every gate, and the released gate, at a grid of single thresholds
-grid = [float(x) for x in args.grid.split(",")]
-routers = [tf_eval.parse_router("full")] + [tf_eval.parse_router(str(q)) for q in grid]
+routers = [tf_eval.parse_router(r) for r in args.routers.split(";")]
 frontier = {}
 print("released gate:", flush=True)
-frontier["released"] = tf_eval.evaluate(model, val, routers, tok.pad_token_id, args.budget_tok, log=lambda s: print(s, flush=True))
+frontier["released"] = tf_eval.evaluate(model, val, routers, tok.pad_token_id, args.budget_tok, log=lambda s: print(s, flush=True), fill_maps=FILL)
 for v, g in gates.items():
     print(f"gate {v}:", flush=True)
     g16 = nn.Linear(dim, 1).cuda().to(torch.bfloat16)
     g16.load_state_dict(g.state_dict())
-    frontier[v] = tf_eval.evaluate(model, val, routers[1:], tok.pad_token_id, args.budget_tok, gate=g16, log=lambda s: print(s, flush=True))
+    frontier[v] = tf_eval.evaluate(model, val, routers, tok.pad_token_id, args.budget_tok, gate=g16, log=lambda s: print(s, flush=True), fill_maps=FILL)
 json.dump(frontier, open(os.path.join(run_dir, "frontier.json"), "w"), indent=1)
 print(f"STAGE2 DONE {args.tag} {time.time() - t0:.0f}s", flush=True)

@@ -36,6 +36,7 @@ ap.add_argument("--offset", type=int, default=0)
 ap.add_argument("--cards", default="0:2")
 ap.add_argument("--chunk", type=int, default=24)
 ap.add_argument("--max_new", type=int, default=1024)
+ap.add_argument("--cfg", action="append", default=[], help="extra model setting key=value for depth_eval, e.g. decode_fill_maps=/path.pt (exit-lab directory)")
 args = ap.parse_args()
 
 thr = [float(v) for v in args.thr.split(",")]
@@ -67,6 +68,8 @@ def run_chunk(card, cap, lo, hi):
     cmd = [PY, str(WT / "depth_eval.py"), args.ckpt, args.data, "--task", "lcb", "--steps", "4", "--n", str(hi - lo),
            "--seed_offset", str(args.offset + lo), "--batch", "1", "--max_new", str(args.max_new), "--assistant_prefix", "```python\\n",
            "--cfg", "decode_early_exit_threshold=" + json.dumps(thr), "--out", str(out)]
+    for extra in args.cfg:
+        cmd += ["--cfg", extra]
     env = dict(os.environ, CUDA_VISIBLE_DEVICES=card, PYTORCH_ALLOC_CONF="expandable_segments:True")
     if cap:
         env["DEPTH_EVAL_MEM_GB"] = str(cap)
@@ -156,7 +159,7 @@ if not m:
     print("grading produced no pass@1:", grade_log[-400:])
     sys.exit(1)
 subprocess.run(["cp", str(STAGE / f"{label}.graded.json"), str(run_dir / "graded.json")], check=False)
-rec = {"ckpt": args.ckpt, "thresholds": thr, "n": n_tot, "pass1_pct": 100.0 * float(m.group(1)), "exec_loops": exec_loops,
+rec = {"ckpt": args.ckpt, "thresholds": thr, "cfg": args.cfg, "n": n_tot, "pass1_pct": 100.0 * float(m.group(1)), "exec_loops": exec_loops,
        "mean_tokens": sum(r["mean_tokens"] * r["n"] for r in rs) / n_tot, "trunc_rate": sum(r["trunc_rate"] * r["n"] for r in rs) / n_tot,
        "wall_s": time.time() - t_start, "cards": args.cards, "run_dir": str(run_dir)}
 json.dump(rec, open(run_dir / "record.json", "w"), indent=1)

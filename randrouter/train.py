@@ -8,8 +8,12 @@ Text: the base model's own full-depth greedy answers to LiveCodeBench problems t
                            is surest about (what a threshold router does, at every mixture of exit loops);
   * gate  (share --p_gate) the gate with random per-loop thresholds, uniform in the router searches' box [0.05, 1]^3;
   * full  (the rest)       every token at full depth (keeps the full-depth model where it is),
-with the decoder's cache fill (core.routed_forward), and minimises the cross-entropy between the full-depth token and the
-readout of every loop the token ran (--loss_on valid) or of its exit loop only (--loss_on exit).
+with the decoder's cache fill (core.routed_forward). Loss, over the readouts of every loop a token ran (--loss_on valid) or of
+its exit loop only (--loss_on exit):
+  --target kl (default)  KL divergence from the base model's readout of the same position and loop with an EXACT cache (the
+                         same network with the LoRA updates off): "a filled cache slot must not change the readout";
+  --target ce            cross-entropy to the full-depth token (the first run; it learned the cache but moved the model:
+                         full-depth agreement with the base answers fell from 99.8 to 98.0 % on held-out problems).
 Trained: LoRA updates (rank --r) of the attention and feed-forward projections of all 48 layers; the base weights, the head and
 the exit gate stay frozen (the gate is refitted afterwards: randrouter/stage2.py). No reinforcement learning anywhere: the
 router's choices are random draws, never optimised against a reward.
@@ -48,6 +52,9 @@ ap.add_argument("--p_rank", type=float, default=0.4)
 ap.add_argument("--p_gate", type=float, default=0.1)
 ap.add_argument("--dir_alpha", type=float, default=1.0)
 ap.add_argument("--loss_on", choices=["valid", "exit"], default="valid")
+ap.add_argument("--target", choices=["kl", "ce"], default="kl", help="kl: distil the base model's exact-cache readouts; ce: cross-entropy to the token")
+ap.add_argument("--kl_teacher", choices=["same", "final"], default="same")
+ap.add_argument("--lora_targets", default=",".join(core.LORA_TARGETS), help="projections that get a LoRA update")
 ap.add_argument("--loop_w", default="0.5,1,1,1", help="per-loop weights of the valid-readout loss (loop 1 never reads a filled cache slot)")
 ap.add_argument("--clip", type=float, default=1.0)
 ap.add_argument("--accum", type=int, default=1, help="batches per optimizer step (gradient accumulation)")
@@ -76,7 +83,7 @@ gen = torch.Generator().manual_seed(args.seed)
 model, tok = core.load_model(core.SERVE_DIR)            # the released base weights
 assert os.path.realpath(os.path.join(core.SERVE_DIR, "model.safetensors")) == os.path.realpath(os.path.join(core.BASE_DIR, "model.safetensors")), \
     "the serving directory does not hold the released base weights"
-params = core.add_lora(model, args.r, args.alpha)
+params = core.add_lora(model, args.r, args.alpha, targets=tuple(args.lora_targets.split(",")))
 n_train = sum(p.numel() for p in params)
 opt = torch.optim.AdamW(params, lr=args.lr, betas=(0.9, 0.999), weight_decay=0.0)
 
@@ -153,9 +160,12 @@ while step < args.steps:
         for g in opt.param_groups:
             g["lr"] = lr_at(step)
         with torch.autocast("cuda", dtype=torch.bfloat16):
+            teach = core.teacher_hidden(model, ids, n_prompt) if args.target == "kl" else None
             out = core.routed_forward(model, ids, n_prompt, plan=plan, thresholds=thr, shares=shares, lengths=lengths, grad_ckpt=not args.no_ckpt,
                                       fill_maps=FILL)
-            loss, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on=args.loss_on, loop_w=LOOP_W)
+            loss, st = core.readout_stats(model, out, ids, n_prompt, lengths, loss_on=args.loss_on, loop_w=LOOP_W, teacher=teach,
+                                          kl_teacher=args.kl_teacher)
+        del teach
         (loss / args.accum).backward()
         micro += 1
         for k, v in st.items():

@@ -261,12 +261,38 @@ def _head_ce(head, x, tg):
     return F.cross_entropy(logits, tg, reduction="none"), (logits.argmax(-1) == tg).float()
 
 
-def readout_stats(model, out, ids, n_prompt, lengths, *, loss_on="valid", need_grad=True, loop_w=None):
+def _head_kl(head, x, x_teacher, tg):
+    """KL(teacher readout || student readout) per position, and whether the student's top token is the teacher-forced one."""
+    logits = head(x).float()
+    logp = F.log_softmax(logits, dim=-1)
+    with torch.no_grad():
+        logp_t = F.log_softmax(head(x_teacher).float(), dim=-1)
+        p_t = logp_t.exp()
+    return (p_t * (logp_t - logp)).sum(-1), (logits.argmax(-1) == tg).float()
+
+
+@torch.no_grad()
+def teacher_hidden(model, ids, n_prompt):
+    """Normed states of the base model (LoRA off) at full depth with an exact cache: [4 x (B, T, D)]."""
+    was = LoRALinear.enabled
+    LoRALinear.enabled = False
+    try:
+        out = routed_forward(model, ids, n_prompt)
+    finally:
+        LoRALinear.enabled = was
+    return [h.detach() for h in out["hidden"]]
+
+
+def readout_stats(model, out, ids, n_prompt, lengths, *, loss_on="valid", need_grad=True, loop_w=None, teacher=None,
+                  kl_teacher="same"):
     """Cross-entropy of the next-token readouts against the teacher-forced tokens.
 
     A readout position i (n_prompt - 1 <= i < length - 1) predicts ids[i + 1]. Readout (i, t) is valid when t <= exit[i].
     loss_on = "valid": mean over all valid readouts (every loop the token ran is asked for the full-depth token);
               "exit":  mean over the exit readouts only (what the decoder emits under this router).
+    teacher  states of teacher_hidden(): the loss of a readout is then the KL divergence from the base model's exact-cache
+             readout of the same position at the same loop (kl_teacher="same") or at the last loop ("final"), instead of the
+             cross-entropy to the token; the reported "ce" sums are that KL, agreement is still against the token.
     loop_w  per-loop weights of the "valid" loss (default 1, 1, 1, 1). The loop-1 readout never sees a filled cache slot (every
             position computes loop 1), so its loss only asks for a better first loop; the cache is in the readouts of loops 2-4.
     Returns (loss, stats) with per-loop sums for logging: n, ce and top-1 agreement of the valid readouts of every loop and of
@@ -291,7 +317,13 @@ def readout_stats(model, out, ids, n_prompt, lengths, *, loss_on="valid", need_g
         hv = out["hidden"][t][bi[valid], ti[valid]]
         tg = target[valid]
 
-        if need_grad and hv.requires_grad:
+        if teacher is not None:
+            ht = teacher[t if kl_teacher == "same" else N_LOOPS - 1][bi[valid], ti[valid]]
+            if need_grad and hv.requires_grad:
+                ce, ok = checkpoint(_head_kl, model.lm_head, hv, ht, tg, use_reentrant=False)
+            else:
+                ce, ok = _head_kl(model.lm_head, hv, ht, tg)
+        elif need_grad and hv.requires_grad:
             # the vocabulary-sized logits of a loop are recomputed in the backward pass instead of being kept for all loops
             # (the targets are passed as an argument: the function runs again in the backward pass, after this loop has moved on)
             ce, ok = checkpoint(_head_ce, model.lm_head, hv, tg, use_reentrant=False)
@@ -397,7 +429,11 @@ class LoRALinear(nn.Module):
         self.B = nn.Parameter(torch.zeros(base.out_features, r, dtype=torch.float32, device=dev))
         nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
 
+    enabled = True  # class-wide switch: False = the base model (teacher pass of the distillation target)
+
     def forward(self, x):
+        if not LoRALinear.enabled:
+            return self.base(x)
         return self.base(x) + F.linear(F.linear(x, self.A.to(x.dtype)), self.B.to(x.dtype)) * self.scale
 
     @torch.no_grad()
