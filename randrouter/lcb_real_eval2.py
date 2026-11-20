@@ -41,6 +41,7 @@ ap.add_argument("--max_new", type=int, default=1024)
 ap.add_argument("--cfg", action="append", default=[], help="extra model setting key=value for depth_eval, e.g. decode_fill_maps=/path.pt")
 ap.add_argument("--fallback", default="0", help="card for chunks no worker could finish")
 ap.add_argument("--fallback_free_mb", type=int, default=12000)
+ap.add_argument("--gather", action="store_true", help="exact cache: all loops computed, readout at the router's exit loop (upper bound of a cache repair)")
 args = ap.parse_args()
 
 thr = [float(v) for v in args.thr.split(",")]
@@ -77,7 +78,11 @@ def run_chunk(card, cap, lo, hi):
                 return json.loads(line[7:])
     cmd = [PY, str(WT / "depth_eval.py"), args.ckpt, str(sorted_path), "--task", "lcb", "--steps", "4", "--n", str(hi - lo),
            "--seed_offset", str(lo), "--batch", "1", "--max_new", str(args.max_new), "--assistant_prefix", "```python\\n",
-           "--cfg", "decode_early_exit_threshold=" + json.dumps(thr), "--out", str(out)]
+           "--out", str(out)]
+    if args.gather:
+        cmd += ["--threshold_steps", ",".join(str(v) for v in thr[:3])]
+    else:
+        cmd += ["--cfg", "decode_early_exit_threshold=" + json.dumps(thr)]
     for extra in args.cfg:
         cmd += ["--cfg", extra]
     env = dict(os.environ, CUDA_VISIBLE_DEVICES=card, PYTORCH_ALLOC_CONF="expandable_segments:True")
@@ -174,6 +179,8 @@ rs = [results[c] for c in chunks]
 n_tot = sum(r["n"] for r in rs)
 ex_n = sum(r.get("exec_n", 0) for r in rs)
 exec_loops = (sum(r["exec_loops"] * r["exec_n"] for r in rs if r.get("exec_n")) / ex_n) if ex_n else 4.0
+# gather mode: the loops the router would execute (the stock selection's counter), weighted by generated tokens
+would_loops = (sum(r["mean_loops"] * r["mean_tokens"] * r["n"] for r in rs) / max(sum(r["mean_tokens"] * r["n"] for r in rs), 1e-9)) if args.gather else None
 label = f"rr_{args.tag}"
 STAGE.mkdir(parents=True, exist_ok=True)
 subprocess.run(["cp", str(WT / "lcb_grade.py"), str(STAGE / "lcb_grade.py")], check=False)
@@ -189,7 +196,7 @@ if not m:
     print("grading produced no pass@1:", grade_log[-400:])
     sys.exit(1)
 subprocess.run(["cp", str(STAGE / f"{label}.graded.json"), str(run_dir / "graded.json")], check=False)
-rec = {"ckpt": args.ckpt, "thresholds": thr, "cfg": args.cfg, "n": n_tot, "pass1_pct": 100.0 * float(m.group(1)), "exec_loops": exec_loops,
+rec = {"ckpt": args.ckpt, "thresholds": thr, "cfg": args.cfg, "gather": bool(args.gather), "would_loops": would_loops, "n": n_tot, "pass1_pct": 100.0 * float(m.group(1)), "exec_loops": exec_loops,
        "mean_tokens": sum(r["mean_tokens"] * r["n"] for r in rs) / n_tot, "trunc_rate": sum(r["trunc_rate"] * r["n"] for r in rs) / n_tot,
        "wall_s": time.time() - t_start, "cards": args.cards, "run_dir": str(run_dir)}
 json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
