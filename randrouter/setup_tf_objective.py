@@ -44,6 +44,14 @@ if "OuroTFRouterObjective" not in s:
     print("registered ouro_tf_router in objective/__init__.py")
 else:
     print("objective/__init__.py already has ouro_tf_router")
+s = open(p).read()
+if "ouro_tf_veto" not in s:
+    a = '            fill_maps=getattr(args, "ouro_tf_fill_maps", None),\n'
+    assert s.count(a) == 1
+    s = s.replace(a, a + '            veto=getattr(args, "ouro_tf_veto", None),\n', 1)
+    open(p, "w").write(s)
+    py_compile.compile(p, doraise=True)
+    print("added veto to the ouro_tf_router factory branch")
 
 p = f"{BO}/main.py"
 s = open(p).read()
@@ -66,3 +74,11 @@ if "--ouro_tf_lora" not in s:
     print("added the --ouro_tf_* flags to main.py")
 else:
     print("main.py already has the --ouro_tf_* flags")
+s = open(p).read()
+if "--ouro_tf_veto" not in s:
+    a = '    parser.add_argument("--ouro_tf_fill_maps", type=str, default=None, help="[ouro_tf_router] calibrated cache fill")\n'
+    assert s.count(a) == 1
+    s = s.replace(a, a + '    parser.add_argument("--ouro_tf_veto", type=str, default=None, help="[ouro_tf_router] harm probe: adds the loop-1 veto threshold as a fourth variable")\n', 1)
+    open(p, "w").write(s)
+    py_compile.compile(p, doraise=True)
+    print("added the --ouro_tf_veto flag to main.py")

@@ -36,7 +36,7 @@ RR = "/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft/randrouter"
 class OuroTFRouterObjective(BaseObjective):
     internal_minimize = True
 
-    def __init__(self, *, lora: str | None = None, gate: str | None = None, fill_maps: str | None = None,
+    def __init__(self, *, lora: str | None = None, gate: str | None = None, fill_maps: str | None = None, veto: str | None = None,
                  teacher: str = "/home/jli199/boptim_scratch/randrouter/teacher_lcb_v1v4*.jsonl", split: str = "val", n_items: int = 99,
                  floor_pct: float = 98.45, penalty_per_pt: float = 3.5, budget_tok: int = 2500, mem_gb: float = 0.0,
                  work_dir: str | None = None, lora_r: int = 32, lora_alpha: float = 64.0, seed: int | None = None):
@@ -69,6 +69,10 @@ class OuroTFRouterObjective(BaseObjective):
         self.seed = seed
         self._eval_records: list = []
         self.params = [ObjectiveParam("q1", (0.05, 1.0)), ObjectiveParam("q2", (0.05, 1.0)), ObjectiveParam("q3", (0.05, 1.0))]
+        self.veto = veto
+        if veto:   # fourth variable: the loop-1 veto threshold on the harm probe's score (3.0 vetoes nothing)
+            self.params.append(ObjectiveParam("tau", (-2.5, 3.0)))
+            self.setup["veto"] = veto
 
     @property
     def description(self) -> str:
@@ -79,22 +83,25 @@ class OuroTFRouterObjective(BaseObjective):
     def setup_info(self) -> dict:
         return dict(self.setup)
 
-    def measure(self, thr):
+    def measure(self, thr, tau=None):
         """(loops, agreement %) of the router with thresholds thr on the held-out answers, with the decoder's cache."""
         spec = ",".join(f"{float(v):.6f}" for v in thr)
+        if self.veto and tau is not None:
+            spec += f"|veto={self.veto}@{float(tau):.6f}"
         res = self._tf.evaluate(self.model, self.seqs, [self._tf.parse_router(spec)], self.tok.pad_token_id, self.budget_tok,
                                 log=lambda s: None, fill_maps=self.fill, exact=False)[spec]
         return res["loops"], 100.0 * res["agree_real"], res["share"]
 
     def evaluate(self, params) -> float:
         thr = [min(1.0, max(0.05, float(v))) for v in params][:3]
+        tau = float(params[3]) if self.veto and len(params) > 3 else None
         t0 = time.time()
-        loops, agree, share = self.measure(thr)
+        loops, agree, share = self.measure(thr, tau)
         value = -6.25 * 4.0 / loops + self.penalty * max(0.0, self.floor - agree)
-        rec = {"thresholds": thr, "loops": loops, "agree_pct": agree, "exit_share": share, "value": value, "wall_s": time.time() - t0,
+        rec = {"thresholds": thr, "tau": tau, "loops": loops, "agree_pct": agree, "exit_share": share, "value": value, "wall_s": time.time() - t0,
                "status": "ok"}
         self._eval_records.append(rec)
         with open(self.work_dir / "evaluations.jsonl", "a") as f:
             f.write(json.dumps(dict(rec, **self.setup)) + "\n")
-        print(f"[tf-router] thr={['%.3f' % v for v in thr]} loops={loops:.3f} agreement={agree:.2f}% value={value:.3f} ({rec['wall_s']:.0f}s)", flush=True)
+        print(f"[tf-router] thr={['%.3f' % v for v in thr]}{'' if tau is None else ' tau=%.3f' % tau} loops={loops:.3f} agreement={agree:.2f}% value={value:.3f} ({rec['wall_s']:.0f}s)", flush=True)
         return float(value)

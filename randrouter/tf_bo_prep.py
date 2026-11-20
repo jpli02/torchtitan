@@ -22,6 +22,7 @@ ap.add_argument("--name", required=True)
 ap.add_argument("--fill_maps", default=None)
 ap.add_argument("--lora", default=None)
 ap.add_argument("--gate", default=None)
+ap.add_argument("--veto", default=None, help="harm probe: the loop-1 veto threshold becomes a fourth search variable")
 ap.add_argument("--n", type=int, default=99)
 ap.add_argument("--new", type=int, default=50, help="evaluations after the warm start")
 ap.add_argument("--optim", default="gp_hedge")
@@ -37,20 +38,21 @@ work = f"/home/jli199/boptim_scratch/randrouter/bo_tf/{args.name}"
 os.makedirs(f"{work}/runs", exist_ok=True)
 from objective.ouro_tf_router import OuroTFRouterObjective  # noqa: E402
 
-obj = OuroTFRouterObjective(lora=args.lora, gate=args.gate, fill_maps=args.fill_maps, n_items=args.n, floor_pct=args.floor,
+obj = OuroTFRouterObjective(lora=args.lora, gate=args.gate, fill_maps=args.fill_maps, veto=args.veto, n_items=args.n, floor_pct=args.floor,
                             penalty_per_pt=args.penalty, mem_gb=args.mem_gb, work_dir=f"{work}/baseline")
 print(obj.description, flush=True)
 records, table = [], []
 for q in [float(v) for v in args.knobs.split(",")]:
-    v = obj.evaluate([q, q, q])
+    x = [q, q, q] + ([3.0] if args.veto else [])        # 3.0 = the veto never fires
+    v = obj.evaluate(x)
     rec = obj._eval_records[-1]
-    records.append({"x": [q, q, q], "fval": v})
+    records.append({"x": x, "fval": v})
     table.append({"q": q, "loops": rec["loops"], "agree_pct": rec["agree_pct"], "value": v, "exit_share": rec["exit_share"]})
 json.dump({"system": obj.setup, "single_knob": table}, open(f"{work}/baseline.json", "w"), indent=1)
 
 objective = {"type": "ouro_tf_router", "ouro_tf_n": args.n, "ouro_tf_floor": args.floor, "ouro_tf_penalty": args.penalty,
              "ouro_tf_work_dir": work}
-for k, v in (("ouro_tf_fill_maps", args.fill_maps), ("ouro_tf_lora", args.lora), ("ouro_tf_gate", args.gate)):
+for k, v in (("ouro_tf_fill_maps", args.fill_maps), ("ouro_tf_lora", args.lora), ("ouro_tf_gate", args.gate), ("ouro_tf_veto", args.veto)):
     if v:
         objective[k] = v
 if args.mem_gb:

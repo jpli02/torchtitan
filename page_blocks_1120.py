@@ -187,37 +187,146 @@ def _proxy():
     −11.25, where the real Gaussian-process run ended at (1.00, 0.38, 0.30) and −11.10.</p>'''
 
 
+def _frontier():
+    """Fewest loops at a given agreement, over every router evaluated on the proxy (searches and their single-knob baselines)."""
+    floors = [97.0, 97.5, 98.0, 98.22, 98.5]
+    rows = []
+    for names, disp in ((("base_copy", "base_copy_strict"), "released model, plain copy"), (("fill24", "fill24_strict"), "released model, calibrated fill"),
+                        (("r2kl125", "r2kl125_strict"), "random-router training, 125 steps")):
+        pts = []
+        for n in names:
+            for sub in ("", "baseline/"):
+                p = f"{R}/bo_tf/{n}/{sub}evaluations.jsonl"
+                if os.path.exists(p):
+                    pts += [json.loads(l) for l in open(p) if l.strip()]
+        if not pts:
+            continue
+        cells = []
+        for f in floors:
+            ok = [r["loops"] for r in pts if r["agree_pct"] >= f]
+            cells.append(f'<td class="n">{min(ok):.2f}</td>' if ok else '<td class="n">—</td>')
+        rows.append(f'<tr><td>{disp}{_sm(" (%d routers)" % len(pts))}</td>{"".join(cells)}</tr>')
+    if not rows:
+        return ""
+    head = "".join(f'<th class="n">≥ {f:g} %</th>' for f in floors)
+    return f'''<p style="margin:16px 0 6px;font-weight:600">5 · The same searches read without an objective: fewest loops at a given agreement</p>
+    <table>
+      <thead><tr><th>System</th>{head}</tr></thead>
+      <tbody>
+        {chr(10).join(rows)}
+      </tbody>
+    </table>
+    <p class="src">Loops per token of the cheapest evaluated router whose agreement with the full-depth answers is at least the column's level (validation answers; the
+    released gate at 0.3 sits at 98.22 % and 2.14 loops). Below about 98 % the repaired systems need 15 to 40 % fewer loops; at the level of the released gate and above they
+    need the same or more, because every router that uses loop 1 still loses about a point to the cache and the trained model also lost half a point at full depth.</p>'''
+
+
 def _real():
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "randrouter"))
+    try:
+        import paired
+    except Exception:
+        paired = None
     recs = []
     for p in sorted(glob.glob(f"{R}/real/*/record.json")):
         r = _load(p)
         if r and r.get("n", 0) >= 300:
             recs.append(r)
-    rows = [f'<tr><td>released model, plain copy</td><td>{d}</td><td class="n">{l}</td><td class="n">{a:.1f}</td></tr>' for d, l, a in BASE_REAL]
+    rows = [f'<tr><td>released model, plain copy</td><td>{d}</td><td class="n">{l}</td><td class="n">{a:.1f}</td><td class="n">—</td><td class="n">—</td></tr>'
+            for d, l, a in BASE_REAL]
     for r in recs:
-        sysname = "random-router training, 125 steps" if "r2_kl_s125" in r["ckpt"] else ("released model, calibrated fill" if "exitlab" in r["ckpt"] else os.path.basename(r["ckpt"]))
+        gather = bool(r.get("gather"))
+        if "r2_kl_s125" in r["ckpt"]:
+            sysname = "random-router training, 125 steps"
+        elif r.get("cfg") and any("decode_exit_veto" in c for c in r["cfg"]):
+            sysname = "released model, calibrated fill + loop-1 veto"
+        elif r.get("cfg") and any("decode_fill_maps" in c for c in r["cfg"]):
+            sysname = "released model, calibrated fill"
+        elif gather:
+            sysname = "released model, EXACT cache (no compute saved: upper bound of a cache repair)"
+        else:
+            sysname = os.path.basename(r["ckpt"])
         thr = r["thresholds"][:3]
         d = "full depth" if min(thr) >= 1.0 else "(" + ", ".join(f"{v:g}" for v in thr) + ")"
-        rows.append(f'<tr class="best"><td>{sysname}</td><td>{d}</td><td class="n">{r["exec_loops"]:.2f}</td><td class="n">{r["pass1_pct"]:.1f}</td></tr>')
+        loops = f'{r["would_loops"]:.2f} {_sm("(would be)")}' if gather and r.get("would_loops") else f'{r["exec_loops"]:.2f}'
+        cmp = '<td class="n">—</td>'
+        if paired is not None and os.path.exists(os.path.join(r["run_dir"], "graded.json")):
+            try:
+                c = paired.compare(paired.passed([os.path.join(r["run_dir"], "graded.json")]), log=lambda s: None).get("gate 0.3")
+                if c:
+                    cmp = f'<td class="n">+{c["only_new"]} / −{c["only_ref"]}{_sm("<br>p = %.2f" % c["p"])}</td>'
+            except Exception:
+                pass
+        rows.append(f'<tr class="best"><td>{sysname}</td><td>{d}</td><td class="n">{loops}</td><td class="n">{r["pass1_pct"]:.1f}</td>'
+                    f'<td class="n">{r["mean_tokens"]:.0f}{_sm(" / %.0f %%" % (100 * r["trunc_rate"]))}</td>{cmp}</tr>')
     note = "" if recs else " The evaluations of the repaired systems are running."
-    return f'''<p style="margin:16px 0 6px;font-weight:600">5 · Real execution on the 342 test problems</p>
+    return f'''<p style="margin:16px 0 6px;font-weight:600">6 · Real execution on the 342 test problems</p>
     <table>
-      <thead><tr><th>System</th><th>Router</th><th class="n">executed loops per token</th><th class="n">pass@1 %</th></tr></thead>
+      <thead><tr><th>System</th><th>Router</th><th class="n">executed loops per token</th><th class="n">pass@1 %</th><th class="n">answer tokens / cut at 1,024</th>
+      <th class="n">against gate 0.3: problems only this run / only the gate solves</th></tr></thead>
       <tbody>
         {chr(10).join(rows)}
       </tbody>
     </table>
-    <p class="src">Greedy decoding with true early exit, official tests in a sandbox, as in the searches. pass@1 on 342 problems has a standard error of about 2.2 points.{note}</p>'''
+    <p class="src">Greedy decoding with true early exit, official tests in a sandbox, as in the searches; the last column is a paired comparison on the same 342 problems
+    (exact sign test). pass@1 is far more sensitive than the token agreement suggests: about 98.5 % agreement is needed for the 18.1 % of the released gate at 0.3 and
+    about 99.3 % for the full-depth 20.5 % (all tokens leaving after loop 2: 97.7 % and 15.8 %; after loop 1: 95.3 % and 5.6 %).{note}</p>'''
+
+
+def _externality():
+    rep = _load(f"{R}/harm_probe_fill24/report.json")
+    tab = _load(f"{R}/tables/veto_fill24.json")
+    if not rep:
+        return ""
+    pr = rep["probes"]
+    order = [("perfect ranking", "the measured harm itself (upper bound)"), ("linear", "linear read-out of the loop-1 state"), ("mlp", "small MLP on the loop-1 state"),
+             ("released gate (least sure first)", "released gate, least sure first"), ("loop-1 readout wrong", "“the loop-1 readout is wrong”")]
+    rows = []
+    for key, disp in order:
+        if key in pr:
+            c = pr[key]["captured_val_10_20_30"]
+            rows.append(f'<tr><td>{disp}</td><td class="n">{pr[key]["auc_val"]:.2f}</td>' + "".join(f'<td class="n">{100 * v:.0f}</td>' for v in c) + '</tr>')
+    veto = ""
+    if tab:
+        vr = []
+        for spec, r in tab["routers"].items():
+            name = spec.split("|veto=")[0] + (" + veto at " + spec.rsplit("@", 1)[1] if "|veto=" in spec else "")
+            vr.append(f'<tr><td>({name})</td><td class="n">{r["loops"]:.2f}</td><td class="n">{round(100 * r["share"][0])}</td><td class="n">{_pct(r["agree_real"])}</td>'
+                      f'<td class="n">{_pct(r["agree_exact"])}</td></tr>')
+        veto = f'''<table>
+      <thead><tr><th>Router (calibrated fill)</th><th class="n">loops per token</th><th class="n">% leaving after loop 1</th><th class="n">agreement %, decoder's cache</th>
+      <th class="n">agreement %, exact cache</th></tr></thead>
+      <tbody>
+        {chr(10).join(vr)}
+      </tbody>
+    </table>'''
+    return f'''<p style="margin:16px 0 6px;font-weight:600">7 · Stage II with what the gate never saw: the cost of an exit to the later tokens</p>
+    <p class="src">The gate is trained on the token's own loss. Under a random router the other half can be measured: release a random 40 % of the answer tokens after
+    loop 1 (all tokens still compute every loop), and split the damage to the tokens that were not released (KL from their exact-cache readout) among the released ones by
+    integrated gradients. The damage is concentrated: on {rep["n_val"]:,} validation tokens the most harmful tenth carries
+    {100 * pr["perfect ranking"]["captured_val_10_20_30"][0]:.0f} % of it and the most harmful fifth {100 * pr["perfect ranking"]["captured_val_10_20_30"][1]:.0f} %.
+    A read-out of the loop-1 state trained to find them (on {rep["n_train"]:,} training tokens) is then used as a veto: a token the gate would release after loop 1 stays for
+    loop 2 if the read-out scores it harmful.</p>
+    <table>
+      <thead><tr><th>Ranking of the validation tokens by</th><th class="n">AUC for “in the most harmful fifth”</th><th class="n">% of the harm in its top 10 %</th>
+      <th class="n">top 20 %</th><th class="n">top 30 %</th></tr></thead>
+      <tbody>
+        {chr(10).join(rows)}
+      </tbody>
+    </table>
+    {veto}'''
 
 
 def randrouter_block():
-    parts = [_diagnosis(), _repairs(), _stage2(), _proxy(), _real()]
+    parts = [_diagnosis(), _repairs(), _stage2(), _proxy(), _frontier(), _real(), _externality()]
     if not any(parts):
         return ""
-    return f'''<div class="sub-head"><h3>Why the searches cannot beat the released gate, and what repairs it (2026-11-20)</h3><p>Question from the user: change the router
-    into a random one and retrain Stage II, to get past “the search cannot beat the baseline”. Short answer: the baseline is not protected by a good gate but by a bad cache.
-    A token that leaves after loop 1 poisons the cache for every later token, so every router that would use loop 1 loses accuracy, whatever its thresholds. Training under a
-    random router with the decoder's cache fill repairs most of that; refitting the gate (Stage II) alone does not.</p></div>
+    return f'''<div class="sub-head"><h3>Why the searches cannot beat the released gate, and what was tried against it (2026-11-20)</h3><p>Question from the user: change
+    the router into a random one and retrain Stage II, to get past “the search cannot beat the baseline”. Short answer: the baseline is not protected by a good gate but by a
+    bad cache. A token that leaves after loop 1 poisons the cache for every later token, so every router that would use loop 1 loses accuracy, whatever its thresholds.
+    Training under a random router with the decoder's cache fill repairs most of the token-level damage (95.5 → 98.2 % agreement at 1.5 to 1.9 loops), refitting the gate
+    (Stage II) alone repairs nothing, and neither is enough yet in real execution: pass@1 needs about 98.5 % agreement to match the released gate.</p></div>
   <div class="tablewrap">
     {"".join(p for p in parts if p)}
   </div>
