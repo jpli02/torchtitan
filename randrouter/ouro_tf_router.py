@@ -38,7 +38,7 @@ class OuroTFRouterObjective(BaseObjective):
 
     def __init__(self, *, lora: str | None = None, gate: str | None = None, fill_maps: str | None = None,
                  teacher: str = "/home/jli199/boptim_scratch/randrouter/teacher_lcb_v1v4*.jsonl", split: str = "val", n_items: int = 99,
-                 floor_pct: float = 98.45, penalty_per_pt: float = 3.5, budget_tok: int = 4000, mem_gb: float = 0.0,
+                 floor_pct: float = 98.45, penalty_per_pt: float = 3.5, budget_tok: int = 2500, mem_gb: float = 0.0,
                  work_dir: str | None = None, lora_r: int = 32, lora_alpha: float = 64.0, seed: int | None = None):
         import torch
 
