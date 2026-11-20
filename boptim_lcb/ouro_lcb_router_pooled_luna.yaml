@@ -1,0 +1,33 @@
+# LLM-as-optimizer on the pooled LiveCodeBench router objective (all 342 problems), requested by the user on 2026-11-20:
+# "run gpt-luna model on livecode bench all 342 task, 10 iterations".
+# Same objective and settings as ouro_lcb_router_pooled_gp.yaml (the Gaussian-process run), only the optimizer differs:
+# openai/gpt-5.6-luna through OpenRouter (OPENAI_BASE_URL=https://openrouter.ai/api/v1, key from ~/.boptim_keys.env),
+# domain prompt BOPTIM_PROMPT_TEMPLATE=ouro_lcb_router_prompt.txt. Launch: boptim_lcb/launch_lcb_luna.sh.
+# max_iter counts the 7 warm-start records (the same 7 the Gaussian-process run started from) plus 10 new evaluations.
+replicates: 1
+no_explanation: false
+
+wandb:
+  enabled: true
+  project: boptim-agent
+
+models:
+  chatgpt: "openai/gpt-5.6-luna"
+
+experiments:
+  - optim: chatgpt
+    objective:
+      type: ouro_lcb_router
+      ouro_lcb_mode: steps
+      ouro_lcb_n: 342
+      ouro_lcb_offset: 0
+      ouro_lcb_max_new: 1024
+      ouro_lcb_baseline_acc: 20.5
+      ouro_lcb_tol: 2.2
+      ouro_lcb_penalty: 2.0
+      ouro_lcb_work_dir: /home/jli199/boptim_scratch/bo_lcb_router_pooled_luna
+    batch_size: 1
+    max_iter: 17
+    resume: true
+    optim_seed: 7
+    objective_seed: 7
