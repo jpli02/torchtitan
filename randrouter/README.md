@@ -56,7 +56,14 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
      runs with the binomial noise of each pass@1 (`calib_boot.py`): alpha 3.24 (95 % interval 0.96 to 4.10), beta 1.23
      (0.00 to 3.19), alpha > beta in 93 % of the resamples; the calibrated fill comes out ahead of the released gate in
      83 % of the resamples at (0.2, 0.4, 0.7), 91 % at (0.245, 0.45, 0.7) and 97 % at (0.245, 0.3, 0.3) (17.2 % at 1.68
-     loops, the most robust candidate). Real run started 2026-11-20 23:20 (`real/base_fill24_q0.2-0.4-0.7`).
+     loops, the most robust candidate).
+     **Real execution did not confirm the predictions** (2026-11-21, all with the calibrated fill, 342 problems):
+     (0.2, 0.4, 0.7) stopped after 186 problems, 2 against 10 problems vs the gate at 0.3 (p = 0.04), 1.94 executed loops,
+     22 % of the answers cut; (0.245, 0.3, 0.3) 15.2 % at 1.76 executed loops (5 against 15 vs the gate, p = 0.04),
+     below its bootstrap interval 15.8 to 18.3. The same exits with an exact cache keep 19.0 %, so the fill's cache errors
+     cost far more in free-running decoding than their teacher-forced count says: the calibration holds for the copy fill
+     it was fitted on and does not transfer to a different fill. `interim_grade.py` grades the finished chunks of a
+     running real-execution run (the 102-problem interim of (0.245, 0.3, 0.3) looked like a tie: 2 against 4).
    - limit of the fit: it is far too optimistic for routers that read most tokens after loop 1. (0.05, 1, 1) with an exact
      cache: proxy 1.48 loops and 0.80 % own errors, i.e. a predicted 19.8 %; real 13.2 % at 2.22 loops (finding 5). The
      symptom is the share of answers cut at 1,024 tokens, and it follows the share of tokens leaving after loop 1 whatever

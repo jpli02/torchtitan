@@ -400,7 +400,22 @@ def _calib():
             sure = (f'the price of a cache error rests on three routers that have many of them. Resampling the {len(pts)} runs, with the binomial noise of every '
                     f'real pass@1, leaves it between {boot["coef"]["beta"][0]:.1f} and {boot["coef"]["beta"][2]:.1f} points per % of tokens, and the calibrated fill '
                     f'comes out ahead of the released gate in {100 * a1["ahead"]:.0f} % of the resamples at (0.2, 0.4, 0.7) and in {100 * a2["ahead"]:.0f} % at '
-                    f'(0.245, 0.3, 0.3). Likely, not shown: the real run of the highlighted router decides it (part 6 shows it when it is finished).')
+                    f'(0.245, 0.3, 0.3).')
+    # what real execution said about these predictions (records of randrouter/lcb_real_eval2.py; interim numbers of a stopped run)
+    outcome = []
+    rec_b = _load(f"{R}/real/base_fill24_q0.245-0.3-0.3/record.json")
+    rec_c = _load(f"{R}/real/base_fill24_q0.25-0.3-0.3_v2/record.json")
+    outcome.append("(0.2, 0.4, 0.7), the router highlighted above, was stopped after 186 problems: 2 problems only it solved against 10 only the released "
+                   "gate at 0.3 solved (p = 0.04), at 1.94 executed loops, with 22 % of the answers cut at 1,024 tokens")
+    if rec_b:
+        outcome.append(f'(0.245, 0.3, 0.3) scored {rec_b["pass1_pct"]:.1f} % at {rec_b["exec_loops"]:.2f} executed loops on all 342 problems '
+                       f'(predicted 17.2 %, interval 15.8 to 18.3; against the gate at 0.3: 5 against 15, p = 0.04)')
+    if rec_c:
+        outcome.append(f'(0.25, 0.3, 0.3), the same router as the first proposal of both LLM searches, scored {rec_c["pass1_pct"]:.1f} % at '
+                       f'{rec_c["exec_loops"]:.2f} executed loops, where the decoder\'s copy fill gave 15.2 % at 2.02')
+    sure += (" Real execution did not confirm them: " + "; ".join(outcome) + ". With the same exits and an exact cache, (0.245, 0.3, 0.3) keeps 19.0 % (part 6), "
+             "so the calibrated fill's cache errors cost far more in free-running decoding than the teacher-forced fit prices them: the fit is good for the "
+             "routers it was fitted on (the copy fill) and does not transfer to a different fill.")
     return f'''<p style="margin:16px 0 6px;font-weight:600">6b · What a token error costs: the proxy against the {len(pts)} real runs</p>
     <p class="src">Every router that was run for real on the 342 problems (the single knob, the evaluations of the two searches, fixed depth 1 and 2) replayed on the
     teacher-forced proxy. Its token errors are split in two: <em>own</em>, the exit readout is wrong even with an exact cache (the token left too early), and
@@ -418,11 +433,11 @@ def _calib():
     </table>
     <p class="src" style="margin-top:10px">The systems of part 2 re-scored with this fit, in the units of the real objective
     (value = −6.25 × 4 / loops + 2.0 × max(0, 18.3 − pass@1); lower is better). The repairs of the copy fill leave cache errors, the cheap kind, so the bar of
-    “98.5 % token agreement” was too high for them. These rows are predictions: {sure} One limit of the fit is already known: it is far too optimistic for routers
+    “98.5 % token agreement” was too high for them. These rows were predictions: {sure} A second limit of the fit: it is far too optimistic for routers
     that read most of their tokens after loop 1. For (0.05, 1, 1) with an exact cache it predicts 19.8 % at 1.48 loops and the real run gives 13.2 % at 2.22 (part 6):
     the answers drift into repetition, which teacher forcing cannot show. The share of answers cut at 1,024 tokens follows the share of tokens leaving after loop 1
     whatever the cache: 5 to 11 % up to 45 % of the tokens, 34 to 42 % for the released gate at 0.2 (67 % of the tokens), 31 % and 49 % for the two routers above
-    (75 % and 84 %). The highlighted router releases two thirds of its tokens after loop 1, so it is the risky end of this table.</p>
+    (75 % and 84 %).</p>
     <table>
       <thead><tr><th style="min-width:250px">System</th><th style="min-width:130px">Router</th><th class="n">loops</th><th class="n">own<br>errors %</th>
       <th class="n">cache<br>errors %</th><th class="n">predicted<br>pass@1 %</th><th class="n">value</th></tr></thead>
