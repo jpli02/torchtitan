@@ -57,8 +57,14 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
      (0.00 to 3.19), alpha > beta in 93 % of the resamples; the calibrated fill comes out ahead of the released gate in
      83 % of the resamples at (0.2, 0.4, 0.7), 91 % at (0.245, 0.45, 0.7) and 97 % at (0.245, 0.3, 0.3) (17.2 % at 1.68
      loops, the most robust candidate). Real run started 2026-11-20 23:20 (`real/base_fill24_q0.2-0.4-0.7`).
-   - limit of the fit: it over-predicts routers that release more than three quarters of the tokens after loop 1
-     ((0.05, 1, 1) with an exact cache: predicted about 17.7 %, real 13.2 %; finding 5).
+   - limit of the fit: it is far too optimistic for routers that read most tokens after loop 1. (0.05, 1, 1) with an exact
+     cache: proxy 1.48 loops and 0.80 % own errors, i.e. a predicted 19.8 %; real 13.2 % at 2.22 loops (finding 5). The
+     symptom is the share of answers cut at 1,024 tokens, and it follows the share of tokens leaving after loop 1 whatever
+     the cache: 5-11 % for full depth, the gate at 0.3 and the exact-cache (0.245, 0.3, 0.3) (up to 45 % of the tokens
+     leave after loop 1); 34-42 % for the gate at 0.2 (67 %); 31 % and 49 % for the exact-cache (0.132, 1, 1) and
+     (0.05, 1, 1) (75 % and 84 %). A wrong loop-1 readout tends to continue a repetition, repetitive text makes the gate
+     surer, and more tokens leave after loop 1: a feedback loop that teacher forcing cannot show. Keep q1 >= 0.245
+     (at most about half of the tokens leaving after loop 1) when choosing routers from the proxy.
    - the proxy value with a penalty on raw agreement (`ouro_tf_router` without `ouro_tf_calib`) has its optimum at "every
      token leaves after loop 1" (-13.6), which real execution scores near +1. Searches on it that did not find that corner
      were lucky; use `ouro_tf_calib: 1`.
