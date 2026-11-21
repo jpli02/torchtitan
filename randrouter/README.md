@@ -30,10 +30,14 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
 5. **With an exact cache a three-threshold search halves the loops on teacher-forced answers**: 1.3 loops at the gate-0.3
    agreement, 1.5-1.7 loops at 99.0-99.3 % (the released model with the copy fill: 2.1 and 3 loops). The router it finds,
    "the surest tokens leave after loop 1, all others run to full depth", is one the single knob cannot express. **It does not
-   carry over to free-running decoding as is**: the two most aggressive of these routers, (0.05, 1, 1) and (0.132, 1, 1),
-   which release 75-84 % of the tokens after loop 1, give long repetitive answers in real execution (45 % and 27 % cut at
-   1,024 tokens after half of the problems, against 11 % at (0.245, 0.3, 0.3)) and execute 2.2-2.3 loops, not 1.5-1.7.
-   Teacher forcing hides the drift; restrict the proxy to routers that release about the half the gate is surest about.
+   carry over to free-running decoding**: the two most aggressive of these routers, which release 75-84 % of the tokens
+   after loop 1, give long repetitive answers in real execution with an exact cache (all 342 problems):
+   (0.132, 1, 1) 18.1 % pass@1 at 2.33 would-be loops, 31 % of the answers cut at 1,024 tokens (against the gate at 0.3:
+   10 problems each way; against full depth: +2 / -10, p = 0.04); (0.05, 1, 1) 13.2 % at 2.22 loops, 49 % cut (against the
+   gate at 0.3: +3 / -20, p < 0.001). Reference: (0.245, 0.3, 0.3) 19.0 % at 1.87 loops, 11 % cut. So no better than the
+   released gate at 0.3 (18.1 % at about 2.1 loops), where teacher forcing promised 1.5-1.7 loops. Teacher forcing hides
+   the drift; restrict the proxy to routers that release about the half the gate is surest about. The cache is exact in
+   these runs, so the drift is not a cache effect: it is the early readouts themselves, compounding on self-generated text.
 6. **Next step (not built):** a decode step with 4 rows costs 1.27x a step with 1 row (`bench_batch_step.py`), so the deeper
    loops of an already emitted token can run in the same batched pass as the next token's first loop: exact cache, latency of
    the router's loops, no compute saving.
@@ -48,8 +52,13 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
      were judged too harshly. Re-scored in the real objective's units (`proxy_value.py`: -6.25 * 4 / loops + 2.0 * max(0,
      18.3 - predicted pass@1)), the best router of the original space is the released gate at 0.3 (-10.93; 17.9 % at 2.14
      loops) and the calibrated fill reaches -13.77 at (0.2, 0.4, 0.7) (18.5 % at 1.82 loops) and -11.87 at (0.245, 0.45,
-     0.7) (19.5 % at 2.11 loops). A PREDICTION: the price of a cache error rests on three routers and lies between 0.85
-     and 1.8; at 1.8 the gain is gone. Real run started 2026-11-20 23:20 (`real/base_fill24_q0.2-0.4-0.7`).
+     0.7) (19.5 % at 2.11 loops). A PREDICTION: the price of a cache error rests on three routers. Bootstrap over the 33
+     runs with the binomial noise of each pass@1 (`calib_boot.py`): alpha 3.24 (95 % interval 0.96 to 4.10), beta 1.23
+     (0.00 to 3.19), alpha > beta in 93 % of the resamples; the calibrated fill comes out ahead of the released gate in
+     83 % of the resamples at (0.2, 0.4, 0.7), 91 % at (0.245, 0.45, 0.7) and 97 % at (0.245, 0.3, 0.3) (17.2 % at 1.68
+     loops, the most robust candidate). Real run started 2026-11-20 23:20 (`real/base_fill24_q0.2-0.4-0.7`).
+   - limit of the fit: it over-predicts routers that release more than three quarters of the tokens after loop 1
+     ((0.05, 1, 1) with an exact cache: predicted about 17.7 %, real 13.2 %; finding 5).
    - the proxy value with a penalty on raw agreement (`ouro_tf_router` without `ouro_tf_calib`) has its optimum at "every
      token leaves after loop 1" (-13.6), which real execution scores near +1. Searches on it that did not find that corner
      were lucky; use `ouro_tf_calib: 1`.
