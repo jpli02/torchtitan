@@ -150,7 +150,7 @@ def load_probe(path: str, device: str = "cuda"):
 
 
 def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=None, lengths=None, exact_cache=False,
-                   grad_ckpt=False, gate=None, fill_maps=None, veto=None):
+                   grad_ckpt=False, gate=None, fill_maps=None, veto=None, skip=None):
     """Teacher-forced forward of `ids` (B, T) under a router.
 
     n_prompt    (B,) number of prefill positions per sequence (they always run every loop)
@@ -164,6 +164,8 @@ def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=N
     gate        module mapping the normed state to the gate logit (default: the model's own early_exit_gate)
     fill_maps   (key maps, value maps) of load_fill_maps: calibrated fill instead of the plain copy
     veto        (score function of load_probe, tau): with thresholds, a position leaves after loop 1 only if its score <= tau
+    skip        set of (loop, layer) pairs (0-based) that NO position computes: a static sub-network of the looped model. The
+                state passes that layer unchanged in that loop, and its cache slot of that loop is never read by anyone
     Returns {"hidden": [4 x (B, T, D)] normed states, "exit": (B, T) long, "lam": (B, T, 4) float32 gate probabilities,
     "gate_logit": (B, T, 4) gate logits in the model's dtype}.
     hidden[t][b, i] is meaningful only for t <= exit[b, i] (always, in gather mode).
@@ -191,6 +193,8 @@ def routed_forward(model, ids, n_prompt, *, plan=None, thresholds=None, shares=N
     for t in range(N_LOOPS):
         st = stale if (t > 0 and not exact_cache) else None
         for l, layer in enumerate(inner.layers):
+            if skip and (t, l) in skip:
+                continue
             kp, vp = (ks[l], vs[l]) if st is not None else (None, None)
             fill = (exit_, t, l, fill_maps[0], fill_maps[1]) if (fill_maps is not None and st is not None) else None
             if grad_ckpt:
