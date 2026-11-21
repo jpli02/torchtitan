@@ -98,3 +98,20 @@ if "--ouro_tf_exact" not in s:
     open(p, "w").write(s)
     py_compile.compile(p, doraise=True)
     print("added the --ouro_tf_exact flag to main.py")
+s = open(p).read()
+if "--ouro_tf_calib" not in s:
+    a = '    parser.add_argument("--ouro_tf_fill_maps", type=str, default=None, help="[ouro_tf_router] calibrated cache fill")\n'
+    assert s.count(a) == 1
+    s = s.replace(a, a + '    parser.add_argument("--ouro_tf_calib", type=int, default=0, help="[ouro_tf_router] 1 = value in the real objective\'s units (predicted pass@1, randrouter/proxy_value.py)")\n', 1)
+    open(p, "w").write(s)
+    py_compile.compile(p, doraise=True)
+    print("added the --ouro_tf_calib flag to main.py")
+p = f"{BO}/objective/__init__.py"
+s = open(p).read()
+if "ouro_tf_calib" not in s:
+    a = '            exact=int(getattr(args, "ouro_tf_exact", 0) or 0),\n'
+    assert s.count(a) == 1
+    s = s.replace(a, a + '            calib=int(getattr(args, "ouro_tf_calib", 0) or 0),\n', 1)
+    open(p, "w").write(s)
+    py_compile.compile(p, doraise=True)
+    print("added calib to the ouro_tf_router factory branch")

@@ -39,15 +39,21 @@ class OuroTFRouterObjective(BaseObjective):
     def __init__(self, *, lora: str | None = None, gate: str | None = None, fill_maps: str | None = None, veto: str | None = None,
                  teacher: str = "/home/jli199/boptim_scratch/randrouter/teacher_lcb_v1v4*.jsonl", split: str = "val", n_items: int = 99,
                  floor_pct: float = 98.45, penalty_per_pt: float = 3.5, budget_tok: int = 2500, mem_gb: float = 0.0,
-                 work_dir: str | None = None, lora_r: int = 32, lora_alpha: float = 64.0, seed: int | None = None, exact: int = 0):
+                 work_dir: str | None = None, lora_r: int = 32, lora_alpha: float = 64.0, seed: int | None = None, exact: int = 0,
+                 calib: int = 0):
         import torch
 
         if RR not in sys.path:
             sys.path.insert(0, RR)
         import core
+        import proxy_value
         import tf_eval
 
-        self._core, self._tf, self._torch = core, tf_eval, torch
+        self._core, self._tf, self._torch, self._pv = core, tf_eval, torch, proxy_value
+        # calib=1: the value in the real objective's units (predicted pass@1 from the two kinds of token error, proxy_value.py).
+        # The older value (penalty on raw token agreement) has its optimum at "every token leaves after loop 1", which real
+        # execution scores far worse than the released gate.
+        self.calib = proxy_value.load_calib() if int(calib) else None
         if mem_gb:
             torch.cuda.set_per_process_memory_fraction(mem_gb * 2**30 / torch.cuda.get_device_properties(0).total_memory)
         self.model, self.tok = core.load_model(core.SERVE_DIR)
@@ -69,6 +75,7 @@ class OuroTFRouterObjective(BaseObjective):
         self.seed = seed
         self.exact = bool(int(exact))
         self.setup["exact_cache"] = self.exact
+        self.setup["calib"] = self.calib
         self._eval_records: list = []
         self.params = [ObjectiveParam("q1", (0.05, 1.0)), ObjectiveParam("q2", (0.05, 1.0)), ObjectiveParam("q3", (0.05, 1.0))]
         self.veto = veto
@@ -78,6 +85,10 @@ class OuroTFRouterObjective(BaseObjective):
 
     @property
     def description(self) -> str:
+        if self.calib:
+            return (f"Ouro-2.6B teacher-forced router proxy on {len(self.seqs)} held-out LiveCodeBench answers: "
+                    f"value = -6.25 * 4 / loops + {self._pv.PENALTY_PER_PASS1_PT} * max(0, {self._pv.FLOOR_PASS1} - predicted pass@1 %), "
+                    f"predicted pass@1 = {self.calib['c']:.2f} - {self.calib['alpha']:.2f} * own - {self.calib['beta']:.2f} * cache")
         return (f"Ouro-2.6B teacher-forced router proxy on {len(self.seqs)} held-out LiveCodeBench answers: "
                 f"value = -6.25 * 4 / loops + {self.penalty} * max(0, {self.floor} - agreement %)")
 
@@ -90,8 +101,10 @@ class OuroTFRouterObjective(BaseObjective):
         spec = ",".join(f"{float(v):.6f}" for v in thr)
         if self.veto and tau is not None:
             spec += f"|veto={self.veto}@{float(tau):.6f}"
+        # with the calibrated value the same exits are replayed with an exact cache as well (the two kinds of error)
         res = self._tf.evaluate(self.model, self.seqs, [self._tf.parse_router(spec)], self.tok.pad_token_id, self.budget_tok,
-                                log=lambda s: None, fill_maps=self.fill, exact=("only" if self.exact else False))[spec]
+                                log=lambda s: None, fill_maps=self.fill, exact=("only" if self.exact else bool(self.calib)))[spec]
+        self._last = res
         return res["loops"], 100.0 * res["agree_exact" if self.exact else "agree_real"], res["share"]
 
     def evaluate(self, params) -> float:
@@ -99,11 +112,19 @@ class OuroTFRouterObjective(BaseObjective):
         tau = float(params[3]) if self.veto and len(params) > 3 else None
         t0 = time.time()
         loops, agree, share = self.measure(thr, tau)
-        value = -6.25 * 4.0 / loops + self.penalty * max(0.0, self.floor - agree)
+        own = 100.0 - 100.0 * self._last["agree_exact"]
+        cache = 0.0 if self.exact else 100.0 * (self._last["agree_exact"] - self._last["agree_real"])
+        if self.calib:
+            value, p1 = self._pv.value(loops, own, cache, self.calib)
+        else:
+            value, p1 = -6.25 * 4.0 / loops + self.penalty * max(0.0, self.floor - agree), None
         rec = {"thresholds": thr, "tau": tau, "loops": loops, "agree_pct": agree, "exit_share": share, "value": value, "wall_s": time.time() - t0,
                "status": "ok"}
+        if self.calib:
+            rec.update({"own_err_pct": own, "cache_err_pct": cache, "pass1_hat": p1})
         self._eval_records.append(rec)
         with open(self.work_dir / "evaluations.jsonl", "a") as f:
             f.write(json.dumps(dict(rec, **self.setup)) + "\n")
-        print(f"[tf-router] thr={['%.3f' % v for v in thr]}{'' if tau is None else ' tau=%.3f' % tau} loops={loops:.3f} agreement={agree:.2f}% value={value:.3f} ({rec['wall_s']:.0f}s)", flush=True)
+        print(f"[tf-router] thr={['%.3f' % v for v in thr]}{'' if tau is None else ' tau=%.3f' % tau} loops={loops:.3f} agreement={agree:.2f}%"
+              + ("" if p1 is None else f" (own {own:.2f}, cache {cache:.2f}) pass@1~{p1:.1f}") + f" value={value:.3f} ({rec['wall_s']:.0f}s)", flush=True)
         return float(value)

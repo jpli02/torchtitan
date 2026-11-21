@@ -37,6 +37,29 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
 6. **Next step (not built):** a decode step with 4 rows costs 1.27x a step with 1 row (`bench_batch_step.py`), so the deeper
    loops of an already emitted token can run in the same batched pass as the next token's first loop: exact cache, latency of
    the router's loops, no compute saving.
+7. **Token agreement is the wrong currency: the two kinds of token error do not cost the same** (`calib_pass1.py`, 33 routers
+   that were run for real on the 342 problems, replayed on the proxy). own = % of answer tokens whose exit readout is wrong
+   even with an exact cache (the token left too early); cache = % right with an exact cache and wrong with the decoder's
+   cache. Fit: **pass@1 = 22.45 - 3.27 own - 1.17 cache** (weighted RMSE 0.67, leave-one-out 1.19 pass@1 points; one real
+   measurement has a standard error of 2.1; rank correlation with real pass@1 0.915, leave-one-out 0.913). An early-exit
+   error costs about 2.8 times a cache error: gate 0.2 has 94.4 % agreement and 15.0 % pass@1, fixed depth 1 has 95.3 % and
+   5.6 %. Proxy loops are 0.07 below the executed loops. Consequences:
+   - finding 4 ("98.5 % agreement needed") holds for early-exit errors, not for cache errors, so the repairs of finding 2
+     were judged too harshly. Re-scored in the real objective's units (`proxy_value.py`: -6.25 * 4 / loops + 2.0 * max(0,
+     18.3 - predicted pass@1)), the best router of the original space is the released gate at 0.3 (-10.93; 17.9 % at 2.14
+     loops) and the calibrated fill reaches -13.77 at (0.2, 0.4, 0.7) (18.5 % at 1.82 loops) and -11.87 at (0.245, 0.45,
+     0.7) (19.5 % at 2.11 loops). A PREDICTION: the price of a cache error rests on three routers and lies between 0.85
+     and 1.8; at 1.8 the gain is gone. Real run started 2026-11-20 23:20 (`real/base_fill24_q0.2-0.4-0.7`).
+   - the proxy value with a penalty on raw agreement (`ouro_tf_router` without `ouro_tf_calib`) has its optimum at "every
+     token leaves after loop 1" (-13.6), which real execution scores near +1. Searches on it that did not find that corner
+     were lucky; use `ouro_tf_calib: 1`.
+8. **Fast replica of the router NAS objective** (`ouro_tf_nas.py`, `nas_feats.py`, `nas_fit.py`): the 6-dimensional space of
+   boptim-agent's `objective/ouro_router_nas.py`, every candidate router trained from a random initialisation with the
+   Stage-II loss on cached states of the frozen model (66,474 positions), scored by the proxy in the real objective's units,
+   about 30 s per evaluation. Reference check: no router trained from scratch beats the released gate (best of 14 random
+   points -8.81, linear router at gamma 0.005 / threshold 0.5 -10.67, released gate -10.93). Built for multi-seed optimizer
+   comparisons (`nas_compare.sh`, `opt_compare*.sh`, `opt_compare_report.py`); not run: the user chose to stay with the
+   original setting (real LiveCodeBench searches) on 2026-11-20.
 
 ## Files
 
@@ -54,6 +77,11 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
 | `export.py` | merges a LoRA update (and a gate) into a servable model directory |
 | `lcb_real_eval2.py`, `paired.py` | real execution on the 342 problems across cards (`--gather` = exact cache), paired comparison with the released model's runs |
 | `bench_batch_step.py` | cost of a decode step with 1 / 2 / 4 rows |
+| `calib_pass1.py`, `proxy_value.py` | proxy against real execution: the two kinds of token error, the fitted pass@1 model, the proxy value in the real objective's units |
+| `fill_search.sh` | threshold search on the proxy in real units, with the calibrated fill and with the copy fill |
+| `nas_feats.py`, `nas_fit.py`, `ouro_tf_nas.py`, `setup_tfnas_objective.py`, `nas_probe.py` | fast replica of the router NAS objective (boptim objective `ouro_tf_nas`) and its reference check |
+| `opt_compare.sh`, `opt_compare_llm.sh`, `nas_compare.sh`, `night_chain.sh`, `opt_compare_report.py`, `prompts/` | optimizer against optimizer on the proxy objectives over several seeds (random search, Gaussian process, LLM agent with and without the mechanism text); written, not run |
+| `llm_check.sh`, `llm_ping.py`, `llm_credit.py` | key check before LLM-optimizer runs (remaining credit as numbers, one small call; never prints the key) |
 | `patch_*.py` | one-off edits kept for the record |
 
 ## Pitfalls
