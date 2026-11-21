@@ -186,7 +186,8 @@ def _proxy():
     Right: penalty 20 below 98.22 %, i.e. the fastest router that loses nothing against the released gate at 0.3. Gaussian-process search (boptim, gp_hedge) warm-started with
     the single knob at seven thresholds. On the released model the proxy reproduces the real result: the search ends at about 2.2 loops with no loop-1 exit and
     −11.25, where the real Gaussian-process run ended at (1.00, 0.38, 0.30) and −11.10. With an exact cache the same search finds what the single knob cannot express:
-    let the tokens the gate is surest about leave after loop 1 and run all the others to full depth, about 1.3 loops at the agreement of the released gate at 0.3.</p>'''
+    let the tokens the gate is surest about leave after loop 1 and run all the others to full depth, about 1.3 loops at the agreement of the released gate at 0.3.
+    That is a teacher-forced number; in free-running decoding the most aggressive of these routers do not hold up (caution under part 6).</p>'''
 
 
 def _frontier():
@@ -227,8 +228,9 @@ def _frontier():
     <p class="src">Loops per token of the cheapest evaluated router whose agreement with the full-depth answers is at least the column's level (validation answers; the
     released gate at 0.3 sits at 98.22 % and 2.14 loops). Below about 98 % the repaired systems need 15 to 40 % fewer loops; at the level of the released gate and above they
     need the same or more, because every router that uses loop 1 still loses about a point to the cache and the trained model also lost half a point at full depth.
-    The last row is the prize: with an exact cache the searched routers need about 1.3 loops for the gate's agreement and 1.5 to 1.7 loops for 99.0 to 99.3 %, where
-    the released model with its copy fill needs 3 loops or cannot get there.</p>'''
+    The last row is the teacher-forced upper bound: with an exact cache the searched routers need about 1.3 loops for the gate's agreement and 1.5 to 1.7 loops for
+    99.0 to 99.3 %, where the released model with its copy fill needs 3 loops or cannot get there. It is an upper bound on the model's own full-depth text only: the
+    routers at its low end release three quarters or more of the tokens after loop 1 and drift in free-running decoding (caution under part 6).</p>'''
 
 
 def _real():
@@ -270,7 +272,40 @@ def _real():
                 pass
         rows.append(f'<tr class="best"><td>{sysname}</td><td>{d}</td><td class="n">{loops}</td><td class="n">{r["pass1_pct"]:.1f}</td>'
                     f'<td class="n">{r["mean_tokens"]:.0f}{_sm(" / %.0f %%" % (100 * r["trunc_rate"]))}</td>{cmp}</tr>')
+    # runs still going: the chunks finished so far (no score before the last chunk is graded)
+    done_dirs = {r["run_dir"].rstrip("/") for r in recs}
+    running = []
+    for d in sorted(glob.glob(f"{R}/real/*/")):
+        d = d.rstrip("/")
+        if d in done_dirs or "smoke" in d or "partial" in d:
+            continue
+        n = tok = ml = tr = 0
+        thr, gather = None, False
+        for f in sorted(glob.glob(f"{d}/chunk_*.log")):
+            for line in open(f, errors="replace"):
+                if line.startswith("RESULT "):
+                    c = json.loads(line[7:])
+                    n += c["n"]
+                    tok += c["mean_tokens"] * c["n"]
+                    ml += c["mean_loops"] * c["mean_tokens"] * c["n"]
+                    tr += c["trunc_rate"] * c["n"]
+                    if isinstance(c.get("threshold"), list):
+                        thr, gather = c["threshold"][:3], True
+        if n >= 100 and gather and thr:
+            running.append((thr, n, ml / tok, tok / n, tr / n))
+            rows.append(f'<tr><td>released model, EXACT cache {_sm("<br>running: %d of 342 problems so far" % n)}</td><td>({", ".join("%g" % v for v in thr)})</td>'
+                        f'<td class="n">{ml / tok:.2f} {_sm("(would be)")}</td><td class="n">—</td><td class="n">{tok / n:.0f}{_sm(" / %.0f %%" % (100 * tr / n))}</td>'
+                        f'<td class="n">—</td></tr>')
     note = "" if recs else " The evaluations of the repaired systems are running."
+    if running:
+        worst = max(running, key=lambda x: x[4])
+        note += (f' Caution on the teacher-forced upper bound of parts 4 and 5: the exact-cache routers the proxy search preferred (three quarters or more of the tokens '
+                 f'leave after loop 1, the rest run to full depth) are still being decoded, and the half that is done does not look like the teacher-forced estimate. '
+                 f'The answers are much longer ({100 * worst[4]:.0f} % cut at 1,024 tokens at ({", ".join("%g" % v for v in worst[0])}), against 11 % at (0.245, 0.3, 0.3)) and the '
+                 f'router lets far fewer tokens leave than on the model\'s full-depth answers ({worst[2]:.2f} loops instead of about 1.5). Teacher forcing hides this: a free-running '
+                 f'answer drifts once many of its tokens are read after loop 1, and on its own drifted text the model is less sure and repeats itself. So the 19.0 % of '
+                 f'(0.245, 0.3, 0.3) is so far the only real number of an exact cache, and the proxy is not to be trusted for routers that release much more than the half '
+                 f'the gate is surest about.')
     return f'''<p style="margin:16px 0 6px;font-weight:600">6 · Real execution on the 342 test problems</p>
     <table>
       <thead><tr><th style="min-width:230px">System</th><th style="min-width:130px">Router</th><th class="n">executed loops<br>per token</th><th class="n">pass@1 %</th>
@@ -330,9 +365,11 @@ def _externality():
 
 def _outlook():
     return '''<p style="margin:16px 0 6px;font-weight:600">8 · Where this leaves the search, and the next step</p>
-    <p class="src">(a) The released single-knob gate is not the ceiling: with an exact cache a three-threshold search halves the loops at almost no loss (parts 4 and 5),
-    and the first router checked in real execution, (0.245, 0.3, 0.3), keeps 19.0 % pass@1, where the decoder's copy fill already drops to 15.2 % at the milder
-    neighbour (0.25, 0.3, 0.3) (part 6).
+    <p class="src">(a) The released single-knob gate is not the ceiling: the first exact-cache router checked in real execution, (0.245, 0.3, 0.3), keeps 19.0 % pass@1
+    at 1.87 loops, where the decoder's copy fill already drops to 15.2 % at the milder neighbour (0.25, 0.3, 0.3) (part 6). How much further a search can go is open:
+    on teacher-forced answers a three-threshold search halves the loops at almost no loss (parts 4 and 5), but the routers it prefers release three quarters or more
+    of the tokens after loop 1, and in free-running decoding those produce long, repetitive answers (see the caution under part 6); the proxy has to be restricted
+    to routers whose real behaviour it predicts before it is searched again.
     (b) No repair of the copy fill tried so far gets there. Calibrated maps, random-router training of the model, trained maps and a veto on harmful exits all stop near
     98 % token agreement for routers that use loop 1, and real execution needs about 98.5 % to match the released gate. Refitting the gate (Stage II) is not the lever at all.
     (c) The skipped loops may not need to be skipped. A decode step with 2 rows costs 1.17 times a step with 1 row and a step with 4 rows 1.27 times (measured on the

@@ -27,9 +27,13 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
    predictable (AUC 0.75) and concentrated (the worst 10 % of tokens carry 60 % of it); used as a loop-1 veto it buys about
    0.3 point of agreement at equal loops.
 4. **pass@1 needs about 98.5 % agreement to match gate 0.3 and 99.3 % for full depth**, and every repair stops near 98 %.
-5. **With an exact cache a three-threshold search halves the loops**: 1.3 loops at the gate-0.3 agreement, 1.5-1.7 loops at
-   99.0-99.3 % (the released model with the copy fill: 2.1 and 3 loops). The router it finds, "the surest tokens leave after
-   loop 1, all others run to full depth", is one the single knob cannot express.
+5. **With an exact cache a three-threshold search halves the loops on teacher-forced answers**: 1.3 loops at the gate-0.3
+   agreement, 1.5-1.7 loops at 99.0-99.3 % (the released model with the copy fill: 2.1 and 3 loops). The router it finds,
+   "the surest tokens leave after loop 1, all others run to full depth", is one the single knob cannot express. **It does not
+   carry over to free-running decoding as is**: the two most aggressive of these routers, (0.05, 1, 1) and (0.132, 1, 1),
+   which release 75-84 % of the tokens after loop 1, give long repetitive answers in real execution (45 % and 27 % cut at
+   1,024 tokens after half of the problems, against 11 % at (0.245, 0.3, 0.3)) and execute 2.2-2.3 loops, not 1.5-1.7.
+   Teacher forcing hides the drift; restrict the proxy to routers that release about the half the gate is surest about.
 6. **Next step (not built):** a decode step with 4 rows costs 1.27x a step with 1 row (`bench_batch_step.py`), so the deeper
    loops of an already emitted token can run in the same batched pass as the next token's first loop: exact cache, latency of
    the router's loops, no compute saving.
