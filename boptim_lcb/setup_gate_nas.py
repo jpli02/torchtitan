@@ -63,7 +63,47 @@ if "OuroLCBGateNASObjective" not in s:
 else:
     print("ouro_lcb_gate_nas already registered")
 
+replace(f"{BO}/objective/ouro_bfcl_gate_nas.py", open(f"{WT}/boptim_lcb/ouro_bfcl_gate_nas.py").read())
+p = f"{BO}/objective/__init__.py"
+s = open(p).read()
+if "OuroBFCLGateNASObjective" not in s:
+    a = "from .ouro_lcb_gate_nas  import OuroLCBGateNASObjective"
+    assert s.count(a) == 1, "import anchor (LiveCodeBench gate NAS) not found"
+    s = s.replace(a, a + "\nfrom .ouro_bfcl_gate_nas import OuroBFCLGateNASObjective", 1)
+    a = '    "ouro_lcb_gate_nas": OuroLCBGateNASObjective,'
+    assert s.count(a) == 1, "registry anchor (LiveCodeBench gate NAS) not found"
+    s = s.replace(a, a + '\n    "ouro_bfcl_gate_nas": OuroBFCLGateNASObjective,', 1)
+    branch = '''    elif name == "ouro_bfcl_gate_nas":
+        _b = getattr(args, "ouro_bfcl_baseline_acc", None)
+        obj = OuroBFCLGateNASObjective(
+            data_name=str(getattr(args, "ouro_bfcl_data", "bfcl_search.jsonl")),
+            n_items=int(getattr(args, "ouro_bfcl_n", 575)),
+            baseline_acc_pct=(float(_b) if _b is not None else None),
+            tol_pts=float(getattr(args, "ouro_bfcl_tol", 1.7)),
+            penalty_per_pt=float(getattr(args, "ouro_bfcl_penalty", 5.0)),
+            gpus=str(getattr(args, "ouro_bfcl_gpus", None) or os.environ.get("BFCL_BO_GPUS", "3")),
+            shards=int(getattr(args, "ouro_bfcl_shards", 2)),
+            work_dir=getattr(args, "ouro_bfcl_work_dir", None),
+            seed=args.objective_seed,
+            feats=str(getattr(args, "ouro_bgnas_feats", None) or "/home/jli199/boptim_scratch/randrouter/nas_feats_bfcl_live.pt"),
+        )
+'''
+    anchor = '    elif name == "ouro_bfcl_router":'
+    assert s.count(anchor) == 1, "factory anchor (BFCL router) not found"
+    s = s.replace(anchor, branch + anchor, 1)
+    replace(p, s)
+    print("registered ouro_bfcl_gate_nas")
+else:
+    print("ouro_bfcl_gate_nas already registered")
+
 p = f"{BO}/main.py"
+s = open(p).read()
+if "--ouro_bgnas_feats" not in s:
+    a = '    parser.add_argument("--ouro_lcb_gpus", type=str, default=None,'
+    assert s.count(a) == 1, "main.py anchor not found"
+    s = s.replace(a, '    parser.add_argument("--ouro_bgnas_feats", type=str, default=None, help="[ouro_bfcl_gate_nas] cached states for the router training (randrouter/bfcl_teacher.sh)")\n' + a, 1)
+    replace(p, s)
+    print("added --ouro_bgnas_feats")
 s = open(p).read()
 if "--ouro_gnas_feats" not in s:
     a = '    parser.add_argument("--ouro_lcb_gpus", type=str, default=None,'

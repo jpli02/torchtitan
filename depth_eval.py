@@ -29,6 +29,7 @@ ap.add_argument("--seed_offset", type=int, default=0, help="skip this many rows 
 ap.add_argument("--cfg", action="append", default=[], help="config override key=value (bool/int/float parsed), e.g. kv_share_decode=true")
 ap.add_argument("--prompt_suffix", default="", help="text appended to every prompt (e.g. 'Respond with only the code block, no explanation.')")
 ap.add_argument("--assistant_prefix", default="", help="text the assistant turn starts with (forced), e.g. '```python\\n' to skip the reasoning preamble")
+ap.add_argument("--dump_ids", action="store_true", help="also write each row's prompt and generated token ids (prompt_ids, gen_ids): teacher data for gate training")
 args = ap.parse_args()
 
 
@@ -647,6 +648,7 @@ APFX = args.assistant_prefix.encode().decode("unicode_escape") if args.assistant
 texts = [tok.apply_chat_template([{"role": "user", "content": build_prompt(r) + SFX}], tokenize=False, add_generation_prompt=True) + APFX for r in rows]
 order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
 gens = [None] * len(texts)
+ids_dump = [None] * len(texts)
 ntoks = [0] * len(texts)
 t0 = time.time()
 total_tok = 0
@@ -662,6 +664,8 @@ with torch.inference_mode():
             ntoks[i] = n
             total_tok += n
             gens[i] = APFX + tok.decode(g, skip_special_tokens=True)
+            if args.dump_ids:
+                ids_dump[i] = (enc["input_ids"][j][enc["attention_mask"][j].bool()].tolist(), g[g != tok.pad_token_id].tolist())
         done = b + len(idx)
         print(f"  {done}/{len(order)} rows, {time.time()-t0:.0f}s, {total_tok/(time.time()-t0):.1f} tok/s", flush=True)
 dt = time.time() - t0
@@ -677,6 +681,8 @@ for i, r in enumerate(rows):
     n_trunc += trunc
     n_parse += pred is not None
     rec = {"i": args.seed_offset + i, "gold": gold, "pred": pred, "correct": ok, "truncated": trunc, "ntok": ntoks[i], "gen": gens[i]}
+    if args.dump_ids and ids_dump[i] is not None:
+        rec["prompt_ids"], rec["gen_ids"] = ids_dump[i]
     if args.task == "lcb":
         rec.update({"question_id": r.get("question_id"), "difficulty": r.get("difficulty")})
     if args.task == "bcb":
