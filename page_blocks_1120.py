@@ -418,7 +418,11 @@ def _calib():
     </table>
     <p class="src" style="margin-top:10px">The systems of part 2 re-scored with this fit, in the units of the real objective
     (value = −6.25 × 4 / loops + 2.0 × max(0, 18.3 − pass@1); lower is better). The repairs of the copy fill leave cache errors, the cheap kind, so the bar of
-    “98.5 % token agreement” was too high for them. These rows are predictions: {sure}</p>
+    “98.5 % token agreement” was too high for them. These rows are predictions: {sure} One limit of the fit is already known: it is far too optimistic for routers
+    that read most of their tokens after loop 1. For (0.05, 1, 1) with an exact cache it predicts 19.8 % at 1.48 loops and the real run gives 13.2 % at 2.22 (part 6):
+    the answers drift into repetition, which teacher forcing cannot show. The share of answers cut at 1,024 tokens follows the share of tokens leaving after loop 1
+    whatever the cache: 5 to 11 % up to 45 % of the tokens, 34 to 42 % for the released gate at 0.2 (67 % of the tokens), 31 % and 49 % for the two routers above
+    (75 % and 84 %). The highlighted router releases two thirds of its tokens after loop 1, so it is the risky end of this table.</p>
     <table>
       <thead><tr><th style="min-width:250px">System</th><th style="min-width:130px">Router</th><th class="n">loops</th><th class="n">own<br>errors %</th>
       <th class="n">cache<br>errors %</th><th class="n">predicted<br>pass@1 %</th><th class="n">value</th></tr></thead>
