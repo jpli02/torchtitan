@@ -65,6 +65,12 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
      (0.05, 1, 1) (75 % and 84 %). A wrong loop-1 readout tends to continue a repetition, repetitive text makes the gate
      surer, and more tokens leave after loop 1: a feedback loop that teacher forcing cannot show. Keep q1 >= 0.245
      (at most about half of the tokens leaving after loop 1) when choosing routers from the proxy.
+   - an unconstrained search on the calibrated proxy runs straight into that blind spot: the Gaussian process with the
+     calibrated fill (`fill_search.sh`, 45 evaluations) ends at (0.05, 0.31, 0.67), 84 % of the tokens leaving after
+     loop 1, value -14.0. Among its 18 evaluations with at most half of the tokens leaving after loop 1 the best is
+     -11.5 at (0.255, 0.40, 0.28), a tie with the released gate. The band between them (q1 = 0.24 to 0.25, where 25 to
+     60 % of the tokens leave after loop 1) is what the two real runs probe: (0.2, 0.4, 0.7) and (0.245, 0.3, 0.3) with
+     the calibrated fill (`real/base_fill24_q0.2-0.4-0.7`, `real/base_fill24_q0.245-0.3-0.3`).
    - the proxy value with a penalty on raw agreement (`ouro_tf_router` without `ouro_tf_calib`) has its optimum at "every
      token leaves after loop 1" (-13.6), which real execution scores near +1. Searches on it that did not find that corner
      were lucky; use `ouro_tf_calib: 1`.
