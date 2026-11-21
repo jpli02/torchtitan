@@ -498,9 +498,11 @@ def _outlook():
     loops (parts 4 and 5) did not survive real execution: the routers that search prefers release three quarters or more of the tokens after loop 1 and end at the
     released gate's accuracy with more loops (caution under part 6). The proxy has to be restricted to routers whose real behaviour it predicts before it is searched again.
     (b) Judged by token agreement, no repair of the copy fill reaches the released gate: calibrated maps, random-router training of the model, trained maps and a veto on
-    harmful exits all stop near 98 % for routers that use loop 1. Part 6b says token agreement is the wrong yardstick for them: what they leave are cache errors, which
-    cost about a third of an early-exit error. Re-scored in the units of the real objective, the calibrated fill is predicted to keep the gate's accuracy with 15 % fewer
-    loops; that prediction rests on three routers and its real run is going. Refitting the gate (Stage II) is not the lever at all.
+    harmful exits all stop near 98 % for routers that use loop 1. Part 6b re-scored them with a fit of token errors to real pass@1 and predicted that the calibrated
+    fill keeps the gate's accuracy with 15 % fewer loops; real execution did not confirm it. At the same router the fill recovers about 2 points ((0.25, 0.3, 0.3):
+    17.3 % at 1.99 executed loops against 15.2 % at 2.02 with the copy fill), but no router with it reaches the released gate at 0.3 (18.1 %), and (0.245, 0.3, 0.3)
+    drops to 15.2 %. On LiveCodeBench the released gate is at the frontier of what threshold routers of this model reach in real execution, with the copy fill or the
+    calibrated one. Refitting the gate (Stage II) is not the lever at all.
     (c) The skipped loops may not need to be skipped. A decode step with 2 rows costs 1.17 times a step with 1 row and a step with 4 rows 1.27 times (measured on the
     released model, full depth, one shared card): batch-1 decoding is bound by per-call overhead, not by arithmetic. So the deeper loops of a token that has already been
     emitted after loop 1 can run in the same batched pass as the first loop of the next token. The cache then stays exact, the answer is the exact-cache answer of part 6,
@@ -518,9 +520,9 @@ def randrouter_block():
     with an exact cache such a router keeps its accuracy in real execution (19.0 % pass@1 at (0.245, 0.3, 0.3); with the decoder's copy fill the neighbouring router
     (0.25, 0.3, 0.3), which releases fewer tokens after loop 1, scores 15.2 %). Training under a random router with the decoder's cache fill repairs most of the
     token-level damage (about 95 → 98 % agreement at 1.5 to 1.9 loops), refitting the gate (Stage II) alone repairs nothing, and no repair has yet been shown to be
-    enough in real execution: the random-router model scores 15.2 % at 1.66 loops. Token agreement turned out to be the wrong yardstick for the repairs (part 6b: a
-    cache error costs about a third of an early-exit error). Re-scored that way, the training-free calibrated fill is predicted to match the released gate with 15 %
-    fewer loops; its real run is going.</p></div>
+    enough in real execution: the random-router model scores 15.2 % at 1.66 loops, and the training-free calibrated fill, which a fit of token errors to real
+    pass@1 predicted to match the gate with 15 % fewer loops, gives 17.3 % at 1.99 loops and 15.2 % at 1.76 (gate at 0.3: 18.1 %). On LiveCodeBench no router
+    tried so far beats the released gate in real execution.</p></div>
   <div class="tablewrap">
     {"".join(p for p in parts if p)}
   </div>
