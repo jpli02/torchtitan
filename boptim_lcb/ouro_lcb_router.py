@@ -140,7 +140,22 @@ class OuroLCBRouterObjective(BaseObjective):
         args = ["--cfg", "decode_early_exit_threshold=" + json.dumps(thr)]
         if self.fill_maps:
             args += ["--cfg", f"decode_fill_maps={self.fill_maps}"]
+        for c in self._extra_cfg():
+            args += ["--cfg", c]
         return args
+
+    # hooks for subclasses that change the system under the thresholds (e.g. a trained router: ouro_lcb_gate_nas.py)
+    def _extra_cfg(self) -> list[str]:
+        """Extra depth_eval model settings ("key=value") of the current evaluation."""
+        return []
+
+    def _variant(self):
+        """Identity of the system under the thresholds; part of the result-cache key (None = the plain released model)."""
+        return None
+
+    def _rec_extra(self) -> dict:
+        """Fields added to every evaluation record."""
+        return {}
 
     FILL_COST_PER_LOOP_SAVED = 0.0103
 
@@ -335,6 +350,8 @@ class OuroLCBRouterObjective(BaseObjective):
                 continue
             if self._key(rec.get("thresholds", [])) != key or "pass1_pct" not in rec or rec.get("fill_maps") != self.fill_maps:
                 continue
+            if rec.get("variant") != self._variant():
+                continue
             if (rec_path.parent / "graded.json").exists():
                 return rec
         return None
@@ -351,7 +368,8 @@ class OuroLCBRouterObjective(BaseObjective):
             except Exception:
                 continue
             done = ("loops_eff" in rec) if self.cost == "loops" else ("tok_s_cal" in rec)
-            if rec.get("status") == "ok" and done and rec.get("fill_maps") == self.fill_maps and self._key(rec.get("thresholds", [])) == key:
+            if (rec.get("status") in ("ok", "shortcut") and done and rec.get("fill_maps") == self.fill_maps and rec.get("variant") == self._variant()
+                    and self._key(rec.get("thresholds", [])) == key):
                 return rec
         return None
 
@@ -451,7 +469,8 @@ class OuroLCBRouterObjective(BaseObjective):
             rec = {"thresholds": thr, "pass1_pct": acc_pct, "loops_eff": loops, "exec_loops": gen.get("exec_loops"), "speedup_loops": 4.0 / loops,
                    "tok_s_gen": gen.get("tok_s"), "trunc_rate": gen.get("trunc_rate"), "mean_tokens": gen.get("mean_tokens"),
                    "mean_loops_counter": gen.get("mean_loops"), "fill_maps": self.fill_maps, "cost": "loops",
-                   "wall_s": time.time() - t0, "gpu": gpu, "value": value, "status": "ok", "run_dir": str(run_dir)}
+                   "wall_s": time.time() - t0, "gpu": gpu, "value": value, "status": "ok", "run_dir": str(run_dir),
+                   "variant": self._variant(), **self._rec_extra()}
             self._eval_records.append(rec)
             json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
             with open(self.work_dir / "evaluations.jsonl", "a") as f:

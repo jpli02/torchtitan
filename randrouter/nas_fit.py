@@ -88,6 +88,26 @@ def fit_router(feats: dict, spec: dict, gamma: float, *, k: float = 50.0, steps:
     return router, diag
 
 
+def save_router(path: str, router: nn.Module, spec: dict, **meta) -> None:
+    """File read by the gate-lab serving model (boptim_lcb/make_gatelab_modeling.py, option decode_router=<path>)."""
+    sd = {k: v.detach().float().cpu() for k, v in router.state_dict().items()}
+    torch.save(dict(meta, spec=dict(spec), state_dict=sd), path)
+
+
+def released_gate_router(model_file: str = "/home/jli199/torchtitan/assets/hf/Ouro-2.6B-Thinking/model.safetensors"):
+    """The released gate (nn.Linear(2048, 1)) as a router module, for checks of the gate-lab path."""
+    from safetensors import safe_open
+
+    with safe_open(model_file, framework="pt") as f:
+        keys = [k for k in f.keys() if k.endswith("early_exit_gate.weight") or k.endswith("early_exit_gate.bias")]
+        w = {k.rsplit(".", 1)[1]: f.get_tensor(k) for k in keys}
+    lin = nn.Linear(w["weight"].shape[1], 1)
+    with torch.no_grad():
+        lin.weight.copy_(w["weight"].float())
+        lin.bias.copy_(w["bias"].float())
+    return lin
+
+
 def load_feats(path: str) -> dict:
     f = torch.load(path, map_location="cpu")
     return {"h": f["h"], "ce": f["ce"].float(), "ok": f["ok"], "gate": f.get("gate")}
