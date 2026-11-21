@@ -23,9 +23,18 @@ grep -q "chatgpt: \"$LUNA_MODEL\"" "$WT/boptim_lcb/$CFG" && grep -q "ouro_lcb_wo
 set -a
 . "$HOME/.boptim_keys.env"
 set +a
-KEY=${OPENROUTER_API_KEY:-${QWEN_API_KEY:-}}
-[ -n "$KEY" ] || { echo "no OpenRouter key in ~/.boptim_keys.env"; exit 1; }
-export OPENAI_BASE_URL=https://openrouter.ai/api/v1 OPENAI_API_KEY="$KEY" GPT_MAX_TOKENS=16000
+# PROVIDER=openrouter (default): model ids like openai/gpt-6-luna through OpenRouter with OPENROUTER_API_KEY.
+# PROVIDER=openai: OpenAI's own API with OPENAI_API_KEY from the key file (user's key of 2026-11-21); model ids without the
+# "openai/" prefix (gpt-6-luna, gpt-6-sol, ...). The config's chatgpt model must match LUNA_MODEL either way.
+if [ "${PROVIDER:-openrouter}" = openai ]; then
+  [ -n "${OPENAI_API_KEY:-}" ] || { echo "no OPENAI_API_KEY in ~/.boptim_keys.env"; exit 1; }
+  case "$LUNA_MODEL" in openai/*) echo "PROVIDER=openai needs a model id without the openai/ prefix (got $LUNA_MODEL)"; exit 1;; esac
+  export OPENAI_BASE_URL=https://api.openai.com/v1 GPT_MAX_TOKENS=16000
+else
+  KEY=${OPENROUTER_API_KEY:-${QWEN_API_KEY:-}}
+  [ -n "$KEY" ] || { echo "no OpenRouter key in ~/.boptim_keys.env"; exit 1; }
+  export OPENAI_BASE_URL=https://openrouter.ai/api/v1 OPENAI_API_KEY="$KEY" GPT_MAX_TOKENS=16000
+fi
 export BOPTIM_PROMPT_TEMPLATE=ouro_lcb_router_prompt.txt
 export LCB_CAL_ATTEMPTS=${LCB_CAL_ATTEMPTS:-1}
 cd /home/jli199/boptim-agent || exit 1
