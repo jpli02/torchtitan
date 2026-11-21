@@ -31,6 +31,19 @@ Search space:
 Evaluations run as subprocesses of the torchtitan worktree's depth_eval.py; several points evaluate in parallel, one per
 GPU in `gpus`; cards can be added while the run is going by appending ids to <work_dir>/gpus.txt. Every evaluation is
 recorded in self._eval_records and <work_dir>/evaluations.jsonl (the trajectory for the agent work).
+
+Options added 2026-11-21 (defaults keep the behaviour above):
+  cost="loops"   value = -6.25 * 4 / loops + penalty * max(0, floor - pass@1): the speed term is the executed recurrence loops
+                 per generated token (depth_eval's exact counter) instead of measured tokens/s. Same units (full depth = -6.25),
+                 deterministic, and no calibration run. Measured speed on the shared cards was the noisiest part of the
+                 earlier searches: near-identical routers were timed at 1.42x to 1.84x, and the nominal winner of the pooled
+                 search was a timing artefact. With fill_maps the fill's own cost is added (0.0103 loops per loop saved,
+                 measured on BFCL: 3.1 / 2.1 / 1.0 % of a loop per token leaving after loop 1 / 2 / 3).
+  fill_maps=PATH serve exits with the calibrated cache fill (decode_fill_maps of the exit-lab model; ckpt must be that model,
+                 e.g. /home/jli199/boptim_scratch/ouro_base_exitlab3).
+  q1_lo=0.24     lower bound of q1 in steps mode: below it more than about half of the tokens leave after loop 1 and
+                 free-running answers drift into repetition (randrouter/README.md, findings 5 and 7), a region the
+                 teacher-forced proxy cannot see and every real evaluation there was poor.
 """
 from __future__ import annotations
 
@@ -73,8 +86,14 @@ class OuroLCBRouterObjective(BaseObjective):
         work_dir: str | None = None,
         stage_dir: str = "/srv/scratch/jli199/lcb_grade_stage_bo",
         seed: int | None = None,
+        cost: str = "speed",
+        fill_maps: str | None = None,
+        q1_lo: float = 0.05,
     ):
         self.worktree, self.python_exe, self.ckpt, self.data = Path(worktree), python_exe, ckpt, data
+        if cost not in ("speed", "loops"):
+            raise ValueError(f"cost must be 'speed' or 'loops', not {cost!r}")
+        self.cost, self.fill_maps, self.q1_lo = cost, (fill_maps or None), float(q1_lo)
         self.mode, self.n_items, self.offset, self.max_new = mode, int(n_items), int(offset), int(max_new)
         self.acc_floor = float(baseline_pass1_pct) - float(tol_pts)
         self.penalty_per_pt = float(penalty_per_pt)
@@ -92,26 +111,44 @@ class OuroLCBRouterObjective(BaseObjective):
         if mode == "scalar":
             self.params = [ObjectiveParam("q", (0.05, 1.0))]
         else:
-            self.params = [ObjectiveParam("q1", (0.05, 1.0)), ObjectiveParam("q2", (0.05, 1.0)), ObjectiveParam("q3", (0.05, 1.0))]
+            self.params = [ObjectiveParam("q1", (self.q1_lo, 1.0)), ObjectiveParam("q2", (0.05, 1.0)), ObjectiveParam("q3", (0.05, 1.0))]
 
     # ------------------------------------------------------------------ metadata
     @property
     def description(self) -> str:
-        return (f"Ouro-2.6B LiveCodeBench router search ({self.mode}): true decode-time early exit, n={self.n_items} "
-                f"problems from offset {self.offset}, value = -tok/s (calibrated on {self.CAL_N} problems, contention-checked) "
+        speed = (f"-6.25 * 4 / executed loops per token" + (" (incl. the fill's cost)" if self.fill_maps else "")
+                 if self.cost == "loops" else f"-tok/s (calibrated on {self.CAL_N} problems, contention-checked)")
+        return (f"Ouro-2.6B LiveCodeBench router search ({self.mode}{', calibrated cache fill' if self.fill_maps else ''}): true decode-time "
+                f"early exit, n={self.n_items} problems from offset {self.offset} of {Path(self.data).name}, value = {speed} "
                 f"+ {self.penalty_per_pt} * max(0, {self.acc_floor:.1f} - pass@1 %)")
 
     @property
     def setup_info(self) -> dict:
         return {"ckpt": self.ckpt, "data": self.data, "mode": self.mode, "n_items": self.n_items, "offset": self.offset,
-                "acc_floor_pct": self.acc_floor, "penalty_per_pt": self.penalty_per_pt, "gpus": self.gpus, "cal_n": self.CAL_N}
+                "acc_floor_pct": self.acc_floor, "penalty_per_pt": self.penalty_per_pt, "gpus": self.gpus, "cal_n": self.CAL_N,
+                "cost": self.cost, "fill_maps": self.fill_maps, "q1_lo": self.q1_lo}
 
     # ------------------------------------------------------------------ helpers
     def _thresholds(self, params) -> list[float]:
         vals = [min(1.0, max(0.05, float(v))) for v in params]
         if self.mode == "scalar":
             return [vals[0]] * 3 + [1.0]
+        vals[0] = max(self.q1_lo, vals[0])
         return vals[:3] + [1.0]
+
+    def _cfg_args(self, thr) -> list[str]:
+        args = ["--cfg", "decode_early_exit_threshold=" + json.dumps(thr)]
+        if self.fill_maps:
+            args += ["--cfg", f"decode_fill_maps={self.fill_maps}"]
+        return args
+
+    FILL_COST_PER_LOOP_SAVED = 0.0103
+
+    def _loops_eff(self, exec_loops) -> float:
+        loops = 4.0 if exec_loops is None else float(exec_loops)
+        if self.fill_maps:
+            loops += self.FILL_COST_PER_LOOP_SAVED * max(0.0, 4.0 - loops)
+        return loops
 
     def _label(self, thr) -> str:
         return "q" + "-".join(f"{v:.3f}" for v in thr[:3]) + f"_{int(time.time()) % 100000}"
@@ -170,10 +207,9 @@ class OuroLCBRouterObjective(BaseObjective):
 
     def _depth_eval(self, thr, gpu, n, out_jsonl, log, timeout, data=None):
         """Run depth_eval.py under true early exit; returns the RESULT dict or None."""
-        cfg = "decode_early_exit_threshold=" + json.dumps(thr)
         cmd = [self.python_exe, str(self.worktree / "depth_eval.py"), self.ckpt, data or self.data, "--task", "lcb", "--steps", "4",
                "--n", str(n), "--seed_offset", "0" if data else str(self.offset), "--batch", "1", "--max_new", str(self.max_new),
-               "--assistant_prefix", "```python\\n", "--cfg", cfg, "--out", str(out_jsonl)]
+               "--assistant_prefix", "```python\\n", *self._cfg_args(thr), "--out", str(out_jsonl)]
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, PYTORCH_ALLOC_CONF="expandable_segments:True")
         with open(log, "w") as lf:
             subprocess.run(cmd, cwd=str(self.worktree), env=env, stdout=lf, stderr=subprocess.STDOUT, timeout=timeout)
@@ -193,10 +229,9 @@ class OuroLCBRouterObjective(BaseObjective):
         bounds = [(self.offset + (n * j) // k, self.offset + (n * (j + 1)) // k) for j in range(k)]
         procs = []
         for j, (lo, hi) in enumerate(bounds):
-            cfg = "decode_early_exit_threshold=" + json.dumps(thr)
             cmd = [self.python_exe, str(self.worktree / "depth_eval.py"), self.ckpt, self.data, "--task", "lcb", "--steps", "4",
                    "--n", str(hi - lo), "--seed_offset", str(lo), "--batch", "1", "--max_new", str(self.max_new),
-                   "--assistant_prefix", "```python\\n", "--cfg", cfg, "--out", str(run_dir / f"gen_{j}.jsonl")]
+                   "--assistant_prefix", "```python\\n", *self._cfg_args(thr), "--out", str(run_dir / f"gen_{j}.jsonl")]
             env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, PYTORCH_ALLOC_CONF="expandable_segments:True")
             procs.append(subprocess.Popen(cmd, cwd=str(self.worktree), env=env, stdout=open(run_dir / f"gen_{j}.log", "w"), stderr=subprocess.STDOUT))
         t0 = time.time()
@@ -298,7 +333,7 @@ class OuroLCBRouterObjective(BaseObjective):
                 rec = json.load(open(rec_path))
             except Exception:
                 continue
-            if self._key(rec.get("thresholds", [])) != key or "pass1_pct" not in rec:
+            if self._key(rec.get("thresholds", [])) != key or "pass1_pct" not in rec or rec.get("fill_maps") != self.fill_maps:
                 continue
             if (rec_path.parent / "graded.json").exists():
                 return rec
@@ -315,7 +350,8 @@ class OuroLCBRouterObjective(BaseObjective):
                 rec = json.loads(line)
             except Exception:
                 continue
-            if rec.get("status") == "ok" and "tok_s_cal" in rec and self._key(rec.get("thresholds", [])) == key:
+            done = ("loops_eff" in rec) if self.cost == "loops" else ("tok_s_cal" in rec)
+            if rec.get("status") == "ok" and done and rec.get("fill_maps") == self.fill_maps and self._key(rec.get("thresholds", [])) == key:
                 return rec
         return None
 
@@ -329,7 +365,8 @@ class OuroLCBRouterObjective(BaseObjective):
         if hit is not None:
             rec = dict(hit, status="cached")
             self._eval_records.append(rec)
-            print(f"[lcb-router] thr={['%.3f' % v for v in thr[:3]]} cached: pass@1={rec['pass1_pct']:.1f}% tok/s={rec['tok_s']:.2f} value={rec['value']:.3f}", flush=True)
+            speed = f"loops={rec['loops_eff']:.3f}" if "loops_eff" in rec else f"tok/s={rec.get('tok_s', float('nan')):.2f}"
+            print(f"[lcb-router] thr={['%.3f' % v for v in thr[:3]]} cached: pass@1={rec['pass1_pct']:.1f}% {speed} value={rec['value']:.3f}", flush=True)
             return float(rec["value"])
         value, ok = self.FAIL_VALUE, False
         gpu = "?"
@@ -407,6 +444,21 @@ class OuroLCBRouterObjective(BaseObjective):
                 return self.FAIL_VALUE, False
             acc_pct = 100.0 * float(m.group(1))
             subprocess.run(["cp", str(stage / f"{label}.graded.json"), str(run_dir / "graded.json")], check=False)
+        if self.cost == "loops":
+            # 2'. cost = executed loops per generated token (deterministic; no calibration run)
+            loops = self._loops_eff(gen.get("exec_loops"))
+            value = -6.25 * 4.0 / loops + self.penalty_per_pt * max(0.0, self.acc_floor - acc_pct)
+            rec = {"thresholds": thr, "pass1_pct": acc_pct, "loops_eff": loops, "exec_loops": gen.get("exec_loops"), "speedup_loops": 4.0 / loops,
+                   "tok_s_gen": gen.get("tok_s"), "trunc_rate": gen.get("trunc_rate"), "mean_tokens": gen.get("mean_tokens"),
+                   "mean_loops_counter": gen.get("mean_loops"), "fill_maps": self.fill_maps, "cost": "loops",
+                   "wall_s": time.time() - t0, "gpu": gpu, "value": value, "status": "ok", "run_dir": str(run_dir)}
+            self._eval_records.append(rec)
+            json.dump(rec, open(run_dir / "record.json", "w"), indent=1)
+            with open(self.work_dir / "evaluations.jsonl", "a") as f:
+                f.write(json.dumps(rec) + "\n")
+            print(f"[lcb-router] thr={['%.3f' % v for v in thr[:3]]} pass@1={acc_pct:.1f}% loops={loops:.3f} value={value:.3f} "
+                  f"({(time.time()-t0)/60:.0f} min, gpu {gpu})", flush=True)
+            return value, True
         # 2. speed: contention-checked calibration on the first CAL_N problems, plus the card's full-depth reference
         cal = self._calibrate(thr, gpu, run_dir, "thr")
         if cal is None:
