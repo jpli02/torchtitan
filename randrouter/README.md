@@ -119,3 +119,8 @@ Python: `/home/jli199/boptim-agent/.venv/bin/python`. Outputs: `/home/jli199/bop
 - The optimizer's resume-state key ignores the objective's own settings: give every proxy search its own `resume_dir`
   (`tf_bo_prep.py` does).
 - Token agreement is a weak predictor of pass@1 below 98.5 %: do not rank systems by the linear objective on the proxy alone.
+- Measured speed is not a usable cost on these shared cards. The gpt-6-luna threshold search's evaluations 6, 8, 9 and 10
+  ((0.38 | 0.42 | 0.45 | 0.40, 0.30, 0.34)) produced identical answers on all 342 problems (the gate's cumulative exit
+  probability after loop 1 never lies between 0.38 and 0.45), yet their calibrated speed-ups were 1.80 / 1.79 / 1.70 / 1.58
+  and their objective values -11.26 / -11.20 / -10.65 / -9.86. Its "best" (-11.26, against the Gaussian process's -11.10)
+  is the luckiest timing of a router it evaluated four times. Use `cost=loops` (executed loops per token).
