@@ -88,22 +88,50 @@ def scatter_panel(evals, ref, floor, title, sub, ylabel, yr, yticks, label_offse
     p.hline(floor, f"floor {floor:g} %", dashed=True, width=1)
     pts = " ".join(f"{p.x(x):.1f},{p.y(y):.1f}" for x, y, _ in ref)
     p.parts.append(f'<polyline points="{pts}" fill="none" stroke="{GREY}" stroke-width="2"/>')
+    occupied = []    # boxes (x0, y0, x1, y1) already used by marks and words, so that the point labels can be placed clear of them
+
+    def tbox(x, y, s, anchor, size=10):
+        w = 0.58 * size * len(s)
+        x0 = x if anchor == "start" else (x - w if anchor == "end" else x - w / 2)
+        return (x0, y - size, x0 + w, y + 2)
+
+    def hit(b):
+        return any(not (b[2] < o[0] or b[0] > o[2] or b[3] < o[1] or b[1] > o[3]) for o in occupied)
+
     for x, y, name in ref:
         p.parts.append(f'<circle cx="{p.x(x):.1f}" cy="{p.y(y):.1f}" r="4.5" fill="{GREY}" stroke="{SURFACE}" stroke-width="1.5"/>')
+        occupied.append((p.x(x) - 5, p.y(y) - 5, p.x(x) + 5, p.y(y) + 5))
         dx, dy = (label_offsets or {}).get(name, (7, -7))
         p.text(p.x(x) + dx, p.y(y) + dy, name, 10, INK2)
+        occupied.append(tbox(p.x(x) + dx, p.y(y) + dy, name, "start"))
+    occupied.append(tbox(p.W - p.R + 6, p.y(floor) + 4, f"floor {floor:g} %", "start"))
     best_i = min(range(len(evals)), key=lambda k: evals[k][2]) + 1 if evals else None
     for i, (x, y, v) in enumerate(evals, 1):
         p.parts.append(f'<circle cx="{p.x(x):.1f}" cy="{p.y(y):.1f}" r="6" fill="{BLUE}" stroke="{SURFACE}" stroke-width="2"/>')
-    # labels on the few points the reading rests on: the best so far and the latest (all of them while there are few)
+        occupied.append((p.x(x) - 6, p.y(y) - 6, p.x(x) + 6, p.y(y) + 6))
+    lx, ly = legend_at if legend_at else (p.L + 8, p.H - p.B - 34)
+    occupied.append((lx - 8, ly - 10, lx + 250, ly + 26))
+    # labels on the few points the reading rests on: the best so far and the latest (all of them while there are few), each at the
+    # first of a few positions around its point that collides with no mark, word or the legend
     show = set(range(1, len(evals) + 1)) if len(evals) <= 3 else {best_i, len(evals)}
-    for i in sorted(show):
+    cands = [(10, 4, "start"), (10, 18, "start"), (10, -9, "start"), (-10, -9, "end"), (-10, 18, "end"), (0, -12, "middle"), (0, 22, "middle"),
+             (-10, 4, "end"), (24, 28, "start"), (-24, 28, "end")]
+    for i in sorted(show, key=lambda k: (k != best_i, k)):
         x, y, v = evals[i - 1]
         tag = f"#{i}" + (" best" if i == best_i and len(evals) > 1 else "") + (" latest" if i == len(evals) and i != best_i and len(evals) > 3 else "")
-        dx, dy = (point_offsets or {}).get(i, (-9, -9))
-        p.text(p.x(x) + dx, p.y(y) + dy, tag, 10, INK, "end" if dx < 0 else "start", "600")
+        if point_offsets and i in point_offsets:
+            dx, dy = point_offsets[i]
+            anchor = "end" if dx < 0 else "start"
+        else:
+            dx, dy, anchor = cands[0]
+            for c in cands:
+                b = tbox(p.x(x) + c[0], p.y(y) + c[1], tag, c[2])
+                if b[0] >= p.L and b[2] <= p.W - p.R + 40 and b[1] >= p.T and b[3] <= p.H - p.B and not hit(b):
+                    dx, dy, anchor = c
+                    break
+        p.text(p.x(x) + dx, p.y(y) + dy, tag, 10, INK, anchor, "600")
+        occupied.append(tbox(p.x(x) + dx, p.y(y) + dy, tag, anchor))
     # legend
-    lx, ly = legend_at if legend_at else (p.L + 8, p.H - p.B - 34)
     p.parts.append(f'<circle cx="{lx}" cy="{ly}" r="6" fill="{BLUE}"/>')
     p.text(lx + 12, ly + 4, "gate found by the GP search (#k = k-th evaluation)", 10, INK)
     p.parts.append(f'<line x1="{lx - 7}" x2="{lx + 7}" y1="{ly + 18}" y2="{ly + 18}" stroke="{GREY}" stroke-width="2"/>')
@@ -153,13 +181,13 @@ def main():
                       "accuracy (%)", (55, 86), [55, 60, 65, 70, 75, 80, 85],
                       {"gate 0.2": (-52, 4), "gate 0.25": (-58, -7), "gate 0.3": (-16, -10), "gate 0.5": (-14, 18), "gate 0.7": (-16, -10),
                        "full depth": (-58, -10)},
-                      legend_at=(Panel.L + 230, Panel.H - Panel.B - 64), point_offsets={8: (10, 18), 9: (-9, 16)}),
+                      legend_at=(Panel.L + 230, Panel.H - Panel.B - 64)),
         best_panel(bf, bf_ref_best, f"released gate {bf_ref_best:.1f}", 100.0, "BFCL: search progress",
                    "objective = 100 x loops / 4 + 5 x points below the floor", (40, 135), [40, 60, 80, 100, 120]),
         scatter_panel(lc, LCB_REF, 18.3, "LiveCodeBench (342 problems)", f"{len(lc)} gates evaluated; pass@1 against compute",
                       "pass@1 (%)", (0, 23), [0, 5, 10, 15, 20],
                       {"depth 1": (8, 14), "depth 2": (-50, -6), "gate 0.3": (8, 14), "full depth": (-58, -10)},
-                      legend_at=(Panel.L + 230, Panel.H - Panel.B - 64), point_offsets={1: (9, 14), 2: (8, -10), 3: (9, 16)}),
+                      legend_at=(Panel.L + 230, Panel.H - Panel.B - 64)),
         best_panel(lc, lc_ref, f"released gate {lc_ref:.1f}", -6.25, "LiveCodeBench: search progress",
                    "objective = -25 / loops + 2 x points below the floor", (-12, 0), [-12, -10, -8, -6, -4, -2, 0]),
     ]
