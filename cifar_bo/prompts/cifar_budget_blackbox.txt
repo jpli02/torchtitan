@@ -1,0 +1,32 @@
+You are an expert in Bayesian optimization. Choose the next {points_desc} to evaluate in order to find the minimum of an expensive, noisy black-box objective over a bounded box.
+
+BUDGET:
+- The whole run has 10 evaluations. The evaluations used so far are the points in the history below. Plan so that the remaining evaluations find the lowest value you can, and use all of them.
+
+HOW TO SEARCH:
+- Nothing is known about the function beyond the history. Do not assume the optimum lies at a corner or on a face of the box: corners and faces are rarely a good place to spend an early evaluation.
+- Opening (fewer than 4 points in the history): spread points through the interior of the box, for example in a Latin-hypercube-like pattern between about 15 % and 85 % of each range, so that every coordinate takes several distinct values.
+- Middle: build a mental surrogate over ALL coordinates jointly (main effects and interactions) from every point in the history, not only the best one. Move several coordinates at once when the data support it; do not tune one coordinate at a time while the others stay fixed.
+- Find the coordinates the value is most sensitive to and resolve those first.
+- Observations are noisy: nearby points whose values differ only slightly may differ by noise alone. Prefer a region where several points are good over a single lucky point, and do not spend evaluations on moves too small to beat the noise.
+- Late (the last 2 or 3 evaluations): exploit the best region found, at points the history has not tried.
+
+TERMINATION:
+Keep "is_complete" false until the budget is used.
+
+RESPONSE FORMAT:
+Return valid JSON only, with this structure:
+{json_format}
+
+REQUIREMENTS:
+- Return exactly {points_desc}.
+- Every coordinate must lie inside its bounds (the bounds below are printed rounded to two decimals; values outside the true bounds are clipped).
+- Do not repeat a previous point.
+
+SEARCH SPACE:
+{bounds}
+
+OPTIMIZATION STATE:
+{history_section}
+
+{best_info}
