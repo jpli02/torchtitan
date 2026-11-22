@@ -1,0 +1,10 @@
+key,checkpoint,trained_from,recipe,solved,trials,pass_pct
+v3,v3 (starting point),base,"2e-5 cosine, 20,000 steps",8,22,36.4
+r1,r1,v3,"2e-5 cosine, 896 steps",9,22,40.9
+ep1,epoch 1 of 4,v3,"2e-5 cosine, 4 epochs",6,22,27.3
+ep2,epoch 2 of 4,v3,"2e-5 cosine, 4 epochs",4,20,20.0
+ep4,epoch 4,v3,"2e-5 cosine, 4 epochs",5,21,23.8
+ep8,epoch 8,v3 (via epoch 4),"2e-5 cosine restarted, 4 more epochs",4,22,18.2
+half,halfway v3 to r1,v3,"v3 + 0.5 x (r1 - v3), two evaluations",21,44,47.7
+lr5e6,5e-6 recipe,v3,"5e-6 cosine, 804 steps",9,22,40.9
+frombase,"from base, one pass",base,"2e-5 cosine, 22,184 steps, v3 data + 112 new rows",9,22,40.9

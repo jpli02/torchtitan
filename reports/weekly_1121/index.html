@@ -1,0 +1,520 @@
+<meta name="dash-one-writer">
+<style>
+  /* Layout: one reading column; each experiment is a section of findings, then its charts and tables. */
+  .wk { max-width: 1060px; margin: 0 auto; display: grid; gap: var(--cds-gap-xl); color: var(--color-fg); font-family: var(--font-anthropic-sans); }
+  .wk h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .wk h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; text-wrap: balance; }
+  .wk h3 { font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .wk p, .wk li { line-height: 1.55; max-width: 74ch; margin: 0; }
+  .wk ul { margin: 0; padding-left: 1.2em; display: grid; gap: var(--cds-gap-xs); }
+  .wk-muted { color: var(--color-fg-muted); }
+  .wk-head { display: grid; gap: var(--cds-gap-md); }
+  .wk-section { display: grid; gap: var(--cds-gap-lg); padding-top: var(--cds-pad-lg); border-top: 1px solid var(--color-border-line); }
+  .wk-keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--cds-gap-md); }
+  .wk-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-sm); align-content: start; min-width: 0; }
+  .wk-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; }
+  .wk-cap { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .wk-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: var(--cds-gap-lg); }
+  .wk-stack { display: grid; gap: var(--cds-gap-lg); min-width: 0; }
+  .wk-plot { position: relative; min-height: 300px; }
+  .wk-plot.wk-short { min-height: 240px; }
+  .wk-tablewrap { overflow-x: auto; }
+  .wk table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: var(--cds-font-size-caption); }
+  .wk th, .wk td { padding: 6px 10px; border-bottom: 1px solid var(--color-border-line); text-align: left; white-space: nowrap; }
+  .wk th { color: var(--color-fg-muted); font-weight: var(--cds-font-weight-medium); }
+  .wk th.n, .wk td.n { text-align: right; }
+  .wk-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); box-shadow: var(--cds-shadow-popover);
+            border-radius: var(--cds-radius); padding: 6px 8px; font-size: var(--cds-font-size-caption); color: var(--color-fg); max-width: 260px; white-space: normal; z-index: 3; }
+  .wk-tip[hidden] { display: none; }
+  .wk .wk-axis text { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+  .wk .wk-axis line, .wk .wk-axis path { stroke: var(--cds-chart-axis); }
+  .wk .wk-gridline { stroke: var(--cds-chart-grid); }
+  .wk-svgtext { fill: var(--color-fg); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+  .wk-svgmuted { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+  .wk details { border-top: 1px solid var(--color-border-line); padding-top: var(--cds-pad-md); }
+  .wk summary { cursor: pointer; font-weight: var(--cds-font-weight-medium); }
+  .wk dl { display: grid; gap: var(--cds-gap-sm); margin: var(--cds-gap-md) 0 0; }
+  .wk dt { font-weight: var(--cds-font-weight-medium); }
+  .wk dd { margin: 0 0 var(--cds-gap-xs); color: var(--color-fg-muted); max-width: 74ch; line-height: 1.5; }
+</style>
+
+<div class="wk" data-read lang="en">
+  <header class="wk-head" id="top">
+    <h1>Ouro Weekly Progress, Nov 16–21</h1>
+    <p>Three questions moved this week. The Terminal-Bench learning rate is applied correctly and is not what holds the score back. On LiveCodeBench no router of the released model beats its own exit gate in real execution. On BFCL a searched router with a calibrated cache fill keeps full-depth accuracy on held-out items with fewer loops than the released gate, but not on live items.</p>
+    <div class="wk-keys">
+      <div class="wk-card" id="key-tb">
+        <div class="wk-cap">Terminal-Bench, best test score</div>
+        <div class="wk-big"><span data-draw="val" data-source="tb_test" data-field="solved" data-where="key=half">—</span> of <span data-draw="val" data-source="tb_test" data-field="trials" data-where="key=half">—</span></div>
+        <div class="wk-cap">halfway between v3 and r1, two evaluations; v3 itself <span data-draw="val" data-source="tb_test" data-field="solved" data-where="key=v3">—</span> of <span data-draw="val" data-source="tb_test" data-field="trials" data-where="key=v3">—</span></div>
+      </div>
+      <div class="wk-card" id="key-lcb">
+        <div class="wk-cap">LiveCodeBench, released gate at 0.3</div>
+        <div class="wk-big"><span data-draw="val" data-fmt="pct1" data-source="lcb_runs" data-field="pass_pct" data-where="key=gate03">—</span></div>
+        <div class="wk-cap">pass@1 at <span data-draw="val" data-fmt="loops" data-source="lcb_runs" data-field="loops" data-where="key=gate03">—</span> loops; the best repair reaches <span data-draw="val" data-fmt="pct1" data-source="lcb_runs" data-field="pass_pct" data-where="key=fill025">—</span> at <span data-draw="val" data-fmt="loops" data-source="lcb_runs" data-field="loops" data-where="key=fill025">—</span></div>
+      </div>
+      <div class="wk-card" id="key-bfcl">
+        <div class="wk-cap">BFCL held-out, searched router + fill</div>
+        <div class="wk-big"><span data-draw="val" data-fmt="pct1" data-source="bfcl_heldout" data-field="accuracy_pct" data-where="key=s1">—</span></div>
+        <div class="wk-cap">at <span data-draw="val" data-fmt="loops" data-source="bfcl_heldout" data-field="executed_loops" data-where="key=s1">—</span> loops; the released gate needs <span data-draw="val" data-fmt="loops" data-source="bfcl_heldout" data-field="executed_loops" data-where="key=g03">—</span> loops for <span data-draw="val" data-fmt="pct1" data-source="bfcl_heldout" data-field="accuracy_pct" data-where="key=g03">—</span></div>
+      </div>
+    </div>
+  </header>
+
+  <section class="wk-section" id="terminal-bench">
+    <h2>Terminal-Bench: the learning-rate study</h2>
+    <p>Lowering the learning rate removes the damage of over-training, but it does not raise the test score: every checkpoint that was not over-trained lands in the same narrow band, and the run trained from the base model in one pass solves <span data-draw="val" data-source="tb_test" data-field="solved" data-where="key=frombase">—</span> of <span data-draw="val" data-source="tb_test" data-field="trials" data-where="key=frombase">—</span>.</p>
+    <ul>
+      <li>The schedule and the 8-bit optimizer behave exactly as configured on the real model; there is no bug.</li>
+      <li>Continuing from v3 at 2e-5 memorizes: epoch 8 fits its new rows almost perfectly (token loss <span data-draw="val" data-fmt="loss" data-source="tb_heldout" data-field="new_rows" data-where="key=ep8">—</span>) while its loss on the test tasks' runs rises to <span data-draw="val" data-fmt="loss" data-source="tb_heldout" data-field="test_task_runs" data-where="key=ep8">—</span> (v3: <span data-draw="val" data-fmt="loss" data-source="tb_heldout" data-field="test_task_runs" data-where="key=v3">—</span>), and it solves <span data-draw="val" data-source="tb_test" data-field="solved" data-where="key=ep8">—</span> of <span data-draw="val" data-source="tb_test" data-field="trials" data-where="key=ep8">—</span>.</li>
+      <li>From the base model, 2e-5 is not too high: in one pass every held-out loss was still falling when the run ended.</li>
+      <li>The held-out loss separates over-trained checkpoints from the rest, but not the good ones from each other: the 5e-6 recipe has the best held-out loss and solves <span data-draw="val" data-source="tb_test" data-field="solved" data-where="key=lr5e6">—</span> of <span data-draw="val" data-source="tb_test" data-field="trials" data-where="key=lr5e6">—</span>.</li>
+      <li>Side finding: the trainer reads its data in file order, and v3's run never reached the skill rows at the end of its file, so v3 is in effect a model of the earlier data. The from-base run shuffles its data.</li>
+    </ul>
+    <div class="wk-grid2">
+      <div class="wk-card" id="tb-test-chart">
+        <h3>Test trials solved, by checkpoint</h3>
+        <div class="wk-plot" data-draw="tbBars" data-source="tb_test"></div>
+        <p class="wk-cap">11 test tasks × 2 trials per evaluation; one trial is about the run-to-run noise.</p>
+      </div>
+      <div class="wk-card" id="tb-frombase-chart">
+        <h3>From-base run: held-out loss during training</h3>
+        <div class="wk-plot" data-draw="tbCurve" data-source="tb_frombase_curve"></div>
+        <p class="wk-cap">Token loss on rows the run never trained on, every 1,000 steps; lower is better.</p>
+      </div>
+    </div>
+    <div class="wk-card" id="tb-heldout-table">
+      <h3>Held-out token loss by checkpoint (lower is better)</h3>
+      <div class="wk-tablewrap">
+        <table data-source="tb_heldout" data-row-key="key">
+          <thead><tr>
+            <th data-field="checkpoint">Checkpoint</th>
+            <th class="n" data-field="test_task_runs" data-fmt="loss">Test tasks' runs</th>
+            <th class="n" data-field="unseen_runs" data-fmt="loss">Unseen take-turns runs</th>
+            <th class="n" data-field="v3_rows_not_replayed" data-fmt="loss">v3 rows not replayed</th>
+            <th class="n" data-field="new_rows" data-fmt="loss">The 112 new rows (fit)</th>
+          </tr></thead>
+          <tbody data-draw="rows"></tbody>
+        </table>
+      </div>
+      <p class="wk-cap">The first three columns are generalisation (lower = better) and forgetting; the last is how closely a checkpoint fits its own new training rows. For the from-base run the third column is part of its training data.</p>
+    </div>
+  </section>
+
+  <section class="wk-section" id="livecodebench">
+    <h2>LiveCodeBench: routers of the released model</h2>
+    <p>The released exit gate sits on the best curve that threshold routers of Ouro-2.6B reach in real execution. Cache repairs recover a little accuracy but none passes the gate, and even an exact cache, which saves no compute, adds only a few problems. All runs below decode the 342 test problems with real early exit and grade them with the official tests.</p>
+    <ul>
+      <li>A token that leaves after loop 1 is read correctly, but the copies of its loop-1 keys and values stand in for loops 2–4 of every later token, and once more than about half the tokens leave after loop 1 the answers drift into repetition.</li>
+      <li>The LLM agent's lead over the Gaussian process is timing noise: its evaluations 8, 9 and 10 gave the same answers as its best run on <span data-draw="val" data-source="lcb_llm_search" data-field="answers_same_as_best" data-where="evaluation=10">—</span> of 342 problems, yet scored <span data-draw="val" data-fmt="obj" data-source="lcb_llm_search" data-field="objective" data-where="evaluation=8">—</span>, <span data-draw="val" data-fmt="obj" data-source="lcb_llm_search" data-field="objective" data-where="evaluation=9">—</span> and <span data-draw="val" data-fmt="obj" data-source="lcb_llm_search" data-field="objective" data-where="evaluation=10">—</span> from the measured speed alone.</li>
+      <li>Searches from now on count executed loops per token instead of timing them.</li>
+    </ul>
+    <div class="wk-card" id="lcb-chart">
+      <h3>pass@1 against executed loops per token</h3>
+      <div class="wk-plot" data-draw="lcbScatter" data-source="lcb_runs"></div>
+      <p class="wk-cap">Hollow points keep an exact cache: every loop is computed, so their loops are the ones the router would execute. Point at a mark for its router.</p>
+    </div>
+    <div class="wk-card" id="lcb-table">
+      <h3>Every real run of the week</h3>
+      <div class="wk-tablewrap">
+        <table data-source="lcb_runs" data-row-key="key">
+          <thead><tr>
+            <th data-field="group">Group</th>
+            <th data-field="system">System</th>
+            <th data-field="router">Thresholds</th>
+            <th class="n" data-field="loops" data-fmt="loops">Loops</th>
+            <th data-field="loops_kind">Loops are</th>
+            <th class="n" data-field="pass_pct" data-fmt="pct1">pass@1</th>
+            <th class="n" data-field="only_this" data-fmt="int">Only this run solves</th>
+            <th class="n" data-field="only_gate" data-fmt="int">Only the gate solves</th>
+            <th class="n" data-field="sign_p" data-fmt="p">Sign test p</th>
+          </tr></thead>
+          <tbody data-draw="rows"></tbody>
+        </table>
+      </div>
+      <p class="wk-cap">The last three columns compare each run problem by problem with the released gate at 0.3 (an earlier run of it solved one problem more than this week's, 18.1 %).</p>
+    </div>
+    <div class="wk-stack">
+      <div class="wk-card" id="lcb-searches">
+        <h3>Gaussian process against the LLM agent</h3>
+        <div class="wk-tablewrap">
+          <table data-source="lcb_searches" data-row-key="key">
+            <thead><tr>
+              <th data-field="optimizer">Optimizer</th>
+              <th class="n" data-field="new_evaluations" data-fmt="int">New evaluations</th>
+              <th data-field="best_router">Best router</th>
+              <th class="n" data-field="pass_pct" data-fmt="pct1">pass@1</th>
+              <th class="n" data-field="speedup" data-fmt="x">Speed-up</th>
+              <th class="n" data-field="objective" data-fmt="obj">Objective</th>
+            </tr></thead>
+            <tbody data-draw="rows"></tbody>
+          </table>
+        </div>
+        <p class="wk-cap">Objective = −6.25 × measured speed-up + 2 × points of pass@1 below 18.3 %; lower is better. Both searches started from the same 7 records.</p>
+      </div>
+      <div class="wk-card" id="lcb-llm">
+        <h3>The LLM agent's evaluations</h3>
+        <div class="wk-tablewrap">
+          <table data-source="lcb_llm_search" data-row-key="evaluation">
+            <thead><tr>
+              <th class="n" data-field="evaluation" data-fmt="int">#</th>
+              <th data-field="router">Router</th>
+              <th class="n" data-field="pass_pct" data-fmt="pct1">pass@1</th>
+              <th class="n" data-field="executed_loops" data-fmt="loops">Loops</th>
+              <th class="n" data-field="measured_speedup" data-fmt="x">Speed-up</th>
+              <th data-field="quiet_card">Quiet card</th>
+              <th class="n" data-field="objective" data-fmt="obj">Objective</th>
+              <th class="n" data-field="answers_same_as_best" data-fmt="int">Same answers as #6</th>
+            </tr></thead>
+            <tbody data-draw="rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wk-section" id="bfcl">
+    <h2>BFCL: routers with a calibrated cache fill</h2>
+    <p>On BFCL v3 function calling, a router found by BO together with the calibrated cache fill keeps full-depth accuracy on held-out non-live items at <span data-draw="val" data-fmt="loops" data-source="bfcl_heldout" data-field="executed_loops" data-where="key=s1">—</span> loops, where the released gate needs <span data-draw="val" data-fmt="loops" data-source="bfcl_heldout" data-field="executed_loops" data-where="key=g03">—</span>. At equal compute it is <span data-draw="val" data-fmt="pts" data-source="bfcl_heldout" data-field="vs_gate02_pts" data-where="key=s1">—</span> points above the released gate (95 % interval <span data-draw="val" data-fmt="pts" data-source="bfcl_heldout" data-field="vs_gate02_lo" data-where="key=s1">—</span> to <span data-draw="val" data-fmt="pts" data-source="bfcl_heldout" data-field="vs_gate02_hi" data-where="key=s1">—</span>), and <span data-draw="val" data-fmt="pts" data-source="bfcl_heldout" data-field="vs_full_pts" data-where="key=s1">—</span> points from full depth.</p>
+    <ul>
+      <li>Both parts are needed: the same routers without the fill are worse than the plain gate.</li>
+      <li>On the 1,350 live items there is no gain: the routers fall on the gate's own curve, and a fill refitted on live data does not help.</li>
+      <li>The fill maps are affine maps per layer, head and loop pair, fitted by regression on full-depth answers; no model weight changes.</li>
+    </ul>
+    <div class="wk-grid2">
+      <div class="wk-card" id="bfcl-chart">
+        <h3>Held-out non-live items (575): accuracy against loops</h3>
+        <div class="wk-plot" data-draw="bfclScatter" data-source="bfcl_heldout"></div>
+      </div>
+      <div class="wk-card" id="bfcl-live-chart">
+        <h3>Live items (1,350): accuracy against loops</h3>
+        <div class="wk-plot" data-draw="bfclLive" data-source="bfcl_live"></div>
+      </div>
+    </div>
+    <div class="wk-card" id="bfcl-table">
+      <h3>Held-out non-live items, every router</h3>
+      <div class="wk-tablewrap">
+        <table data-source="bfcl_heldout" data-row-key="key">
+          <thead><tr>
+            <th data-field="group">Group</th>
+            <th data-field="router">Thresholds</th>
+            <th class="n" data-field="executed_loops" data-fmt="loops">Loops</th>
+            <th class="n" data-field="accuracy_pct" data-fmt="pct2">Accuracy</th>
+            <th class="n" data-field="vs_full_pts" data-fmt="pts">vs full depth</th>
+            <th class="n" data-field="vs_gate02_pts" data-fmt="pts">vs gate 0.2</th>
+            <th class="n" data-field="vs_gate02_lo" data-fmt="pts">95 % low</th>
+            <th class="n" data-field="vs_gate02_hi" data-fmt="pts">95 % high</th>
+            <th class="n" data-field="sign_p" data-fmt="p">Sign test p</th>
+          </tr></thead>
+          <tbody data-draw="rows"></tbody>
+        </table>
+      </div>
+      <p class="wk-cap">Differences are in accuracy points on the same items; "vs gate 0.2" compares with the plain released gate at the threshold with similar loops.</p>
+    </div>
+  </section>
+
+  <section class="wk-section" id="gate-nas">
+    <h2>Running: BO over the gate's training (gate NAS)</h2>
+    <p>Started on Nov 21, the HumanEval experiment moved to Ouro-2.6B: each evaluation trains an exit gate from a random initialisation with the Stage-II loss while the model stays frozen, then decodes with real early exit. A Gaussian process searches the gate's depth, width, activation, input LayerNorm, the Stage-II gamma and the exit threshold, 25 evaluations per benchmark. No trained gate beats the released gate yet: BFCL's best objective so far is <span data-draw="best" data-source="gate_nas" data-bench="BFCL">—</span> (released gate <span data-draw="val" data-fmt="obj" data-source="gate_nas" data-field="objective" data-where="key=bfclref">—</span>), LiveCodeBench's so far <span data-draw="best" data-source="gate_nas" data-bench="LiveCodeBench">—</span> (released gate <span data-draw="val" data-fmt="obj" data-source="gate_nas" data-field="objective" data-where="key=lcbref">—</span>). The LLM-agent arms run next on each card.</p>
+    <div class="wk-stack">
+      <div class="wk-card" id="gnas-bfcl">
+        <h3>BFCL (575 search items)</h3>
+        <div class="wk-tablewrap">
+          <table data-source="gate_nas" data-row-key="key">
+            <thead><tr>
+              <th data-field="evaluation">#</th>
+              <th data-field="gate">Gate</th>
+              <th class="n" data-field="gamma" data-fmt="g">Gamma</th>
+              <th class="n" data-field="threshold" data-fmt="g">Threshold</th>
+              <th class="n" data-field="accuracy_pct" data-fmt="pct1">Accuracy</th>
+              <th class="n" data-field="executed_loops" data-fmt="loops">Loops</th>
+              <th class="n" data-field="objective" data-fmt="obj">Objective</th>
+            </tr></thead>
+            <tbody data-draw="rows" data-filter="benchmark=BFCL"></tbody>
+          </table>
+        </div>
+        <p class="wk-cap">Objective = 100 × loops / 4 + 5 × points below 81.08 % (full depth = 100); lower is better.</p>
+      </div>
+      <div class="wk-card" id="gnas-lcb">
+        <h3>LiveCodeBench (342 problems)</h3>
+        <div class="wk-tablewrap">
+          <table data-source="gate_nas" data-row-key="key">
+            <thead><tr>
+              <th data-field="evaluation">#</th>
+              <th data-field="gate">Gate</th>
+              <th class="n" data-field="gamma" data-fmt="g">Gamma</th>
+              <th class="n" data-field="threshold" data-fmt="g">Threshold</th>
+              <th class="n" data-field="accuracy_pct" data-fmt="pct1">pass@1</th>
+              <th class="n" data-field="executed_loops" data-fmt="loops">Loops</th>
+              <th class="n" data-field="objective" data-fmt="obj">Objective</th>
+            </tr></thead>
+            <tbody data-draw="rows" data-filter="benchmark=LiveCodeBench"></tbody>
+          </table>
+        </div>
+        <p class="wk-cap">Objective = −6.25 × 4 / loops + 2 × points of pass@1 below 18.3 % (full depth = −6.25); lower is better.</p>
+      </div>
+    </div>
+    <p class="wk-muted">The search's first five points come from a coarse grid that only tries gamma 1/3 and 2/3; those gates exit too early. The released gate's region, gamma near Ouro's default 0.005, sits at the edge of the gamma axis, and the search has to reach it from there.</p>
+  </section>
+
+  <details id="definitions">
+    <summary>Definitions</summary>
+    <dl>
+      <dt>Executed loops</dt><dd>Recurrence loops actually computed per generated token, counted by the model (1 to 4; full depth = 4). It is the compute measure, unlike measured speed on shared GPUs.</dd>
+      <dt>Router and thresholds</dt><dd>A token stops after loop s once the released gate's cumulative exit probability reaches q_s; (q, q, q) is the released gate's single knob.</dd>
+      <dt>Copy fill and calibrated fill</dt><dd>A token that stops early leaves empty cache slots for the loops it skipped. The decoder copies its last keys and values into them; the calibrated fill maps them with affine maps fitted by regression instead.</dd>
+      <dt>Exact cache</dt><dd>Every loop is still computed and only the readout follows the router, so the cache is exact and nothing is saved: an upper bound for any cache repair.</dd>
+      <dt>Sign test</dt><dd>Exact two-sided test on the problems that only one of two runs solves.</dd>
+    </dl>
+  </details>
+</div>
+
+<script>
+  window.wk = window.wk || {};
+  wk.fmt = function (v, f) {
+    if (v === null || v === undefined || v === '') return '—';
+    const x = +v;
+    if (f && isNaN(x)) return String(v);
+    switch (f) {
+      case 'pct1': return x.toFixed(1) + ' %';
+      case 'pct2': return x.toFixed(2) + ' %';
+      case 'loops': return x.toFixed(2);
+      case 'loss': return x.toFixed(3);
+      case 'int': return String(Math.round(x));
+      case 'x': return x.toFixed(2) + '×';
+      case 'g': return String(+x.toFixed(4));
+      case 'p': return x < 0.001 ? '< 0.001' : x.toFixed(x < 0.1 ? 3 : 2);
+      case 'pts': return (x > 0 ? '+' : x < 0 ? '-' : '') + Math.abs(x).toFixed(1);
+      case 'obj': return x.toFixed(2);
+      default: return String(v);
+    }
+  };
+  wk.find = function (rows, where) {
+    if (!where) return rows[0];
+    const i = where.indexOf('=');
+    const k = decodeURIComponent(where.slice(0, i)), v = decodeURIComponent(where.slice(i + 1));
+    return rows.find((r) => String(r[k]) === v);
+  };
+  wk.failText = function (d) { return d.status === 'error' ? 'This part could not load.' : '—'; };
+</script>
+
+<script>
+  dash.draw('val', function (el) {
+    const d = dash.data(el.getAttribute('data-source'));
+    if (d.status !== 'ok') { el.textContent = '—'; return; }
+    const row = wk.find(d.data, el.getAttribute('data-where'));
+    el.textContent = row ? wk.fmt(row[el.getAttribute('data-field')], el.getAttribute('data-fmt')) : '—';
+  });
+
+  dash.draw('best', function (el) {
+    const d = dash.data('gate_nas');
+    if (d.status !== 'ok') { el.textContent = '—'; return; }
+    const bench = el.getAttribute('data-bench');
+    const rows = d.data.filter((r) => r.benchmark === bench && r.evaluation !== 'released');
+    if (!rows.length) { el.textContent = '—'; return; }
+    const best = rows.reduce((a, r) => (+r.objective < +a.objective ? r : a));
+    el.setAttribute('data-field', 'objective');
+    el.setAttribute('data-where', 'key=' + encodeURIComponent(best.key));
+    el.textContent = wk.fmt(best.objective, 'obj');
+  });
+
+  dash.draw('rows', function (tbody) {
+    const table = tbody.closest('table');
+    const d = dash.data(table.getAttribute('data-source'));
+    const ths = Array.from(table.querySelectorAll('thead th'));
+    if (d.status !== 'ok') {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = ths.length;
+      td.textContent = d.status === 'error' ? 'This table could not load.' : 'Loading…';
+      tr.appendChild(td);
+      tbody.replaceChildren(tr);
+      return;
+    }
+    const key = table.getAttribute('data-row-key');
+    const filt = tbody.getAttribute('data-filter');
+    let rows = d.data;
+    if (filt) { const i = filt.indexOf('='); const k = filt.slice(0, i), v = filt.slice(i + 1); rows = rows.filter((r) => String(r[k]) === v); }
+    const trs = rows.map(function (r) {
+      const tr = document.createElement('tr');
+      tr.setAttribute('data-key', encodeURIComponent(String(r[key])));
+      ths.forEach(function (th) {
+        const td = document.createElement('td');
+        if (th.classList.contains('n')) td.className = 'n';
+        td.textContent = wk.fmt(r[th.getAttribute('data-field')], th.getAttribute('data-fmt'));
+        tr.appendChild(td);
+      });
+      return tr;
+    });
+    tbody.replaceChildren(...trs);
+  });
+</script>
+
+<script>
+  // scatter of accuracy against loops: a grey reference line (the released model) plus groups of points, with a tooltip
+  wk.scatter = function (el, cfg) {
+    const d = dash.data(cfg.src);
+    el.replaceChildren();
+    if (d.status !== 'ok') { el.textContent = wk.failText(d); return; }
+    const rows = d.data.map((r) => ({ r: r, x: +r[cfg.x], y: +r[cfg.y], g: r.group }));
+    const W = Math.max(280, el.clientWidth || 600), H = cfg.height || 320;
+    const per = W < 380 ? 1 : 2;
+    const legendH = 20 * Math.ceil(cfg.groups.length / per);
+    const m = { t: 30 + legendH, r: 16, b: 40, l: 46 };
+    const svg = d3.select(el).append('svg').attr('viewBox', '0 0 ' + W + ' ' + H).attr('width', '100%').attr('role', 'img').attr('aria-label', cfg.aria);
+    const x = d3.scaleLinear().domain([0.9, 4.1]).range([m.l, W - m.r]);
+    const ys = rows.map((p) => p.y).concat((cfg.refs || []).map((rf) => rf.y));
+    const y = d3.scaleLinear().domain(cfg.yDomain || [Math.floor(d3.min(ys) - 1), Math.ceil(d3.max(ys) + 1)]).nice().range([H - m.b, m.t]);
+    svg.append('g').selectAll('line').data(y.ticks(5)).join('line').attr('class', 'wk-gridline').attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t));
+    svg.append('g').attr('class', 'wk-axis').attr('transform', 'translate(0,' + (H - m.b) + ')').call(d3.axisBottom(x).tickValues([1, 2, 3, 4]).tickSizeOuter(0));
+    svg.append('g').attr('class', 'wk-axis').attr('transform', 'translate(' + m.l + ',0)').call(d3.axisLeft(y).ticks(5).tickSizeOuter(0));
+    svg.append('text').attr('class', 'wk-svgmuted').attr('x', (m.l + W - m.r) / 2).attr('y', H - 6).attr('text-anchor', 'middle').text('loops per token');
+    svg.append('text').attr('class', 'wk-svgmuted').attr('x', 4).attr('y', m.t - 12).text(cfg.yLabel);
+    (cfg.refs || []).forEach(function (rf) {
+      svg.append('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y(rf.y)).attr('y2', y(rf.y)).style('stroke', 'var(--cds-chart-reference)').attr('stroke-dasharray', '4 3');
+      svg.append('text').attr('class', 'wk-svgmuted').attr('x', m.l + 4).attr('y', y(rf.y) - 4).text(rf.label);
+    });
+    const ref = rows.filter((p) => p.g === cfg.refGroup).sort((a, b) => a.x - b.x);
+    svg.append('path').datum(ref).attr('fill', 'none').style('stroke', 'var(--cds-chart-muted)').attr('stroke-width', 2).attr('d', d3.line().x((p) => x(p.x)).y((p) => y(p.y)));
+    const tip = d3.select(el).append('div').attr('class', 'wk-tip').attr('hidden', '');
+    const color = function (g) { const k = cfg.groups.findIndex((q) => q.name === g); return k < 0 ? 'var(--cds-chart-muted)' : cfg.groups[k].color; };
+    const hollow = function (g) { const q = cfg.groups.find((q) => q.name === g); return q && q.hollow; };
+    svg.append('g').selectAll('circle').data(rows).join('circle')
+      .attr('cx', (p) => x(p.x)).attr('cy', (p) => y(p.y)).attr('r', (p) => (p.g === cfg.refGroup ? 4.5 : 6))
+      .style('fill', (p) => (hollow(p.g) ? 'var(--color-panel)' : color(p.g))).style('stroke', (p) => (hollow(p.g) ? color(p.g) : 'var(--color-panel)'))
+      .attr('stroke-width', (p) => (hollow(p.g) ? 2.5 : 1.5))
+      .attr('data-source', cfg.src).attr('data-field', cfg.y).attr('data-where', (p) => 'key=' + encodeURIComponent(p.r.key))
+      .on('pointerenter', function (ev, p) {
+        tip.attr('hidden', null).text(cfg.tip(p.r));
+        const bx = el.getBoundingClientRect(), cx = ev.clientX - bx.left, cy = ev.clientY - bx.top;
+        tip.style('left', Math.min(cx + 12, bx.width - 200) + 'px').style('top', Math.max(0, cy - 40) + 'px');
+      })
+      .on('pointerleave', function () { tip.attr('hidden', ''); });
+    // labels on the few points the reading rests on, placed clear of each other
+    const placed = rows.map((p) => [x(p.x) - 6, y(p.y) - 6, x(p.x) + 6, y(p.y) + 6]);
+    rows.filter((p) => cfg.label(p.r)).forEach(function (p) {
+      const s = cfg.label(p.r);
+      const cands = [[9, 4, 'start'], [9, -8, 'start'], [9, 16, 'start'], [-9, -8, 'end'], [-9, 16, 'end'], [-9, 4, 'end']];
+      const t = svg.append('text').attr('class', 'wk-svgtext').text(s);
+      const w = t.node().getComputedTextLength() || 6 * s.length;
+      let pick = cands[0];
+      for (const c of cands) {
+        const x0 = c[2] === 'start' ? x(p.x) + c[0] : x(p.x) + c[0] - w, y0 = y(p.y) + c[1] - 10;
+        const box = [x0, y0, x0 + w, y0 + 12];
+        const clash = placed.some((b) => !(box[2] < b[0] || box[0] > b[2] || box[3] < b[1] || box[1] > b[3]));
+        const inside = box[0] >= m.l && box[2] <= W - m.r && box[1] >= m.t && box[3] <= H - m.b;
+        if (!clash && inside) { pick = c; break; }
+      }
+      t.attr('x', x(p.x) + pick[0]).attr('y', y(p.y) + pick[1]).attr('text-anchor', pick[2]);
+      const x0 = pick[2] === 'start' ? x(p.x) + pick[0] : x(p.x) + pick[0] - w;
+      placed.push([x0, y(p.y) + pick[1] - 10, x0 + w, y(p.y) + pick[1] + 2]);
+    });
+    // legend
+    const colW = (W - m.l) / per;
+    cfg.groups.forEach(function (q, k) {
+      const gx = m.l + (k % per) * colW, gy = 10 + Math.floor(k / per) * 20;
+      svg.append('circle').attr('cx', gx + 6).attr('cy', gy).attr('r', 5).style('fill', q.hollow ? 'var(--color-panel)' : q.color).style('stroke', q.color).attr('stroke-width', q.hollow ? 2.5 : 0);
+      svg.append('text').attr('class', 'wk-svgtext').attr('x', gx + 16).attr('y', gy + 4).text(q.name);
+    });
+  };
+
+  dash.draw('lcbScatter', function (el) {
+    wk.scatter(el, {
+      src: 'lcb_runs', x: 'loops', y: 'pass_pct', refGroup: 'released model', yLabel: 'pass@1 (%)', yDomain: [0, 22], height: 340,
+      aria: 'LiveCodeBench pass@1 against executed loops for every real run of the week',
+      groups: [{ name: 'released model', color: 'var(--cds-chart-muted)' }, { name: 'threshold search', color: dash.colors[0] },
+               { name: 'cache repair', color: dash.colors[1] }, { name: 'exact cache', color: dash.colors[2], hollow: true }],
+      label: function (r) { return ({ full: 'full depth', depth1: 'depth 1', depth2: 'depth 2', gate03: 'gate 0.3', luna_best: 'LLM search best', fill025: 'fill (0.25)', exact0245: 'exact (0.245)', exact005: 'exact (0.05)' })[r.key] || null; },
+      tip: function (r) { return r.system + (r.router ? ' (' + r.router + ')' : '') + ': ' + wk.fmt(r.pass_pct, 'pct1') + ' at ' + wk.fmt(r.loops, 'loops') + ' loops' + (r.loops_kind === 'would be' ? ' (would be)' : ''); }
+    });
+  });
+
+  dash.draw('bfclScatter', function (el) {
+    wk.scatter(el, {
+      src: 'bfcl_heldout', x: 'executed_loops', y: 'accuracy_pct', refGroup: 'released gate', yLabel: 'accuracy (%)', yDomain: [74, 82], height: 320,
+      aria: 'BFCL held-out accuracy against executed loops for the released gate, the gate with the calibrated fill and the searched routers',
+      refs: [{ y: 78.82, label: 'floor: full depth − 1.7' }],
+      groups: [{ name: 'released gate', color: 'var(--cds-chart-muted)' }, { name: 'searched router + fill', color: dash.colors[0] },
+               { name: 'released gate + fill', color: dash.colors[1] }, { name: 'searched router, no fill', color: dash.colors[2], hollow: true }],
+      label: function (r) { return ({ full: 'full depth', g03: 'gate 0.3', g02: 'gate 0.2', s1: 'searched + fill' })[r.key] || null; },
+      tip: function (r) { return r.group + ' (' + r.router + '): ' + wk.fmt(r.accuracy_pct, 'pct2') + ' at ' + wk.fmt(r.executed_loops, 'loops') + ' loops'; }
+    });
+  });
+
+  dash.draw('bfclLive', function (el) {
+    wk.scatter(el, {
+      src: 'bfcl_live', x: 'executed_loops', y: 'accuracy_pct', refGroup: 'released gate', yLabel: 'accuracy (%)', yDomain: [56, 66], height: 320,
+      aria: 'BFCL live-item accuracy against executed loops for the released gate, the gate with the calibrated fill and the searched routers',
+      groups: [{ name: 'released gate', color: 'var(--cds-chart-muted)' }, { name: 'searched router + fill', color: dash.colors[0] },
+               { name: 'released gate + fill', color: dash.colors[1] }],
+      label: function (r) { return ({ full: 'full depth', g03: 'gate 0.3', g02: 'gate 0.2' })[r.key] || null; },
+      tip: function (r) { return r.group + ' (' + r.router + '): ' + wk.fmt(r.accuracy_pct, 'pct2') + ' at ' + wk.fmt(r.executed_loops, 'loops') + ' loops'; }
+    });
+  });
+</script>
+
+<script>
+  dash.draw('tbBars', function (el) {
+    const d = dash.data('tb_test');
+    el.replaceChildren();
+    if (d.status !== 'ok') { el.textContent = wk.failText(d); return; }
+    const rows = d.data;
+    const W = Math.max(280, el.clientWidth || 520), rowH = 28;
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('role', 'img').attr('aria-label', 'Terminal-Bench test trials solved by each checkpoint of the learning-rate study');
+    // left margin from the widest checkpoint name as drawn
+    const probe = svg.append('g');
+    const widths = rows.map((r) => probe.append('text').attr('class', 'wk-svgtext').text(r.checkpoint).node().getComputedTextLength() || 7 * r.checkpoint.length);
+    probe.remove();
+    const m = { t: 30, r: 64, b: 24, l: Math.min(W * 0.45, d3.max(widths) + 12) };
+    const H = m.t + rows.length * rowH + m.b;
+    svg.attr('viewBox', '0 0 ' + W + ' ' + H);
+    const x = d3.scaleLinear().domain([0, 60]).range([m.l, W - m.r]);
+    const yb = d3.scaleBand().domain(rows.map((r) => r.key)).range([m.t, H - m.b]).padding(0.28);
+    svg.append('g').selectAll('line').data([0, 20, 40, 60]).join('line').attr('class', 'wk-gridline').attr('x1', (t) => x(t)).attr('x2', (t) => x(t)).attr('y1', m.t).attr('y2', H - m.b);
+    svg.append('g').attr('class', 'wk-axis').attr('transform', 'translate(0,' + (H - m.b) + ')').call(d3.axisBottom(x).tickValues([0, 20, 40, 60]).tickFormat((t) => t + ' %').tickSizeOuter(0));
+    const col = (r) => (r.trained_from === 'base' ? dash.colors[1] : dash.colors[0]);
+    svg.append('g').selectAll('rect').data(rows).join('rect')
+      .attr('x', x(0)).attr('y', (r) => yb(r.key)).attr('height', yb.bandwidth()).attr('width', (r) => Math.max(0, x(+r.pass_pct) - x(0))).attr('rx', 3)
+      .style('fill', col).attr('data-source', 'tb_test').attr('data-field', 'pass_pct').attr('data-where', (r) => 'key=' + r.key);
+    svg.append('g').selectAll('text.lab').data(rows).join('text').attr('class', 'wk-svgtext').attr('x', m.l - 8).attr('y', (r) => yb(r.key) + yb.bandwidth() / 2 + 4).attr('text-anchor', 'end').text((r) => r.checkpoint);
+    svg.append('g').selectAll('text.val').data(rows).join('text').attr('class', 'wk-svgtext').attr('x', (r) => x(+r.pass_pct) + 6).attr('y', (r) => yb(r.key) + yb.bandwidth() / 2 + 4)
+      .text((r) => r.solved + ' / ' + r.trials);
+    svg.append('circle').attr('cx', m.l + 6).attr('cy', 12).attr('r', 5).style('fill', dash.colors[0]);
+    svg.append('text').attr('class', 'wk-svgtext').attr('x', m.l + 16).attr('y', 16).text('continued from v3');
+    svg.append('circle').attr('cx', m.l + 150).attr('cy', 12).attr('r', 5).style('fill', dash.colors[1]);
+    svg.append('text').attr('class', 'wk-svgtext').attr('x', m.l + 160).attr('y', 16).text('trained from the base model');
+  });
+
+  dash.draw('tbCurve', function (el) {
+    const d = dash.data('tb_frombase_curve');
+    el.replaceChildren();
+    if (d.status !== 'ok') { el.textContent = wk.failText(d); return; }
+    const pts = d.data.map((r) => ({ step: +r.step, series: r.series, loss: +r.loss }));
+    const names = Array.from(new Set(pts.map((p) => p.series)));
+    const W = Math.max(280, el.clientWidth || 520), H = 300, m = { t: 30, r: 16, b: 40, l: 44 };
+    const svg = d3.select(el).append('svg').attr('viewBox', '0 0 ' + W + ' ' + H).attr('width', '100%').attr('role', 'img')
+      .attr('aria-label', 'Held-out token loss of the from-base Terminal-Bench run at every 1,000 training steps');
+    const x = d3.scaleLinear().domain(d3.extent(pts, (p) => p.step)).range([m.l, W - m.r]);
+    const y = d3.scaleLinear().domain([0.4, 1.0]).range([H - m.b, m.t]);
+    svg.append('g').selectAll('line').data(y.ticks(6)).join('line').attr('class', 'wk-gridline').attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t));
+    svg.append('g').attr('class', 'wk-axis').attr('transform', 'translate(0,' + (H - m.b) + ')').call(d3.axisBottom(x).ticks(W < 420 ? 3 : 5).tickFormat((t) => d3.format(',')(t)).tickSizeOuter(0));
+    svg.append('g').attr('class', 'wk-axis').attr('transform', 'translate(' + m.l + ',0)').call(d3.axisLeft(y).ticks(6).tickSizeOuter(0));
+    svg.append('text').attr('class', 'wk-svgmuted').attr('x', (m.l + W - m.r) / 2).attr('y', H - 6).attr('text-anchor', 'middle').text('training step');
+    const tip = d3.select(el).append('div').attr('class', 'wk-tip').attr('hidden', '');
+    names.forEach(function (n, k) {
+      const s = pts.filter((p) => p.series === n).sort((a, b) => a.step - b.step);
+      const c = dash.colors[k];
+      svg.append('path').datum(s).attr('fill', 'none').style('stroke', c).attr('stroke-width', 2).attr('d', d3.line().x((p) => x(p.step)).y((p) => y(p.loss)));
+      svg.append('g').selectAll('circle').data(s).join('circle').attr('cx', (p) => x(p.step)).attr('cy', (p) => y(p.loss)).attr('r', 3).style('fill', c)
+        .on('pointerenter', function (ev, p) {
+          tip.attr('hidden', null).text(n + ', step ' + d3.format(',')(p.step) + ': ' + p.loss.toFixed(3));
+          const bx = el.getBoundingClientRect();
+          tip.style('left', Math.min(ev.clientX - bx.left + 12, bx.width - 200) + 'px').style('top', Math.max(0, ev.clientY - bx.top - 40) + 'px');
+        })
+        .on('pointerleave', function () { tip.attr('hidden', ''); });
+      const gx = m.l + k * Math.max(120, (W - m.l) / 3), gy = 12;
+      svg.append('line').attr('x1', gx).attr('x2', gx + 14).attr('y1', gy).attr('y2', gy).style('stroke', c).attr('stroke-width', 2);
+      svg.append('text').attr('class', 'wk-svgtext').attr('x', gx + 18).attr('y', gy + 4).text(n);
+    });
+  });
+</script>

@@ -1,0 +1,18 @@
+key,benchmark,evaluation,gate,gamma,threshold,accuracy_pct,executed_loops,objective
+bfcl1,BFCL,1,L1-H128-gelu-noln,0.3333,0.4,61.74,1.247,127.87
+bfcl2,BFCL,2,L1-H128-silu-ln,0.6667,0.4,62.26,1.258,125.56
+bfcl3,BFCL,3,L1-H128-silu-ln,0.6667,0.7,67.48,1.406,103.14
+bfcl4,BFCL,4,L1-H128-gelu-ln,0.6667,0.7,66.09,1.365,109.09
+bfcl5,BFCL,5,L1-H128-silu-ln,0.3333,0.7,71.48,1.477,84.93
+bfcl6,BFCL,6,L1-H128-silu-ln,0.3209,0.7,72.35,1.484,80.76
+bfcl7,BFCL,7,linear-ln,0.2308,0.7,77.39,1.583,58.03
+bfcl8,BFCL,8,linear-ln,0.471,0.695,77.74,1.566,55.84
+bfcl9,BFCL,9,linear-ln,0.0,0.89,82.43,3.877,96.92
+bfcl10,BFCL,10,linear-ln,0.319,0.698,77.22,1.58,58.79
+bfcl11,BFCL,11,linear-ln,0.9156,0.679,75.65,1.525,65.28
+bfcl12,BFCL,12,linear-ln,0.1664,0.701,77.04,1.605,60.32
+live1,LiveCodeBench,1,L1-H128-gelu-noln,0.3333,0.4,8.5,1.143,-2.26
+live2,LiveCodeBench,2,L1-H128-silu-ln,0.6667,0.4,9.4,1.091,-5.11
+live3,LiveCodeBench,3,L1-H128-silu-ln,0.6667,0.7,9.9,1.39,-1.19
+bfclref,BFCL,released,released gate (threshold 0.25),,0.25,80.87,1.911,48.8
+lcbref,LiveCodeBench,released,released gate (threshold 0.3),,0.3,17.8,2.208,-10.32

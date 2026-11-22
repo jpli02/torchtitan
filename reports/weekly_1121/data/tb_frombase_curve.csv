@@ -1,0 +1,73 @@
+step,series,loss
+0,held-out v3 rows,0.8062
+1000,held-out v3 rows,0.6301
+2000,held-out v3 rows,0.6277
+3000,held-out v3 rows,0.6078
+4000,held-out v3 rows,0.601
+5000,held-out v3 rows,0.5871
+6000,held-out v3 rows,0.5845
+7000,held-out v3 rows,0.5827
+8000,held-out v3 rows,0.5666
+9000,held-out v3 rows,0.5625
+10000,held-out v3 rows,0.5571
+11000,held-out v3 rows,0.5365
+12000,held-out v3 rows,0.5068
+13000,held-out v3 rows,0.5022
+14000,held-out v3 rows,0.4925
+15000,held-out v3 rows,0.4755
+16000,held-out v3 rows,0.465
+17000,held-out v3 rows,0.4576
+18000,held-out v3 rows,0.4546
+19000,held-out v3 rows,0.4478
+20000,held-out v3 rows,0.4439
+21000,held-out v3 rows,0.4448
+22000,held-out v3 rows,0.4449
+22184,held-out v3 rows,0.4454
+0,test-task runs,0.9373
+1000,test-task runs,0.9072
+2000,test-task runs,0.9541
+3000,test-task runs,0.9647
+4000,test-task runs,0.9749
+5000,test-task runs,0.9634
+6000,test-task runs,0.9488
+7000,test-task runs,0.9514
+8000,test-task runs,0.9534
+9000,test-task runs,0.9649
+10000,test-task runs,0.9584
+11000,test-task runs,0.9383
+12000,test-task runs,0.935
+13000,test-task runs,0.9218
+14000,test-task runs,0.9276
+15000,test-task runs,0.9163
+16000,test-task runs,0.9171
+17000,test-task runs,0.9147
+18000,test-task runs,0.9002
+19000,test-task runs,0.8967
+20000,test-task runs,0.9019
+21000,test-task runs,0.9051
+22000,test-task runs,0.9112
+22184,test-task runs,0.9082
+0,unseen take-turns runs,0.9629
+1000,unseen take-turns runs,0.7895
+2000,unseen take-turns runs,0.7731
+3000,unseen take-turns runs,0.7662
+4000,unseen take-turns runs,0.7597
+5000,unseen take-turns runs,0.7272
+6000,unseen take-turns runs,0.7024
+7000,unseen take-turns runs,0.6922
+8000,unseen take-turns runs,0.6782
+9000,unseen take-turns runs,0.6722
+10000,unseen take-turns runs,0.6663
+11000,unseen take-turns runs,0.6414
+12000,unseen take-turns runs,0.6351
+13000,unseen take-turns runs,0.6114
+14000,unseen take-turns runs,0.6108
+15000,unseen take-turns runs,0.6049
+16000,unseen take-turns runs,0.5906
+17000,unseen take-turns runs,0.5899
+18000,unseen take-turns runs,0.5771
+19000,unseen take-turns runs,0.5735
+20000,unseen take-turns runs,0.571
+21000,unseen take-turns runs,0.5713
+22000,unseen take-turns runs,0.57
+22184,unseen take-turns runs,0.5698

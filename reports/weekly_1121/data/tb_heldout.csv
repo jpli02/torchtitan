@@ -1,0 +1,9 @@
+key,checkpoint,test_task_runs,unseen_runs,v3_rows_not_replayed,new_rows
+base,released base,0.939,0.927,0.806,0.998
+v3,v3,0.879,0.618,0.218,0.656
+r1,r1,0.958,0.545,0.265,0.197
+ep1,epoch 1,0.959,0.575,0.299,0.318
+ep2,epoch 2,1.014,0.579,0.317,0.152
+ep4,epoch 4,1.119,0.649,0.355,0.033
+ep8,epoch 8,1.283,0.783,0.441,0.017
+frombase,"from base, one pass",0.909,0.563,0.211,0.387

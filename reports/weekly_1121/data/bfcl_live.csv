@@ -1,0 +1,13 @@
+key,group,router,executed_loops,accuracy_pct
+full,released gate,full depth,4.0,64.15
+g03,released gate,0.3,2.258,63.11
+g025,released gate,0.25,2.092,62.0
+g02,released gate,0.2,1.668,58.15
+f03,released gate + fill,0.3,2.253,61.7
+f025,released gate + fill,0.25,2.085,61.85
+f02,released gate + fill,0.2,1.605,57.85
+s1,searched router + fill,"0.2372, 0.2935, 0.4755",1.892,60.37
+s2,searched router + fill,"0.2386, 0.3059, 0.4748",1.921,60.89
+s3,searched router + fill,"0.2386, 0.3084, 0.4644",1.916,60.0
+s4,searched router + fill,"0.2401, 0.2999, 0.4876",1.95,60.67
+s5,searched router + fill,"0.2358, 0.2019, 0.5019",1.81,59.7

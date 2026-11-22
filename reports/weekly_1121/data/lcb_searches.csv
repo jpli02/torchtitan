@@ -1,0 +1,4 @@
+key,optimizer,new_evaluations,best_router,pass_pct,speedup,objective
+start,released gate (shared start),0,"0.3, 0.3, 0.3",18.1,1.71,-10.31
+gp,Gaussian process (gp_hedge),22,"1.00, 0.38, 0.30",18.4,1.78,-11.1
+luna,LLM agent (gpt-6-luna),10,"0.38, 0.30, 0.34",18.4,1.8,-11.26
