@@ -31,6 +31,8 @@ ARMS = {
     "luna6_minfix": {"optim": "chatgpt", "model": "gpt-6-luna"},
     # minfix with reasoning_effort "high" (cifar_bo/pyhooks/sitecustomize.py injects it; luna's default is lower)
     "luna6_minfix_high": {"optim": "chatgpt", "model": "gpt-6-luna"},
+    # the shipped prompt with reasoning_effort "high": isolates the effort effect on the arm that ties GP-hedge
+    "luna6_default_high": {"optim": "chatgpt", "model": "gpt-6-luna"},
     # a newer model on the shipped prompt (OpenAI lists gpt-6.2-sol for this key on 2026-11-22)
     "sol62_default": {"optim": "chatgpt", "model": "gpt-6.2-sol"},
     "gp_hedge": {"optim": "gp_hedge", "model": None},

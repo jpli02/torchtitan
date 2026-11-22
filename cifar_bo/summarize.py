@@ -10,6 +10,7 @@ import json
 import os
 import statistics as st
 import sys
+from math import comb, sqrt
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "/home/jli199/boptim_scratch/cifar_bo_1122"
 # Earlier runs of the same setting (seeds 42, 43), read from their logs: logs/run_experiment_16_210856.log (GP-hedge),
@@ -39,11 +40,12 @@ def load(arm):
 arms = sorted(os.path.basename(p) for p in glob.glob(os.path.join(ROOT, "trajectories", "*")))
 data = {a: load(a) for a in arms}
 out = {"arms": {}, "earlier": EARLIER}
-print(f"{'arm':16s} " + "  ".join(f"s{s}" for s in (42, 43, 44, 45)) + "    mean     sd   n_done")
+SEEDS = sorted({s for a in arms for s in data[a]})
+print(f"{'arm':18s} " + "  ".join(f"{'s' + str(s):7s}" for s in SEEDS) + "    mean     sd   n_done")
 for a in arms:
     r = data[a]
     cells = []
-    for s in (42, 43, 44, 45):
+    for s in SEEDS:
         if s in r:
             cells.append(f"{r[s]['best']:.4f}" + ("" if r[s]["n"] >= 10 else f"({r[s]['n']})"))
         else:
@@ -51,7 +53,7 @@ for a in arms:
     done = [r[s]["best"] for s in r if r[s]["n"] >= 10]
     mean = st.mean(done) if done else float("nan")
     sd = st.stdev(done) if len(done) > 1 else 0.0
-    print(f"{a:16s} " + "  ".join(f"{c:7s}" for c in cells) + f"  {mean:.4f}  {sd:.4f}  {len(done)}")
+    print(f"{a:18s} " + "  ".join(f"{c:7s}" for c in cells) + f"  {mean:.4f}  {sd:.4f}  {len(done)}")
     curve = []
     for k in range(1, 11):
         b = [max(r[s]["values"][:k]) for s in r if r[s]["n"] >= k]
@@ -67,8 +69,14 @@ if "gp_hedge" in data:
         common = [s for s in data[a] if s in data["gp_hedge"] and data[a][s]["n"] >= 10 and data["gp_hedge"][s]["n"] >= 10]
         diffs = [data[a][s]["best"] - data["gp_hedge"][s]["best"] for s in sorted(common)]
         if diffs:
-            print(f"  {a:16s} " + "  ".join(f"s{s}: {d:+.4f}" for s, d in zip(sorted(common), diffs))
-                  + f"   mean {st.mean(diffs):+.4f}, wins {sum(d > 0 for d in diffs)}/{len(diffs)}")
+            w, n = sum(d > 0 for d in diffs), sum(d != 0 for d in diffs)
+            # exact two-sided sign test and the paired t statistic over seeds
+            p_sign = min(1.0, 2 * sum(comb(n, k) for k in range(0, min(w, n - w) + 1)) / 2 ** n) if n else 1.0
+            sd_d = st.stdev(diffs) if len(diffs) > 1 else 0.0
+            t = st.mean(diffs) / (sd_d / sqrt(len(diffs))) if sd_d > 0 else float("nan")
+            print(f"  {a:18s} mean {st.mean(diffs):+.4f} over {len(diffs)} seeds, wins {w}/{len(diffs)}, "
+                  f"sign p={p_sign:.3f}, paired t={t:+.2f}")
+            print("      " + "  ".join(f"s{s}: {d:+.4f}" for s, d in zip(sorted(common), diffs)))
             out["arms"][a]["vs_gp_hedge"] = dict(zip(map(str, sorted(common)), diffs))
 
 print("\nmean best-so-far after k evaluations:")
