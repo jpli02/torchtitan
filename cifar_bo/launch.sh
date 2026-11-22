@@ -21,6 +21,8 @@ case "$ARM" in
   luna6_budget) export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_budget_blackbox.txt ;;
   luna6_informed) export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_informed.txt ;;
   luna6_minfix) export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_minfix.txt ;;
+  luna6_minfix_high) export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_minfix.txt GPT_REASONING_EFFORT=high \
+                       PYTHONPATH=$WT/cifar_bo/pyhooks ;;
   *) unset BOPTIM_PROMPT_TEMPLATE ;;
 esac
 
