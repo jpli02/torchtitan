@@ -19,6 +19,8 @@ set +a
 export OPENAI_BASE_URL=https://api.openai.com/v1 GPT_MAX_TOKENS=16000 CUDA_VISIBLE_DEVICES=$GPU
 case "$ARM" in
   luna6_budget) export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_budget_blackbox.txt ;;
+  luna6_informed) export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_informed.txt ;;
+  luna6_minfix) export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_minfix.txt ;;
   *) unset BOPTIM_PROMPT_TEMPLATE ;;
 esac
 

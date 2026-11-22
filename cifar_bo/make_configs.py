@@ -23,6 +23,14 @@ TRAJ = "/home/jli199/boptim_scratch/cifar_bo_1122/trajectories"
 ARMS = {
     "luna6_default": {"optim": "chatgpt", "model": "gpt-6-luna"},
     "luna6_budget": {"optim": "chatgpt", "model": "gpt-6-luna"},
+    # informed: cifar_bo/prompts/cifar_informed.txt names the task and the three knobs (no suggested values), so the model can
+    # use its own prior; a different claim from the black-box arms (prior knowledge, not search), reported separately
+    "luna6_informed": {"optim": "chatgpt", "model": "gpt-6-luna"},
+    # second round (after seeds 42/44): the shipped prompt wasted evaluations 2-3 on the box corners in both luna6_default
+    # runs; minfix = shipped prompt + two lines (budget 10, no corners), nothing else changed (prompts/cifar_minfix.txt)
+    "luna6_minfix": {"optim": "chatgpt", "model": "gpt-6-luna"},
+    # a newer model on the shipped prompt (OpenAI lists gpt-6.2-sol for this key on 2026-11-22)
+    "sol62_default": {"optim": "chatgpt", "model": "gpt-6.2-sol"},
     "gp_hedge": {"optim": "gp_hedge", "model": None},
 }
 
