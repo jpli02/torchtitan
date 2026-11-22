@@ -40,6 +40,7 @@ window.dash = (function () {{
     colors: ['var(--c1)', 'var(--c2)', 'var(--c3)'],
     data: function (id) {{ return DATA[id] ? {{status: 'ok', data: DATA[id]}} : {{status: 'missing', data: []}}; }},
     draw: function (name, fn) {{ draws[name] = fn; }},
+    calc: function (id, spec) {{ DATA[id] = spec.fn.apply(null, spec.inputs.map(function (i) {{ return DATA[i] || []; }})); }},
     onData: function (fn) {{ fn(); }},
     _run: function () {{
       Object.keys(draws).forEach(function (name) {{
@@ -55,15 +56,30 @@ window.dash = (function () {{
             f'<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>'
             f'<style>:root{{{TOKENS_LIGHT}}} {":root{" + TOKENS_DARK + "}" if dark else ""} body{{margin:0;padding:24px 16px;background:var(--color-bg);font-family:var(--font-anthropic-sans);}}</style>'
             f'{mock}</head><body><div id="dash-root">')
-    tail = '</div><script>dash._run();</script></body></html>'
+    # the Data type reruns every drawing when the page's width changes; rerun once the window has its final size
+    tail = '</div><script>dash._run(); setTimeout(function () { dash._run(); }, 1500);</script></body></html>'
     return head + page + tail
 
 
+def shot(url, png, size):
+    subprocess.run(["timeout", "90", "google-chrome", "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--virtual-time-budget=8000",
+                    f"--window-size={size}", f"--screenshot={png}", url], capture_output=True)
+    print(png, os.path.exists(png))
+
+
 for dark in (False, True):
-    p = os.path.join(HERE, f"harness_{'dark' if dark else 'light'}.html")
+    mode = "dark" if dark else "light"
+    p = os.path.join(HERE, f"harness_{mode}.html")
     open(p, "w").write(build(dark))
-    for w, tag in ((1150, "wide"), (420, "phone")):
-        png = os.path.join(HERE, f"shot_{'dark' if dark else 'light'}_{tag}.png")
-        subprocess.run(["timeout", "90", "google-chrome", "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--virtual-time-budget=8000",
-                        f"--window-size={w},7600" if tag == "wide" else f"--window-size={w},12000", f"--screenshot={png}", f"file://{p}"], capture_output=True)
-        print(png, os.path.exists(png))
+    shot(f"file://{p}", os.path.join(HERE, f"shot_{mode}_wide.png"), "1150,7600")
+    # headless Chrome lays a window out at 500 px at least, so a phone is a 375 px frame in a 500 px window, cropped afterwards
+    frame = os.path.join(HERE, f"harness_{mode}_phone.html")
+    open(frame, "w").write(f'<!doctype html><html><body style="margin:0"><iframe src="harness_{mode}.html" '
+                           f'style="width:375px;height:11500px;border:0;display:block"></iframe></body></html>')
+    png = os.path.join(HERE, f"shot_{mode}_phone.png")
+    shot(f"file://{frame}", png, "500,11500")
+    try:
+        from PIL import Image
+        Image.open(png).crop((0, 0, 375, 11500)).save(png)
+    except Exception as e:  # keep the uncropped shot
+        print("crop skipped:", e)

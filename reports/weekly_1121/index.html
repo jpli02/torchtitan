@@ -8,6 +8,7 @@
   .wk p, .wk li { line-height: 1.55; max-width: 74ch; margin: 0; }
   .wk ul { margin: 0; padding-left: 1.2em; display: grid; gap: var(--cds-gap-xs); }
   .wk-muted { color: var(--color-fg-muted); }
+  .wk h3.wk-sub { margin-top: var(--cds-gap-md); }
   .wk-head { display: grid; gap: var(--cds-gap-md); }
   .wk-section { display: grid; gap: var(--cds-gap-lg); padding-top: var(--cds-pad-lg); border-top: 1px solid var(--color-border-line); }
   .wk-keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--cds-gap-md); }
@@ -179,8 +180,43 @@
     <ul>
       <li>Both parts are needed: the same routers without the fill are worse than the plain gate.</li>
       <li>On the 1,350 live items there is no gain: the routers fall on the gate's own curve, and a fill refitted on live data does not help.</li>
-      <li>The fill maps are affine maps per layer, head and loop pair, fitted by regression on full-depth answers; no model weight changes.</li>
+      <li>The fill is designed by hand and fitted by regression, not found by BO; BO found the exit pattern that works with it (next card).</li>
     </ul>
+    <div class="wk-card" id="cache-fill">
+      <h3>How the calibrated cache fill works</h3>
+      <p>Each token keeps one key and one value per loop and layer in the cache. A token that stops after loop 1 never computes loops 2–4, yet later tokens that still run those loops attend to its entries there. By default the decoder copies the token's loop-1 key and value into the empty slots; the calibrated fill predicts them instead.</p>
+      <div class="wk-tablewrap">
+        <table aria-label="Cache entries of one token that stops after loop 1, at one layer and key/value head">
+          <thead><tr><th>One token, one layer</th><th>Loop 1</th><th>Loop 2</th><th>Loop 3</th><th>Loop 4</th></tr></thead>
+          <tbody>
+            <tr><td>Computed</td><td>K₁, V₁</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><td>Copy fill (default)</td><td>K₁, V₁</td><td>K₁, V₁</td><td>K₁, V₁</td><td>K₁, V₁</td></tr>
+            <tr><td>Calibrated fill</td><td>K₁, V₁</td><td>A₁₂K₁ + b₁₂, B₁₂V₁ + c₁₂</td><td>A₁₃K₁ + b₁₃, B₁₃V₁ + c₁₃</td><td>A₁₄K₁ + b₁₄, B₁₄V₁ + c₁₄</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li><b>Form.</b> One affine map for every exit loop, later loop, layer and key/value head: A and B are square matrices of the head size, b and c vectors. Cached keys carry their position's rotary rotation, and one map per head fits only before that rotation, so a key is rotated back, mapped and rotated again; values are mapped directly.</li>
+        <li><b>Fit.</b> Run the base model at full depth, where every loop is computed, and fit each map by ridge regression from the exit loop's keys and values to the later loop's. It is closed form: no training, and the model's weights do not change. The BFCL maps come from full-depth answers to search-split items; none of the held-out items was used.</li>
+        <li><b>Use.</b> When a token stops early, each skipped slot gets the mapped entry instead of the copy: one small matrix product per slot, a small fraction of a loop's compute.</li>
+        <li><b>Not found by BO.</b> The fill was designed by hand to repair the copied entries; BO found the exit pattern that uses it. At that router's <span data-draw="val" data-fmt="loops" data-source="bfcl_split" data-field="executed_loops" data-where="key=bo">—</span> loops the released gate alone reaches <span data-draw="val" data-fmt="pct1" data-source="bfcl_split" data-field="accuracy_pct" data-where="key=gate">—</span> (read off its curve), the gate with the fill <span data-draw="val" data-fmt="pct1" data-source="bfcl_split" data-field="accuracy_pct" data-where="key=gatefill">—</span> (<span data-draw="val" data-fmt="pts" data-source="bfcl_split" data-field="gain" data-where="key=gatefill">—</span> points), and the router BO found, with the fill, <span data-draw="val" data-fmt="pct1" data-source="bfcl_split" data-field="accuracy_pct" data-where="key=bo">—</span> (<span data-draw="val" data-fmt="pts" data-source="bfcl_split" data-field="gain" data-where="key=bo">—</span> more). Without the fill the same router falls below the plain gate.</li>
+      </ul>
+      <h3 class="wk-sub">How close the filled entries get to the true ones (BFCL maps)</h3>
+      <div class="wk-tablewrap">
+        <table data-source="fill_errors" data-row-key="key">
+          <thead><tr>
+            <th data-field="part">Part</th>
+            <th data-field="loops">Exit loop to later loop</th>
+            <th class="n" data-field="copy_median" data-fmt="g">Copy fill</th>
+            <th class="n" data-field="calibrated_median" data-fmt="g">Calibrated fill</th>
+            <th class="n" data-field="copy_layer0" data-fmt="g">Copy, layer 0</th>
+            <th class="n" data-field="calibrated_layer0" data-fmt="g">Calibrated, layer 0</th>
+          </tr></thead>
+          <tbody data-draw="rows"></tbody>
+        </table>
+      </div>
+      <p class="wk-cap">Squared error of the filled entries divided by the spread of the true entries across tokens (0 = exact, 1 = no better than one constant guess), on search-split answers the maps were not fitted on; the first two columns are medians over the 48 layers. Copying fails worst for a token that stops after loop 1, above all in the first layer, where its loop-1 keys look nothing like its loop-2 keys; after loop 2 or 3 the copy is already much closer.</p>
+    </div>
     <div class="wk-grid2">
       <div class="wk-card" id="bfcl-chart">
         <h3>Held-out non-live items (575): accuracy against loops</h3>
@@ -262,7 +298,7 @@
     <dl>
       <dt>Executed loops</dt><dd>Recurrence loops actually computed per generated token, counted by the model (1 to 4; full depth = 4). It is the compute measure, unlike measured speed on shared GPUs.</dd>
       <dt>Router and thresholds</dt><dd>A token stops after loop s once the released gate's cumulative exit probability reaches q_s; (q, q, q) is the released gate's single knob.</dd>
-      <dt>Copy fill and calibrated fill</dt><dd>A token that stops early leaves empty cache slots for the loops it skipped. The decoder copies its last keys and values into them; the calibrated fill maps them with affine maps fitted by regression instead.</dd>
+      <dt>Copy fill and calibrated fill</dt><dd>A token that stops early leaves empty cache slots for the loops it skipped. The decoder copies its last keys and values into them; the calibrated fill maps them with affine maps fitted by regression instead (<a href="#cache-fill">how it works</a>).</dd>
       <dt>Exact cache</dt><dd>Every loop is still computed and only the readout follows the router, so the cache is exact and nothing is saved: an upper bound for any cache repair.</dd>
       <dt>Sign test</dt><dd>Exact two-sided test on the problems that only one of two runs solves.</dd>
     </dl>
@@ -296,9 +332,54 @@
     return rows.find((r) => String(r[k]) === v);
   };
   wk.failText = function (d) { return d.status === 'error' ? 'This part could not load.' : '—'; };
+  // legend whose entries flow left to right and wrap before xMax, each label measured as drawn; returns the y below it
+  wk.legend = function (svg, items, x0, y0, xMax) {
+    let x = x0, y = y0;
+    items.forEach(function (it) {
+      const t = svg.append('text').attr('class', 'wk-svgtext').text(it.name);
+      const w = t.node().getComputedTextLength() || 7 * it.name.length;
+      if (x > x0 && x + 18 + w > xMax) { x = x0; y += 20; }
+      if (it.kind === 'line') {
+        svg.append('line').attr('x1', x).attr('x2', x + 14).attr('y1', y).attr('y2', y).style('stroke', it.color).attr('stroke-width', 2);
+      } else {
+        svg.append('circle').attr('cx', x + 6).attr('cy', y).attr('r', 5).style('fill', it.kind === 'hollow' ? 'var(--color-panel)' : it.color)
+          .style('stroke', it.color).attr('stroke-width', it.kind === 'hollow' ? 2.5 : 0);
+      }
+      t.attr('x', x + 18).attr('y', y + 4);
+      x += 18 + w + 20;
+    });
+    return y + 12;
+  };
 </script>
 
 <script>
+  // the BFCL held-out gain split between the calibrated fill and the router BO found, at that router's loops
+  dash.calc('bfcl_split', {
+    inputs: ['bfcl_heldout'],
+    title: 'BFCL held-out: the fill and the BO router at equal loops',
+    description: 'Accuracy of the released gate and of the released gate with the calibrated fill, each read off its own measured points by linear interpolation at the executed loops of the router BO found (0.2372, 0.2935, 0.4755), next to that router with the fill; gain = difference from the row above.',
+    fn: (heldout) => {
+      const at = heldout.find((r) => r.key === 's1');
+      if (!at) return [];
+      const L = +at.executed_loops;
+      const along = (group) => {
+        const pts = heldout.filter((r) => r.group === group).map((r) => [+r.executed_loops, +r.accuracy_pct]).sort((a, b) => a[0] - b[0]);
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
+          if (x0 <= L && L <= x1) return y0 + (y1 - y0) * (L - x0) / (x1 - x0);
+        }
+        return null;
+      };
+      const g = along('released gate'), f = along('released gate + fill'), b = +at.accuracy_pct;
+      if (g === null || f === null) return [];
+      return [
+        { key: 'gate', system: 'released gate', executed_loops: L, accuracy_pct: +g.toFixed(1), gain: null },
+        { key: 'gatefill', system: 'released gate + calibrated fill', executed_loops: L, accuracy_pct: +f.toFixed(1), gain: +(f - g).toFixed(1) },
+        { key: 'bo', system: 'router BO found + calibrated fill', executed_loops: L, accuracy_pct: +b.toFixed(1), gain: +(b - f).toFixed(1) }
+      ];
+    }
+  });
+
   dash.draw('val', function (el) {
     const d = dash.data(el.getAttribute('data-source'));
     if (d.status !== 'ok') { el.textContent = '—'; return; }
@@ -358,10 +439,9 @@
     if (d.status !== 'ok') { el.textContent = wk.failText(d); return; }
     const rows = d.data.map((r) => ({ r: r, x: +r[cfg.x], y: +r[cfg.y], g: r.group }));
     const W = Math.max(280, el.clientWidth || 600), H = cfg.height || 320;
-    const per = W < 380 ? 1 : 2;
-    const legendH = 20 * Math.ceil(cfg.groups.length / per);
-    const m = { t: 30 + legendH, r: 16, b: 40, l: 46 };
     const svg = d3.select(el).append('svg').attr('viewBox', '0 0 ' + W + ' ' + H).attr('width', '100%').attr('role', 'img').attr('aria-label', cfg.aria);
+    const legBottom = wk.legend(svg, cfg.groups.map((q) => ({ name: q.name, color: q.color, kind: q.hollow ? 'hollow' : 'dot' })), 8, 12, W - 8);
+    const m = { t: legBottom + 30, r: 16, b: 40, l: 46 };
     const x = d3.scaleLinear().domain([0.9, 4.1]).range([m.l, W - m.r]);
     const ys = rows.map((p) => p.y).concat((cfg.refs || []).map((rf) => rf.y));
     const y = d3.scaleLinear().domain(cfg.yDomain || [Math.floor(d3.min(ys) - 1), Math.ceil(d3.max(ys) + 1)]).nice().range([H - m.b, m.t]);
@@ -408,13 +488,6 @@
       t.attr('x', x(p.x) + pick[0]).attr('y', y(p.y) + pick[1]).attr('text-anchor', pick[2]);
       const x0 = pick[2] === 'start' ? x(p.x) + pick[0] : x(p.x) + pick[0] - w;
       placed.push([x0, y(p.y) + pick[1] - 10, x0 + w, y(p.y) + pick[1] + 2]);
-    });
-    // legend
-    const colW = (W - m.l) / per;
-    cfg.groups.forEach(function (q, k) {
-      const gx = m.l + (k % per) * colW, gy = 10 + Math.floor(k / per) * 20;
-      svg.append('circle').attr('cx', gx + 6).attr('cy', gy).attr('r', 5).style('fill', q.hollow ? 'var(--color-panel)' : q.color).style('stroke', q.color).attr('stroke-width', q.hollow ? 2.5 : 0);
-      svg.append('text').attr('class', 'wk-svgtext').attr('x', gx + 16).attr('y', gy + 4).text(q.name);
     });
   };
 
@@ -465,7 +538,8 @@
     const probe = svg.append('g');
     const widths = rows.map((r) => probe.append('text').attr('class', 'wk-svgtext').text(r.checkpoint).node().getComputedTextLength() || 7 * r.checkpoint.length);
     probe.remove();
-    const m = { t: 30, r: 64, b: 24, l: Math.min(W * 0.45, d3.max(widths) + 12) };
+    const legBottom = wk.legend(svg, [{ name: 'continued from v3', color: dash.colors[0], kind: 'dot' }, { name: 'trained from the base model', color: dash.colors[1], kind: 'dot' }], 8, 12, W - 8);
+    const m = { t: legBottom + 8, r: 64, b: 24, l: Math.min(W * 0.45, d3.max(widths) + 12) };
     const H = m.t + rows.length * rowH + m.b;
     svg.attr('viewBox', '0 0 ' + W + ' ' + H);
     const x = d3.scaleLinear().domain([0, 60]).range([m.l, W - m.r]);
@@ -479,10 +553,6 @@
     svg.append('g').selectAll('text.lab').data(rows).join('text').attr('class', 'wk-svgtext').attr('x', m.l - 8).attr('y', (r) => yb(r.key) + yb.bandwidth() / 2 + 4).attr('text-anchor', 'end').text((r) => r.checkpoint);
     svg.append('g').selectAll('text.val').data(rows).join('text').attr('class', 'wk-svgtext').attr('x', (r) => x(+r.pass_pct) + 6).attr('y', (r) => yb(r.key) + yb.bandwidth() / 2 + 4)
       .text((r) => r.solved + ' / ' + r.trials);
-    svg.append('circle').attr('cx', m.l + 6).attr('cy', 12).attr('r', 5).style('fill', dash.colors[0]);
-    svg.append('text').attr('class', 'wk-svgtext').attr('x', m.l + 16).attr('y', 16).text('continued from v3');
-    svg.append('circle').attr('cx', m.l + 150).attr('cy', 12).attr('r', 5).style('fill', dash.colors[1]);
-    svg.append('text').attr('class', 'wk-svgtext').attr('x', m.l + 160).attr('y', 16).text('trained from the base model');
   });
 
   dash.draw('tbCurve', function (el) {
@@ -491,9 +561,11 @@
     if (d.status !== 'ok') { el.textContent = wk.failText(d); return; }
     const pts = d.data.map((r) => ({ step: +r.step, series: r.series, loss: +r.loss }));
     const names = Array.from(new Set(pts.map((p) => p.series)));
-    const W = Math.max(280, el.clientWidth || 520), H = 300, m = { t: 30, r: 16, b: 40, l: 44 };
+    const W = Math.max(280, el.clientWidth || 520), H = 300;
     const svg = d3.select(el).append('svg').attr('viewBox', '0 0 ' + W + ' ' + H).attr('width', '100%').attr('role', 'img')
       .attr('aria-label', 'Held-out token loss of the from-base Terminal-Bench run at every 1,000 training steps');
+    const legBottom = wk.legend(svg, names.map((n, k) => ({ name: n, color: dash.colors[k], kind: 'line' })), 8, 12, W - 8);
+    const m = { t: legBottom + 12, r: 16, b: 40, l: 44 };
     const x = d3.scaleLinear().domain(d3.extent(pts, (p) => p.step)).range([m.l, W - m.r]);
     const y = d3.scaleLinear().domain([0.4, 1.0]).range([H - m.b, m.t]);
     svg.append('g').selectAll('line').data(y.ticks(6)).join('line').attr('class', 'wk-gridline').attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t));
@@ -512,9 +584,6 @@
           tip.style('left', Math.min(ev.clientX - bx.left + 12, bx.width - 200) + 'px').style('top', Math.max(0, ev.clientY - bx.top - 40) + 'px');
         })
         .on('pointerleave', function () { tip.attr('hidden', ''); });
-      const gx = m.l + k * Math.max(120, (W - m.l) / 3), gy = 12;
-      svg.append('line').attr('x1', gx).attr('x2', gx + 14).attr('y1', gy).attr('y2', gy).style('stroke', c).attr('stroke-width', 2);
-      svg.append('text').attr('class', 'wk-svgtext').attr('x', gx + 18).attr('y', gy + 4).text(n);
     });
   });
 </script>

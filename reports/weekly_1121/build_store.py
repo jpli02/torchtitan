@@ -16,7 +16,7 @@ BLOBS = {
     "tb_frombase_curve": "5662e68aef9362fdc4100a55e800c9f5", "lcb_runs": "e3803239b9a7bb80e41ca6592eb6e153",
     "lcb_searches": "a56de5b4fed6ef0904f1277506721f97", "lcb_llm_search": "de5a0bc607b38ae6850e57cc8ea415dc",
     "gate_nas": "550615dc2d800b415e29e782561b650b", "bfcl_heldout": "6b7d9c166afa9ae3b219f5fa360d3cc5",
-    "bfcl_live": "760c667cb5dbafc4ad236a37fe98ab4c",
+    "bfcl_live": "760c667cb5dbafc4ad236a37fe98ab4c", "fill_errors": "4771e9ccd1add7c32d940287c32b1876",
 }
 DS = {
     "tb_test": ("Terminal-Bench test score by checkpoint",
@@ -37,6 +37,11 @@ DS = {
                      "Accuracy and executed loops on 575 held-out non-live BFCL v3 items, with paired differences and 95 % bootstrap intervals; read from the held-out records."),
     "bfcl_live": ("BFCL live items",
                   "Accuracy and executed loops on the 1,350 live BFCL v3 items; read from the live-item records."),
+    "fill_errors": ("Calibrated fill: error of the filled cache entries (BFCL maps)",
+                    "Squared error of the filled key and value entries divided by the variance of the true entries over tokens (0 = exact, 1 = no "
+                    "better than a constant), median over the 48 layers and at layer 0, for the copy fill and the calibrated fill; measured on 40 "
+                    "BFCL search-split answers the maps were not fitted on (the maps used 120 others, ridge 0.01). Read from the fit report "
+                    "kv_fill_fit.json written by boptim_lcb/kv_fill_fit.py."),
 }
 
 
