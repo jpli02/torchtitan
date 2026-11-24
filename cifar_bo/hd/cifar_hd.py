@@ -19,6 +19,7 @@ Registered at run time by run_hd.py; no boptim-agent file is changed.
 """
 import math
 import random
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -130,12 +131,17 @@ class RandomSearch(BaseOptimizer):
         self.bounds = [(float(lo), float(hi)) for lo, hi in bounds]
         self.rng = np.random.default_rng(seed)
         self.seed = seed
+        self.best = SimpleNamespace(fun=float("inf"), x=None)
 
     def ask(self, n_points: int = 1) -> tuple:
         return [[float(self.rng.uniform(lo, hi)) for lo, hi in self.bounds] for _ in range(n_points)], ""
 
     def tell(self, x, y) -> tuple:
-        return None, ""
+        # main.py prints result.fun / result.x (skopt's best, internal minimised scale) after the loop; never used by ask()
+        for xi, yi in zip(x, y):
+            if float(yi) < self.best.fun:
+                self.best = SimpleNamespace(fun=float(yi), x=list(map(float, xi)))
+        return self.best, ""
 
     @property
     def description(self) -> str:
