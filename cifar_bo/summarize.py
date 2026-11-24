@@ -61,13 +61,14 @@ for a in arms:
     out["arms"][a] = {"per_seed": {str(s): {"best": r[s]["best"], "n": r[s]["n"], "values": r[s]["values"], "points": r[s]["points"]}
                                    for s in r}, "mean": mean, "sd": sd, "n_done": len(done), "best_so_far_mean": curve}
 
-if "gp_hedge" in data:
-    print("\nseed-matched difference to gp_hedge (finished runs only):")
+BASE = "gp_hedge" if "gp_hedge" in data else "gp10"  # the user's GP-hedge protocol (n_initial = budget = 10)
+if BASE in data:
+    print(f"\nseed-matched difference to {BASE} (finished runs only):")
     for a in arms:
-        if a == "gp_hedge":
+        if a == BASE:
             continue
-        common = [s for s in data[a] if s in data["gp_hedge"] and data[a][s]["n"] >= 10 and data["gp_hedge"][s]["n"] >= 10]
-        diffs = [data[a][s]["best"] - data["gp_hedge"][s]["best"] for s in sorted(common)]
+        common = [s for s in data[a] if s in data[BASE] and data[a][s]["n"] >= 10 and data[BASE][s]["n"] >= 10]
+        diffs = [data[a][s]["best"] - data[BASE][s]["best"] for s in sorted(common)]
         if diffs:
             w, n = sum(d > 0 for d in diffs), sum(d != 0 for d in diffs)
             # exact two-sided sign test and the paired t statistic over seeds
@@ -77,11 +78,12 @@ if "gp_hedge" in data:
             print(f"  {a:18s} mean {st.mean(diffs):+.4f} over {len(diffs)} seeds, wins {w}/{len(diffs)}, "
                   f"sign p={p_sign:.3f}, paired t={t:+.2f}")
             print("      " + "  ".join(f"s{s}: {d:+.4f}" for s, d in zip(sorted(common), diffs)))
-            out["arms"][a]["vs_gp_hedge"] = dict(zip(map(str, sorted(common)), diffs))
+            out["arms"][a]["vs_" + BASE] = dict(zip(map(str, sorted(common)), diffs))
 
 print("\nmean best-so-far after k evaluations:")
 print("  k      " + "  ".join(f"{a[:14]:>14s}" for a in arms))
 for k in range(10):
     print(f"  {k + 1:2d}     " + "  ".join(f"{(out['arms'][a]['best_so_far_mean'][k] or float('nan')):14.4f}" for a in arms))
-print("\nearlier runs, same setting (seeds 42, 43): " + "; ".join(f"{k} {st.mean(v):.4f}" for k, v in EARLIER.items()))
+if BASE == "gp_hedge":  # the September reference numbers belong to the 3-knob objective only
+    print("\nearlier runs, same setting (seeds 42, 43): " + "; ".join(f"{k} {st.mean(v):.4f}" for k, v in EARLIER.items()))
 json.dump(out, open(os.path.join(ROOT, "summary.json"), "w"), indent=1)
