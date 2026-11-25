@@ -12,7 +12,13 @@ set -eu
 WT=/home/jli199/torchtitan/.claude/worktrees/ouro-terminal-sft
 BOPTIM=/home/jli199/boptim-agent/.claude/worktrees/cifar-save-trajectory
 PY=/home/jli199/boptim-agent/.venv/bin/python
-ROOT=${ROOT:-/home/jli199/boptim_scratch/cifar_hd_1123}
+# OBJ=cifar_hd (8 training knobs, default) or cifar_arch (the same 8 + base width, blocks per stage, kernel size)
+OBJ=${OBJ:-cifar_hd}
+case "$OBJ" in
+  cifar_hd) ROOT=${ROOT:-/home/jli199/boptim_scratch/cifar_hd_1123}; INFORMED=cifar_hd_informed.txt ;;
+  cifar_arch) ROOT=${ROOT:-/home/jli199/boptim_scratch/cifar_arch_1125}; INFORMED=cifar_arch_informed.txt ;;
+  *) echo "unknown objective $OBJ"; exit 1 ;;
+esac
 mkdir -p "$ROOT/logs"
 set -- $SEEDS
 LOG=$ROOT/logs/${ARM}_s$1.log
@@ -27,16 +33,16 @@ case "$ARM" in
   gp5) OPT=(--optim gp_hedge --n_initial 5) ;;
   random) OPT=(--optim random) ;;
   luna_default) OPT=(--optim chatgpt --model gpt-6-luna) ;;
-  luna_informed) OPT=(--optim chatgpt --model gpt-6-luna); export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/cifar_hd_informed.txt ;;
+  luna_informed) OPT=(--optim chatgpt --model gpt-6-luna); export BOPTIM_PROMPT_TEMPLATE=$WT/cifar_bo/prompts/$INFORMED ;;
   *) echo "unknown arm $ARM"; exit 1 ;;
 esac
 
 cd "$BOPTIM"
-echo "start $ARM seeds $SEEDS gpu $GPU $(date '+%m-%d %H:%M:%S') prompt=${BOPTIM_PROMPT_TEMPLATE:-shipped}" > "$LOG"
+echo "start $ARM objective $OBJ seeds $SEEDS gpu $GPU $(date '+%m-%d %H:%M:%S') prompt=${BOPTIM_PROMPT_TEMPLATE:-shipped}" > "$LOG"
 setsid nohup bash -c '
   for s in '"$SEEDS"'; do
     echo "=== seed $s $(date "+%m-%d %H:%M:%S")"
-    "$0" -u "$1"/cifar_bo/hd/run_hd.py --objective cifar_hd "${@:3}" --max_iter 10 --optimizer-seed $s --objective-seed $s \
+    "$0" -u "$1"/cifar_bo/hd/run_hd.py --objective '"$OBJ"' "${@:3}" --max_iter 10 --optimizer-seed $s --objective-seed $s \
       --n_epochs 10 --metrics validation_accuracy --trajectory-dir "$2/trajectories/'"$ARM"'" || echo "=== seed $s FAILED rc=$?"
   done
   echo "=== done $(date "+%m-%d %H:%M:%S")"
