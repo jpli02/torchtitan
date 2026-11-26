@@ -17,6 +17,7 @@ OBJ=${OBJ:-cifar_hd}
 case "$OBJ" in
   cifar_hd) ROOT=${ROOT:-/home/jli199/boptim_scratch/cifar_hd_1123}; INFORMED=cifar_hd_informed.txt ;;
   cifar_arch) ROOT=${ROOT:-/home/jli199/boptim_scratch/cifar_arch_1125}; INFORMED=cifar_arch_informed.txt ;;
+  cifar100_arch) ROOT=${ROOT:-/home/jli199/boptim_scratch/cifar100_arch_1126}; INFORMED=cifar100_arch_informed.txt ;;
   *) echo "unknown objective $OBJ"; exit 1 ;;
 esac
 mkdir -p "$ROOT/logs"

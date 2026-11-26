@@ -15,19 +15,18 @@ sys.path.insert(0, BOPTIM)
 import objective  # noqa: E402
 import optim  # noqa: E402
 from cifar_hd import CifarHDObjective, RandomSearch  # noqa: E402
-from cifar_arch import CifarArchObjective  # noqa: E402
+from cifar_arch import CifarArch100Objective, CifarArchObjective  # noqa: E402
 
-objective.OBJECTIVE_REGISTRY["cifar_hd"] = CifarHDObjective
-objective.OBJECTIVE_REGISTRY["cifar_arch"] = CifarArchObjective
+OBJECTIVES = {"cifar_hd": CifarHDObjective, "cifar_arch": CifarArchObjective, "cifar100_arch": CifarArch100Objective}
+objective.OBJECTIVE_REGISTRY.update(OBJECTIVES)
 optim.OPTIMIZER_REGISTRY["random"] = RandomSearch
 _build_objective, _build_optimizer = objective.build_objective, optim.build_optimizer
 
 
 def build_objective(args, **kwargs):
-    if args.objective in ("cifar_hd", "cifar_arch"):
+    if args.objective in OBJECTIVES:
         metric = getattr(args, "metrics", None) or getattr(args, "cifar_metric", "accuracy")
-        cls = CifarHDObjective if args.objective == "cifar_hd" else CifarArchObjective
-        return cls(n_epochs=getattr(args, "n_epochs", 10), seed=args.objective_seed, metric=str(metric))
+        return OBJECTIVES[args.objective](n_epochs=getattr(args, "n_epochs", 10), seed=args.objective_seed, metric=str(metric))
     return _build_objective(args, **kwargs)
 
 

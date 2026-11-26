@@ -24,9 +24,40 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from objective.cifar import CifarObjective, _eval_accuracy, _eval_loss, _get_loaders
+import os
+
+import torchvision
+import torchvision.transforms as transforms
+
+from objective.cifar import CifarObjective, _eval_accuracy, _eval_loss, _get_loaders, seed_worker
 from objective.param import ObjectiveParam
 from cifar_hd import KNOBS as TRAIN_KNOBS, decode as decode_train
+
+# CIFAR-100 (user, 2026-11-26: "cifar100 跑一下吧"): same augmentation and loader settings as objective/cifar.py's CIFAR-10,
+# with CIFAR-100's own normalisation; downloaded once (torchvision checks the archive's MD5) into its own directory.
+CIFAR100_ROOT = os.environ.get("CIFAR100_ROOT", "/home/jli199/boptim_scratch/data/cifar100")
+_c100 = None
+
+
+def _get_loaders_c100(train_batch_size: int = 128, seed: int = None):
+    global _c100
+    if _c100 is None:
+        norm = transforms.Normalize((0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762))
+        train_tf = transforms.Compose([transforms.RandomCrop(32, padding=4), transforms.RandomHorizontalFlip(),
+                                       transforms.ToTensor(), norm])
+        test_tf = transforms.Compose([transforms.ToTensor(), norm])
+        _c100 = (torchvision.datasets.CIFAR100(root=CIFAR100_ROOT, train=True, download=False, transform=train_tf),
+                 torchvision.datasets.CIFAR100(root=CIFAR100_ROOT, train=False, download=False, transform=test_tf))
+    trainset, testset = _c100
+    generator = None
+    if seed is not None:
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+    return (
+        torch.utils.data.DataLoader(trainset, batch_size=train_batch_size, shuffle=True, num_workers=2, pin_memory=True,
+                                    generator=generator, worker_init_fn=seed_worker),
+        torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2, pin_memory=True),
+    )
 
 KNOBS = TRAIN_KNOBS + [
     ("base_width", (16.0, 96.0)),
@@ -78,17 +109,21 @@ class ResNetCifar(nn.Module):
 
 
 class CifarArchObjective(CifarObjective):
+    dataset = "cifar10"
+
     def __init__(self, n_epochs: int = 10, seed: int = None, metric: str = "accuracy"):
         super().__init__(n_epochs=n_epochs, train_batch_size=128, seed=seed, metric=metric)
         self.params = [ObjectiveParam(name, bounds) for name, bounds in KNOBS]
+        self.num_classes = 100 if self.dataset == "cifar100" else 10
 
     @property
     def description(self) -> str:
-        return f"CIFAR-10 ResNet test accuracy, 8 training knobs + 3 conv architecture knobs ({self.n_epochs} epochs, maximize)"
+        name = "CIFAR-100" if self.dataset == "cifar100" else "CIFAR-10"
+        return f"{name} ResNet test accuracy, 8 training knobs + 3 conv architecture knobs ({self.n_epochs} epochs, maximize)"
 
     @property
     def setup_info(self) -> dict:
-        return {"n_epochs": self.n_epochs, "knobs": [k for k, _ in KNOBS], "precision": "bf16 autocast",
+        return {"dataset": self.dataset, "n_epochs": self.n_epochs, "knobs": [k for k, _ in KNOBS], "precision": "bf16 autocast",
                 "architecture": "3x3 stem, 4 stages of basic blocks (w, 2w, 4w, 8w; strides 1,2,2,2), avg-pool, linear",
                 "base_width": "8 * round(x / 8)", "blocks_per_stage": "round(x)", "kernel_size": "3 if x < 4 else 5"}
 
@@ -104,8 +139,11 @@ class CifarArchObjective(CifarObjective):
                 torch.cuda.manual_seed_all(self.seed)
                 torch.backends.cudnn.deterministic = True
                 torch.backends.cudnn.benchmark = False
-        trainloader, testloader = _get_loaders(s["batch_size"], self.seed)
-        net = ResNetCifar(s["base_width"], s["blocks_per_stage"], s["kernel_size"]).to(device)
+        if self.dataset == "cifar100":
+            trainloader, testloader = _get_loaders_c100(s["batch_size"], self.seed)
+        else:
+            trainloader, testloader = _get_loaders(s["batch_size"], self.seed)
+        net = ResNetCifar(s["base_width"], s["blocks_per_stage"], s["kernel_size"], num_classes=self.num_classes).to(device)
         n_params = sum(p.numel() for p in net.parameters())
         criterion = nn.CrossEntropyLoss(label_smoothing=s["label_smoothing"])
         opt = optim.SGD(net.parameters(), lr=s["lr"], momentum=s["momentum"], weight_decay=s["weight_decay"],
@@ -150,3 +188,8 @@ class CifarArchObjective(CifarObjective):
         if self.metric == "accuracy":
             return -test_accuracy
         return test_loss if self.metric == "test_loss" else train_loss
+
+
+class CifarArch100Objective(CifarArchObjective):
+    """The same 11 knobs on CIFAR-100 (100 classes); registered by run_hd.py as "cifar100_arch"."""
+    dataset = "cifar100"

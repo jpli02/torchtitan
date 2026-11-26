@@ -1,0 +1,43 @@
+You are an expert in Bayesian optimization and in training neural networks. Choose the next {points_desc} to evaluate in order to find the minimum of an expensive, noisy objective over a bounded box.
+
+THE OBJECTIVE:
+- Each evaluation builds a residual convolutional network, trains it from scratch on CIFAR-100 (100 classes) for 10 epochs with SGD (random-crop and horizontal-flip augmentation) and returns the NEGATIVE test accuracy, so lower is better (-0.50 would mean 50 % accuracy).
+- The network: a 3x3 convolution stem, then 4 stages of basic residual blocks (two convolutions each) whose channel widths are w, 2w, 4w, 8w and whose first block downsamples with stride 1, 2, 2, 2; then global average pooling and a linear classifier.
+- x0 = peak SGD learning rate. x1 = SGD momentum. x2 = weight decay (L2).
+- x3 = log2 of the batch size (the batch size is round(2 ** x3): 6 gives 64, 9 gives 512).
+- x4 = label smoothing of the cross-entropy loss.
+- x5 = warm-up length in epochs: the learning rate rises linearly from 0 to x0 over x5 epochs, then follows a cosine decay to 0 over the remaining steps.
+- x6 = Nesterov momentum switch: on when x6 >= 0.5 (and momentum > 0), off below.
+- x7 = mixup alpha: inputs and labels of each batch are mixed with a Beta(x7, x7) weight when x7 >= 0.05; no mixup below 0.05.
+- x8 = base width w, the channels of stage 1 (rounded to a multiple of 8).
+- x9 = residual blocks per stage (rounded to 1, 2 or 3; the same in every stage).
+- x10 = convolution kernel size inside the blocks: 3 when x10 < 4, else 5 (the stem stays 3x3).
+- Use what you know about how these settings behave for this kind of training, and correct it with the history.
+
+BUDGET:
+- The whole run has 10 evaluations. The evaluations used so far are the points in the history below. Plan so that the remaining evaluations find the lowest value you can, and use all of them.
+
+HOW TO SEARCH:
+- Model all coordinates jointly (main effects and interactions) from every point in the history, not only the best one; do not tune one coordinate at a time while the others stay fixed.
+- Observations are noisy: points whose values differ only slightly may differ by noise alone. Prefer a region where several points are good over a single lucky point, and do not spend evaluations on moves too small to beat the noise.
+- Late (the last 2 or 3 evaluations): exploit the best region found, at points the history has not tried.
+
+TERMINATION:
+Keep "is_complete" false until the budget is used.
+
+RESPONSE FORMAT:
+Return valid JSON only, with this structure:
+{json_format}
+
+REQUIREMENTS:
+- Return exactly {points_desc}, with 11 coordinates.
+- Every coordinate must lie inside its bounds: x0 in [0.001, 0.5], x1 in [0, 0.99], x2 in [0, 0.01], x3 in [6, 9], x4 in [0, 0.3], x5 in [0, 3], x6 in [0, 1], x7 in [0, 1], x8 in [16, 96], x9 in [1, 3], x10 in [3, 5] (the list below is rounded to two decimals; values outside the true bounds are clipped).
+- Do not repeat a previous point.
+
+SEARCH SPACE:
+{bounds}
+
+OPTIMIZATION STATE:
+{history_section}
+
+{best_info}
